@@ -12,8 +12,9 @@ support future integration into games and other applications.
 > [!IMPORTANT]
 > This project is under active development and is not ready for production use.
 > The domain model and part of the server control plane are implemented; the
-> The UI-independent Windows client core and native LiveKit transport adapter
-> are implemented; the graphical client is still planned.
+> The UI-independent Windows client core, control-plane client, WinHTTP
+> transport, and native LiveKit adapter are implemented; the graphical client
+> is still planned.
 
 ## Core concepts
 
@@ -85,11 +86,14 @@ Implemented foundations include:
 - SQLite session persistence and schema migrations;
 - deterministic routing tests with a 200-participant group; and
 - Windows and Debian CI configurations;
-- UI-independent client core with exclusive multi-scope PTT coordination; and
+- UI-independent client core with exclusive multi-scope PTT coordination;
 - opt-in native LiveKit transport with room, audio, device, and reconnect
-  handling.
+  handling;
+- typed control-plane client for sessions, membership, grants, and
+  transmissions;
+- Windows WinHTTP transport plus authorization-before-audio PTT coordination.
 
-The control-plane client adapter and graphical client are not yet complete. See
+The global Windows input system and graphical client are not yet complete. See
 [the project status](doks/status.md) for the detailed implementation progress.
 
 ## Requirements

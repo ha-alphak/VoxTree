@@ -24,6 +24,11 @@
 - Auslieferung erfolgt als signiertes MSIX-Paket.
 - Das Buildsystem verwendet CMake Presets.
 - Abhängigkeiten werden reproduzierbar und mit festgelegten Versionen verwaltet.
+- Der UI-unabhängige Client verwendet für den Control-Plane-Vertrag eine eigene
+  typisierte Protokollschicht hinter `IClientHttpTransport`.
+- Der erste Windows-HTTP-Adapter verwendet die Betriebssystembibliothek
+  WinHTTP und unterstützt HTTP für geschützte lokale Entwicklung sowie HTTPS
+  für produktive, TLS-terminierte Endpunkte.
 
 ## Server
 
@@ -157,6 +162,10 @@
   korreliert, damit verspätete Antworten keine neue Transmission aktivieren.
 - Membership-Änderungen müssen eine höhere Version besitzen, beenden aktive
   Transmissionen und erfordern erneut angewendete Empfangsabonnements.
+- Der Windows-Client publiziert das Mikrofon erst nach einer erfolgreichen,
+  korrelierten Startautorisierung der Control Plane.
+- Schlägt die lokale Publikation danach fehl, beendet der Client die bereits
+  autorisierte Servertransmission unmittelbar als Rollback.
 
 ## Push-to-Talk und Eingabegeräte
 

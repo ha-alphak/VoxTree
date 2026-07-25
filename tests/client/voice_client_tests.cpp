@@ -142,12 +142,12 @@ class FakeVoiceTransport final : public IVoiceTransport
             VoiceRoomGrant{VoiceScope::group, "ws://voice", "group-token"}};
 }
 
-auto testRequiresOneGrantPerScope() -> bool
+auto testRequiresUniqueAuthorizedScopes() -> bool
 {
     FakeVoiceTransport transport;
     VoiceClient client{transport};
-    const std::array incomplete{VoiceRoomGrant{VoiceScope::team, "ws://voice", "team-token"}};
-    if (client.connect(incomplete) || transport.connect_calls != 0)
+    const std::array<VoiceRoomGrant, 0> empty{};
+    if (client.connect(empty) || transport.connect_calls != 0)
     {
         return false;
     }
@@ -161,7 +161,13 @@ auto testRequiresOneGrantPerScope() -> bool
 
     auto missing_token = validGrants();
     missing_token[1].token.clear();
-    return !client.connect(missing_token) && transport.connect_calls == 0;
+    if (client.connect(missing_token) || transport.connect_calls != 0)
+    {
+        return false;
+    }
+
+    const std::array team_only{VoiceRoomGrant{VoiceScope::team, "ws://voice", "team-token"}};
+    return client.connect(team_only) && transport.connected_grant_count == 1;
 }
 
 auto testConnectAndPttLifecycle() -> bool
@@ -205,7 +211,7 @@ auto main() noexcept -> int
 {
     try
     {
-        if (!testRequiresOneGrantPerScope() || !testConnectAndPttLifecycle() ||
+        if (!testRequiresUniqueAuthorizedScopes() || !testConnectAndPttLifecycle() ||
             !testReconnectStopsAndNeverResumesPtt())
         {
             std::fputs("A voice-client assertion failed.\n", stderr);

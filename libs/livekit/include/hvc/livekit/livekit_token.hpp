@@ -15,20 +15,17 @@ struct LiveKitCredentials final
     std::string api_secret;
 };
 
-struct SignedRoomGrant final
-{
-    domain::VoiceScope scope;
-    std::string room_name;
-    std::string token;
-};
+using SignedRoomGrant = application::IssuedVoiceRoomGrant;
 
-class LiveKitTokenAdapter final
+class LiveKitTokenAdapter final : public application::IVoiceGrantIssuer
 {
   public:
     explicit LiveKitTokenAdapter(LiveKitCredentials credentials);
 
     [[nodiscard]] auto sign(const application::VoiceGrantClaims& claims) const
         -> std::vector<SignedRoomGrant>;
+    [[nodiscard]] auto issue(const application::VoiceGrantClaims& claims) const
+        -> std::vector<application::IssuedVoiceRoomGrant> override;
 
   private:
     LiveKitCredentials credentials_;

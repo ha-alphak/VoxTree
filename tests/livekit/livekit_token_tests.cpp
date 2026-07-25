@@ -28,7 +28,7 @@ namespace livekit = hvc::livekit;
 
     return grants.size() == 2 && grants[0].scope == domain::VoiceScope::team &&
            grants[0].room_name == "team:team-1" &&
-           grants[0].token ==
+           grants[0].access_token ==
                "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
                "eyJpc3MiOiJhcGkta2V5Iiwic3ViIjoicGxheWVyLTQyIiwiZXhwIjoxODAwMDAwMDAwLCJt"
                "ZXRhZGF0YSI6IntcImRldmljZV9pZFwiOlwiZGV2aWNlLTFcIixcIm1lbWJlcnNoaXBfdmVy"

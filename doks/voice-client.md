@@ -16,10 +16,11 @@ Der Vertrag umfasst:
 - Transport-, Teilnehmer- und Remote-Audio-Ereignisse,
 - Momentaufnahmen für Teilnehmerzahl und aktiven Remote-Audioempfang.
 
-`VoiceClient` prüft, dass genau ein nicht leerer Grant pro Scope vorliegt. Er
-verhindert parallele PTT-Übertragungen und verwirft seinen aktiven PTT-Zustand
-bei jedem Reconnect oder Disconnect. Eine beendete Übertragung wird nach einem
-Reconnect niemals automatisch fortgesetzt.
+`VoiceClient` akzeptiert zwischen einem und drei nicht leere, eindeutige
+Scope-Grants. Ein nicht berechtigter Scope wird nicht künstlich ergänzt. Der
+Client verhindert parallele PTT-Übertragungen und verwirft seinen aktiven
+PTT-Zustand bei jedem Reconnect oder Disconnect. Eine beendete Übertragung wird
+nach einem Reconnect niemals automatisch fortgesetzt.
 
 Die Grant-Tokens werden ausschließlich an den Transportadapter weitergereicht.
 Der Client-Core wertet sie nicht aus und protokolliert sie nicht.
@@ -48,6 +49,35 @@ Aus dem bestandenen Quality Gate wurden folgende Pfade übernommen:
 Der kontrollierte Wiedergabe-Reconnect verwendet nur die bereits
 autorisierten Grants und startet keine zuvor aktive Mikrofonpublikation neu.
 
+## Control-Plane-Client
+
+`ControlPlaneClient` bildet den HTTP-v1-Vertrag typisiert auf Session,
+Membership, Voice-Grants sowie Start und Ende einer Transmission ab. Er prüft
+API-Version, Antwortschema, Geräte- und Spielerbindung, Membership-Version,
+Scope, Client-Transmission-ID und Server-Transmission-ID. Fehler bleiben als
+stabile `ControlPlaneError`-Werte erhalten.
+
+`IClientHttpTransport` hält die Protokolllogik von der Plattform-HTTP-API
+getrennt. Unter Windows implementiert `hvc::client_winhttp` diese Grenze mit
+WinHTTP, UTF-8-Prüfung, HTTP-/HTTPS-Unterstützung, Zeitlimits,
+Header-Injection-Schutz und einem begrenzten Antwortspeicher.
+
+`AuthorizedVoiceClient` koordiniert Control Plane und Voice-Transport:
+
+1. externe Anmeldung und gerätegebundene Session erstellen,
+2. eigene autoritative Membership laden,
+3. kurzlebige Grants derselben Membership-Version ausstellen,
+4. ausschließlich die ausgegebenen Scope-Räume verbinden,
+5. beim Drücken von PTT zuerst die Transmission serverseitig autorisieren,
+6. erst nach der positiven, korrelierten Antwort das Mikrofon publizieren,
+7. beim Loslassen zuerst lokal unpublishen und danach die Servertransmission
+   beenden.
+
+Schlägt die Mikrofonpublikation nach einer erfolgreichen Autorisierung fehl,
+beendet der Client die Servertransmission sofort als Rollback. Bei einem
+Transportabbruch kann `endInterruptedTransmission()` die bereits lokal
+beendete Transmission serverseitig aufräumen.
+
 ## Fehlergrenze
 
 SDK-Ausnahmen aus Transportoperationen verlassen den Adapter nicht. Diese
@@ -72,8 +102,9 @@ gebaut:
 .\scripts\build-windows.cmd -Preset windows-msvc-livekit-quality-gate
 ```
 
-Die Client-Tests verwenden einen Fake-Transport. Sie prüfen die vollständige
-Scope-Grant-Validierung, den exklusiven PTT-Lebenszyklus und den Abbruch ohne
-automatische Wiederaufnahme nach einem Reconnect. Das native Quality-Gate
-bleibt zusätzlich als unabhängiger Ende-zu-Ende-Nachweis der verwendeten
-SDK-Operationen erhalten.
+Die Client-Tests verwenden Fake-HTTP- und Fake-Voice-Transporte. Sie prüfen
+Scope-Grant-Validierung, den exklusiven PTT-Lebenszyklus, die Reihenfolge
+„Autorisierung vor Mikrofon“, Ablehnungen ohne Publikation, den Rollback bei
+Audiofehlern und den Abbruch ohne automatische Wiederaufnahme nach einem
+Reconnect. Das native Quality-Gate bleibt zusätzlich als unabhängiger
+Ende-zu-Ende-Nachweis der verwendeten SDK-Operationen erhalten.

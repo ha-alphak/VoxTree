@@ -222,6 +222,12 @@ LiveKitTokenAdapter::LiveKitTokenAdapter(LiveKitCredentials credentials)
 auto LiveKitTokenAdapter::sign(const application::VoiceGrantClaims& claims) const
     -> std::vector<SignedRoomGrant>
 {
+    return issue(claims);
+}
+
+auto LiveKitTokenAdapter::issue(const application::VoiceGrantClaims& claims) const
+    -> std::vector<application::IssuedVoiceRoomGrant>
+{
     constexpr std::array scopes{domain::VoiceScope::team, domain::VoiceScope::specialization,
                                 domain::VoiceScope::group};
     const auto expiration =

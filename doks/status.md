@@ -207,6 +207,19 @@
   niemals automatisch wieder aufgenommen.
 - Client-Core-Tests für Grant-Grenzen, PTT-Exklusivität und Reconnect-Abbruch
   ergänzt.
+- HTTP-v1-Endpunkt für kurzlebige, geräte- und membershipgebundene Voice-Grants
+  ergänzt und mit dem bestehenden LiveKit-Tokenadapter verbunden.
+- UI-unabhängigen `ControlPlaneClient` für Session, Membership, Voice-Grants
+  sowie Start und Ende von Transmissionen implementiert.
+- Produktionsnahen Windows-HTTP-Transport auf Basis von WinHTTP mit
+  HTTP-/HTTPS-Unterstützung, Zeitlimits und Größenbegrenzung ergänzt.
+- `AuthorizedVoiceClient` verdrahtet serverseitige
+  Transmission-Autorisierung und PTT so, dass Audio erst nach einer positiven,
+  korrelierten Startantwort publiziert wird.
+- Rollback der Servertransmission bei fehlgeschlagener Mikrofonpublikation und
+  explizite Bereinigung nach einem Transportabbruch ergänzt.
+- Clienttests für die vollständige Session-/Membership-/Grant-Kette,
+  Autorisierung vor Publikation, Ablehnung ohne Audio und Rollback ergänzt.
 
 ## Aktueller Stand
 
@@ -223,9 +236,9 @@
   Bootstrap-Provider.
 - Die LiveKit-Tokenausstellung sowie die native Client- und Audioanbindung sind
   vorhanden.
-- Der erste UI-unabhängige Windows-Client-Core und der native
-  LiveKit-Transportadapter sind vorhanden. Die Control-Plane-Clientanbindung
-  und die WinUI-Oberfläche sind noch nicht verdrahtet.
+- Der UI-unabhängige Windows-Client-Core, die Control-Plane-Clientanbindung, der
+  WinHTTP-Adapter und der native LiveKit-Transportadapter sind vorhanden. Die
+  WinUI-Oberfläche und das globale Eingabesystem sind noch nicht verdrahtet.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
@@ -249,10 +262,9 @@
 
 ## Nächster Schritt
 
-Einen Control-Plane-Clientadapter für Session, Membership, Voice-Grants und
-Transmission-Autorisierung anlegen und dessen akzeptierte
-Transmissionsergebnisse mit dem neuen `VoiceClient`-PTT-Lebenszyklus
-verdrahten.
+Ein Windows-Eingabesystem mit getrennten Team-, Specialization- und Group-PTT-
+Aktionen anlegen und Tastatur sowie Maus zunächst über Win32 Raw Input
+fokusunabhängig anbinden.
 
 ## Validierung
 
@@ -260,8 +272,8 @@ verdrahten.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug | 10 von 10 Tests bestanden |
-| CTest Release | 10 von 10 Tests bestanden |
+| CTest Debug | 11 von 11 Tests bestanden |
+| CTest Release | 11 von 11 Tests bestanden |
 | Lokale native LiveKit-Zwei-Client-Verbindung | Bestanden |
 | Native Windows-Audiogeräteerkennung | Bestanden |
 | Lokaler Mikrofon-/Opus-Zwei-Prozess-Nachweis | Bestanden |
@@ -275,6 +287,8 @@ verdrahten.
 | Verhinderung nicht autorisierter LiveKit-Track-Abonnements | Bestanden |
 | LiveKit-Cross-Room-Isolation | Bestanden |
 | Windows-Client-Core und Fake-Transport-Tests | Bestanden |
+| Control-Plane-Client und autorisierte PTT-Koordination | Bestanden |
+| Windows-WinHTTP-Transport Debug/Release | Bestanden |
 | Nativer LiveKit-Transportadapter Release-Build | Bestanden |
 | Domänen-Zustandsautomat: Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |

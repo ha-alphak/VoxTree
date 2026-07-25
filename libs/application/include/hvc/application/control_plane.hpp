@@ -195,6 +195,22 @@ struct VoiceGrantResult final
     std::optional<VoiceGrantError> error;
 };
 
+struct IssuedVoiceRoomGrant final
+{
+    domain::VoiceScope scope;
+    std::string room_name;
+    std::string access_token;
+};
+
+class IVoiceGrantIssuer
+{
+  public:
+    virtual ~IVoiceGrantIssuer() = default;
+
+    [[nodiscard]] virtual auto issue(const VoiceGrantClaims& claims) const
+        -> std::vector<IssuedVoiceRoomGrant> = 0;
+};
+
 class VoiceGrantAuthorizationService final
 {
   public:

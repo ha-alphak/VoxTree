@@ -201,9 +201,9 @@ nicht die interne Empfängerliste.
 ## HTTP-v1-Adapter
 
 `ControlPlaneHttpAdapter` stellt Session-Erstellung, Abfrage der eigenen
-Membership sowie Start, Ende und Moderationsabbruch von Transmissionen unter
-`/api/v1` bereit. Die vollständige Feld- und Fehlerdefinition steht in
-`network-contract-v1.md`.
+Membership, kurzlebige Voice-Grants sowie Start, Ende und Moderationsabbruch
+von Transmissionen unter `/api/v1` bereit. Die vollständige Feld- und
+Fehlerdefinition steht in `network-contract-v1.md`.
 
 Die Authentifizierungsgrenze ist explizit: Nur die Session-Erstellung akzeptiert
 ein externes Bearer-Credential und übergibt es an `ISessionAuthenticator`.
@@ -223,6 +223,13 @@ ersetzen, ohne HTTP-Adapter, Session-Persistenz oder Anwendungsfälle zu ändern
 Der Linux-Socketadapter begrenzt Header und Body, lehnt Transfer-Encoding ab und
 schließt jede Verbindung nach genau einem HTTP/1.1-Request. TLS bleibt Aufgabe
 eines vorgeschalteten Reverse Proxys.
+
+Die optionale Voice-Grant-Ausstellung verbindet
+`VoiceGrantAuthorizationService` mit dem LiveKit-Tokenadapter. Server-URL und
+API-Key werden als Startkonfiguration übergeben; das API-Secret wird
+ausschließlich aus einer Datei gelesen. Ohne vollständige LiveKit-Konfiguration
+bleiben die übrigen Control-Plane-Endpunkte verfügbar, während
+`POST /api/v1/voice-grants` explizit `503` liefert.
 
 ## Noch nicht enthalten
 

@@ -72,6 +72,15 @@ auto VoiceClient::connect(std::span<const VoiceRoomGrant> grants) -> VoiceTransp
 
 auto VoiceClient::disconnect() -> VoiceTransportResult
 {
+    {
+        const std::scoped_lock lock{mutex_};
+        if (state_ == VoiceTransportState::disconnected)
+        {
+            active_scope_.reset();
+            return VoiceTransportResult::success();
+        }
+    }
+
     auto stop_result = releasePushToTalk();
     if (!stop_result && stop_result.error != VoiceTransportError::invalid_state)
     {
@@ -214,11 +223,11 @@ void VoiceClient::onTransportError(VoiceTransportError error, const std::string&
 auto VoiceClient::validateGrants(std::span<const VoiceRoomGrant> grants) -> VoiceTransportResult
 {
     constexpr std::size_t required_scope_count = 3;
-    if (grants.size() != required_scope_count)
+    if (grants.empty() || grants.size() > required_scope_count)
     {
         return VoiceTransportResult::failure(
             VoiceTransportError::invalid_argument,
-            "exactly one team, specialization, and group room grant is required");
+            "between one and three authorized voice room grants are required");
     }
 
     std::array<bool, required_scope_count> seen_scopes{};

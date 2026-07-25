@@ -50,6 +50,22 @@ set_target_properties(hvc_client_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME client.voice_client COMMAND hvc_client_tests)
 
+add_executable(
+  hvc_client_control_plane_tests
+  client/control_plane_client_tests.cpp
+)
+
+target_link_libraries(
+  hvc_client_control_plane_tests
+  PRIVATE
+    hvc::client
+    hvc::project_options
+)
+
+set_target_properties(hvc_client_control_plane_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME client.control_plane COMMAND hvc_client_control_plane_tests)
+
 add_executable(hvc_application_tests application/control_plane_tests.cpp)
 
 target_link_libraries(

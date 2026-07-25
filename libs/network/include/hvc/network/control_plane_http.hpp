@@ -39,13 +39,16 @@ class IHttpRequestHandler
 class ControlPlaneHttpAdapter final : public IHttpRequestHandler
 {
   public:
-    ControlPlaneHttpAdapter(application::ISessionAuthenticator& authenticator,
-                            application::IMutableSessionRepository& sessions,
-                            const application::IAuthoritativeMembershipProvider& memberships,
-                            application::TransmissionApplicationService& transmissions,
-                            application::IAdministrativeMembershipService* administration = nullptr,
-                            const application::IAdministrativeMembershipAuthorizer*
-                                administration_authorizer = nullptr) noexcept;
+    ControlPlaneHttpAdapter(
+        application::ISessionAuthenticator& authenticator,
+        application::IMutableSessionRepository& sessions,
+        const application::IAuthoritativeMembershipProvider& memberships,
+        application::TransmissionApplicationService& transmissions,
+        application::IAdministrativeMembershipService* administration = nullptr,
+        const application::IAdministrativeMembershipAuthorizer* administration_authorizer = nullptr,
+        const application::VoiceGrantAuthorizationService* voice_grants = nullptr,
+        const application::IVoiceGrantIssuer* voice_grant_issuer = nullptr,
+        std::string voice_server_url = {});
 
     [[nodiscard]] auto handle(const HttpRequest& request, application::TimePoint now)
         -> HttpResponse override;
@@ -57,5 +60,8 @@ class ControlPlaneHttpAdapter final : public IHttpRequestHandler
     application::TransmissionApplicationService& transmissions_;
     application::IAdministrativeMembershipService* administration_;
     const application::IAdministrativeMembershipAuthorizer* administration_authorizer_;
+    const application::VoiceGrantAuthorizationService* voice_grants_;
+    const application::IVoiceGrantIssuer* voice_grant_issuer_;
+    std::string voice_server_url_;
 };
 } // namespace hvc::network

@@ -199,6 +199,19 @@ class MembershipAdministrator final : public application::IAdministrativeMembers
     }
 };
 
+class VoiceGrantIssuer final : public application::IVoiceGrantIssuer
+{
+  public:
+    [[nodiscard]] auto issue(const application::VoiceGrantClaims& claims) const
+        -> std::vector<application::IssuedVoiceRoomGrant> override
+    {
+        return {{domain::VoiceScope::team, "team:" + std::string{claims.team_id.value()},
+                 "team-access-token"},
+                {domain::VoiceScope::group, "group:" + std::string{claims.group_id.value()},
+                 "group-access-token"}};
+    }
+};
+
 struct Fixture final
 {
     Fixture()
@@ -210,7 +223,17 @@ struct Fixture final
                   rate_limiter,
                   moderation,
                   application::TransmissionLifecyclePolicy{std::chrono::seconds{30}}},
-          adapter{authenticator, sessions, runtime, service, &runtime, &membership_administrator}
+          grant_authorization{sessions, runtime,
+                              application::VoiceGrantPolicy{std::chrono::seconds{30}}},
+          adapter{authenticator,
+                  sessions,
+                  runtime,
+                  service,
+                  &runtime,
+                  &membership_administrator,
+                  &grant_authorization,
+                  &grant_issuer,
+                  "ws://voice.example"}
     {
     }
 
@@ -236,6 +259,8 @@ struct Fixture final
     ModerationAuthorizer moderation;
     MembershipAdministrator membership_administrator;
     application::TransmissionApplicationService service;
+    application::VoiceGrantAuthorizationService grant_authorization;
+    VoiceGrantIssuer grant_issuer;
     network::ControlPlaneHttpAdapter adapter;
 };
 
@@ -339,6 +364,22 @@ struct Fixture final
            !fixture.runtime.active(domain::TransmissionId{"transmission-1"});
 }
 
+[[nodiscard]] auto issuesOnlyServerAuthorizedVoiceGrants() -> bool
+{
+    Fixture fixture;
+    static_cast<void>(fixture.adapter.handle(
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
+    const auto response = fixture.adapter.handle(
+        Fixture::request("POST", "/api/v1/voice-grants", "Session session-1"), fixture.now);
+
+    return response.status_code == 201 &&
+           response.body.find("\"server_url\":\"ws://voice.example\"") != std::string::npos &&
+           response.body.find("\"membership_version\":42") != std::string::npos &&
+           response.body.find("\"scope\":\"team\"") != std::string::npos &&
+           response.body.find("\"access_token\":\"team-access-token\"") != std::string::npos &&
+           response.body.find("private-listener") == std::string::npos;
+}
+
 [[nodiscard]] auto rejectsUnknownAndMalformedInputDeterministically() -> bool
 {
     Fixture fixture;
@@ -399,6 +440,7 @@ auto main() noexcept -> int
             Check{"readiness", &reportsReadinessWithoutAuthentication},
             Check{"membership privacy", &exposesOnlyTheAuthenticatedPlayersMembership},
             Check{"transmission lifecycle", &startsAndEndsWithoutExposingRecipientIds},
+            Check{"voice grant issuance", &issuesOnlyServerAuthorizedVoiceGrants},
             Check{"administrative membership authorization",
                   &separatelyAuthorizesAdministrativeMembershipRoutes},
             Check{"invalid input", &rejectsUnknownAndMalformedInputDeterministically}};

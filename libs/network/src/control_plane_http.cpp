@@ -630,6 +630,71 @@ void skipWhitespace(std::string_view input, std::size_t& position) noexcept
                  ",\"transmit_muted\":" + (membership->transmit_muted ? "true" : "false") + '}');
 }
 
+[[nodiscard]] auto voiceGrantError(application::VoiceGrantError error) -> HttpResponse
+{
+    switch (error)
+    {
+    case application::VoiceGrantError::session_not_found:
+    case application::VoiceGrantError::session_expired:
+        return errorResponse(401, "invalid_session", "The session is missing or expired.");
+    case application::VoiceGrantError::session_device_mismatch:
+        return errorResponse(403, "session_device_mismatch",
+                             "The session belongs to another device.");
+    case application::VoiceGrantError::membership_unavailable:
+        return errorResponse(404, "membership_unavailable",
+                             "No authoritative membership is available.");
+    case application::VoiceGrantError::player_not_in_membership:
+        return errorResponse(409, "membership_inconsistent",
+                             "The authoritative membership does not contain the session player.");
+    case application::VoiceGrantError::voice_not_connected:
+        return errorResponse(409, "voice_not_connected",
+                             "The session player is not connected to voice.");
+    }
+    return errorResponse(500, "internal_error", "The request could not be completed.");
+}
+
+[[nodiscard]] auto voiceGrantResponse(
+    const RequestSession& authenticated,
+    const application::VoiceGrantAuthorizationService& authorization,
+    const application::IVoiceGrantIssuer& issuer, std::string_view voice_server_url,
+    application::TimePoint now) -> HttpResponse
+{
+    const auto authorized =
+        authorization.derive(authenticated.session.session_id, authenticated.device_id, now);
+    if (!authorized.successful())
+    {
+        return voiceGrantError(*authorized.error);
+    }
+
+    const auto grants = issuer.issue(*authorized.claims);
+    if (grants.empty())
+    {
+        return errorResponse(403, "voice_grants_empty",
+                             "The current roles do not authorize any voice room.");
+    }
+
+    std::string grant_json{"["};
+    for (std::size_t index = 0; index < grants.size(); ++index)
+    {
+        if (index != 0)
+        {
+            grant_json.push_back(',');
+        }
+        const auto& grant = grants[index];
+        grant_json += "{\"scope\":" + escapeJson(scopeName(grant.scope)) +
+                      ",\"room_name\":" + escapeJson(grant.room_name) +
+                      ",\"access_token\":" + escapeJson(grant.access_token) + '}';
+    }
+    grant_json.push_back(']');
+
+    return jsonResponse(201, "{\"api_version\":\"v1\",\"server_url\":" +
+                                 escapeJson(voice_server_url) + ",\"membership_version\":" +
+                                 std::to_string(authorized.claims->membership_version) +
+                                 ",\"expires_at_unix_ms\":" +
+                                 std::to_string(unixMilliseconds(authorized.claims->expires_at)) +
+                                 ",\"grants\":" + grant_json + '}');
+}
+
 [[nodiscard]] auto parseRoles(std::string_view value) -> std::optional<std::vector<domain::RoleId>>
 {
     std::vector<domain::RoleId> roles;
@@ -847,10 +912,13 @@ ControlPlaneHttpAdapter::ControlPlaneHttpAdapter(
     const application::IAuthoritativeMembershipProvider& memberships,
     application::TransmissionApplicationService& transmissions,
     application::IAdministrativeMembershipService* administration,
-    const application::IAdministrativeMembershipAuthorizer* administration_authorizer) noexcept
+    const application::IAdministrativeMembershipAuthorizer* administration_authorizer,
+    const application::VoiceGrantAuthorizationService* voice_grants,
+    const application::IVoiceGrantIssuer* voice_grant_issuer, std::string voice_server_url)
     : authenticator_(authenticator), sessions_(sessions), memberships_(memberships),
       transmissions_(transmissions), administration_(administration),
-      administration_authorizer_(administration_authorizer)
+      administration_authorizer_(administration_authorizer), voice_grants_(voice_grants),
+      voice_grant_issuer_(voice_grant_issuer), voice_server_url_(std::move(voice_server_url))
 {
 }
 
@@ -989,6 +1057,23 @@ auto ControlPlaneHttpAdapter::handle(const HttpRequest& request, application::Ti
                                      "Membership retrieval does not accept a request body.");
             }
             return membershipResponse(session.session, memberships_);
+        }
+
+        if (request.target == "/api/v1/voice-grants" && request.method == "POST")
+        {
+            if (!request.body.empty())
+            {
+                return errorResponse(400, "body_not_allowed",
+                                     "Voice grant issuance does not accept a request body.");
+            }
+            if (voice_grants_ == nullptr || voice_grant_issuer_ == nullptr ||
+                voice_server_url_.empty())
+            {
+                return errorResponse(503, "voice_grants_unavailable",
+                                     "Voice grant issuance is not configured.");
+            }
+            return voiceGrantResponse(session, *voice_grants_, *voice_grant_issuer_,
+                                      voice_server_url_, now);
         }
 
         if (request.target == "/api/v1/transmissions" && request.method == "POST")

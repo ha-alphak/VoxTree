@@ -205,6 +205,44 @@ abgebildet; `canPublish` und `canSubscribe` werden unabhängig und nach dem
 Least-Privilege-Prinzip gesetzt. Geräte-ID und Membership-Version stehen als
 signierte Participant-Metadaten zur Verfügung.
 
+### `POST /api/v1/voice-grants`
+
+Der geschützte Endpunkt akzeptiert keinen Body. Er prüft Session,
+Gerätebindung, Ablauf und die aktuelle autoritative Membership erneut. Nur
+Scopes mit mindestens einem Sende- oder Empfangsrecht werden ausgegeben.
+
+Antwort `201 Created`:
+
+```json
+{
+  "api_version": "v1",
+  "server_url": "wss://voice.example.invalid",
+  "membership_version": 42,
+  "expires_at_unix_ms": 1784994300000,
+  "grants": [
+    {
+      "scope": "team",
+      "room_name": "team:team-1",
+      "access_token": "short-lived-jwt"
+    },
+    {
+      "scope": "group",
+      "room_name": "group:group-1",
+      "access_token": "short-lived-jwt"
+    }
+  ]
+}
+```
+
+`room_name` dient ausschließlich der Diagnose und Zuordnung; der Client leitet
+daraus keine Berechtigung ab. Verbindlich sind Scope, Server-URL und das
+signierte Zugriffstoken. Ein Client kann deshalb zwischen einem und drei
+autorisierte Scope-Grants erhalten.
+
+Die LiveKit-API-Credentials werden serverseitig konfiguriert und niemals an den
+Client ausgegeben. Ohne konfigurierte Grant-Ausstellung antwortet der Endpunkt
+mit `503 voice_grants_unavailable`.
+
 ## Transmission starten
 
 ### `POST /api/v1/transmissions`
@@ -287,7 +325,10 @@ hvc-control-plane \
   --listen 127.0.0.1 \
   --port 8080 \
   --bootstrap-token-file /run/secrets/hvc-bootstrap-token \
-  --bootstrap-player player-42
+  --bootstrap-player player-42 \
+  --livekit-url ws://127.0.0.1:7880 \
+  --livekit-api-key devkey \
+  --livekit-api-secret-file /run/secrets/livekit-api-secret
 ```
 
 Eine gestartete Transmission bleibt absichtlich flüchtig. Nach einem

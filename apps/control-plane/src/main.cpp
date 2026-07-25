@@ -9,10 +9,12 @@
 #include <fstream>
 #include <hvc/application/identity.hpp>
 #include <hvc/application/in_memory_control_plane.hpp>
+#include <hvc/livekit/livekit_token.hpp>
 #include <hvc/network/control_plane_http.hpp>
 #include <hvc/persistence/sqlite_control_plane_repository.hpp>
 #include <iterator>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -26,6 +28,7 @@ namespace
 {
 namespace application = hvc::application;
 namespace domain = hvc::domain;
+namespace livekit = hvc::livekit;
 namespace network = hvc::network;
 namespace persistence = hvc::persistence;
 
@@ -36,6 +39,9 @@ struct Options final
     std::uint16_t port{8080};
     std::filesystem::path bootstrap_token_file;
     std::string bootstrap_player;
+    std::string livekit_url;
+    std::string livekit_api_key;
+    std::filesystem::path livekit_api_secret_file;
     bool show_help{false};
 };
 
@@ -87,6 +93,18 @@ struct Options final
         {
             options.bootstrap_player = value;
         }
+        else if (argument == "--livekit-url")
+        {
+            options.livekit_url = value;
+        }
+        else if (argument == "--livekit-api-key")
+        {
+            options.livekit_api_key = value;
+        }
+        else if (argument == "--livekit-api-secret-file")
+        {
+            options.livekit_api_secret_file = value;
+        }
         else
         {
             throw std::invalid_argument{"Unknown argument: " + std::string{argument}};
@@ -101,15 +119,18 @@ void printUsage()
 #if defined(HVC_HAS_LINUX_HTTP_SERVER)
     std::puts("       hvc-control-plane --listen <address> [--port <port>]");
     std::puts("           --bootstrap-token-file <path> --bootstrap-player <player-id>");
+    std::puts("           [--livekit-url <ws-url> --livekit-api-key <key>");
+    std::puts("            --livekit-api-secret-file <path>]");
 #endif
 }
 
-[[nodiscard]] auto readCredentialFile(const std::filesystem::path& path) -> std::string
+[[nodiscard]] auto readCredentialFile(const std::filesystem::path& path,
+                                      std::string_view description) -> std::string
 {
     std::ifstream stream{path, std::ios::binary};
     if (!stream)
     {
-        throw std::runtime_error{"Cannot open the bootstrap token file."};
+        throw std::runtime_error{"Cannot open the " + std::string{description} + " file."};
     }
     std::string credential{std::istreambuf_iterator<char>{stream},
                            std::istreambuf_iterator<char>{}};
@@ -119,7 +140,7 @@ void printUsage()
     }
     if (credential.empty())
     {
-        throw std::runtime_error{"The bootstrap token file is empty."};
+        throw std::runtime_error{"The " + std::string{description} + " file is empty."};
     }
     return credential;
 }
@@ -249,9 +270,11 @@ auto main(int argument_count, char** arguments) -> int
         persistence::SqliteControlPlaneRepository repository{options.database_path};
         if (options.listen_address.empty())
         {
-            if (!options.bootstrap_token_file.empty() || !options.bootstrap_player.empty())
+            if (!options.bootstrap_token_file.empty() || !options.bootstrap_player.empty() ||
+                !options.livekit_url.empty() || !options.livekit_api_key.empty() ||
+                !options.livekit_api_secret_file.empty())
             {
-                throw std::invalid_argument{"Bootstrap authentication options require --listen."};
+                throw std::invalid_argument{"Authentication and LiveKit options require --listen."};
             }
             std::printf("hvc-control-plane: database schema %u ready\n",
                         repository.schemaVersion());
@@ -266,8 +289,9 @@ auto main(int argument_count, char** arguments) -> int
         }
 
         RandomIdentifiers identifiers;
-        BootstrapIdentityProvider identities{readCredentialFile(options.bootstrap_token_file),
-                                             domain::PlayerId{options.bootstrap_player}};
+        BootstrapIdentityProvider identities{
+            readCredentialFile(options.bootstrap_token_file, "bootstrap token"),
+            domain::PlayerId{options.bootstrap_player}};
         application::IdentitySessionAuthenticator authenticator{
             identities, identifiers, application::IdentitySessionPolicy{std::chrono::minutes{15}}};
         application::InMemoryControlPlaneStore runtime_store{repository, repository, &repository};
@@ -285,9 +309,38 @@ auto main(int argument_count, char** arguments) -> int
             moderation,
             application::TransmissionLifecyclePolicy{std::chrono::seconds{30}},
             &repository};
-        network::ControlPlaneHttpAdapter api{authenticator,  repository,
-                                             runtime_store,  transmissions,
-                                             &runtime_store, &membership_administration};
+        const auto has_any_livekit_option = !options.livekit_url.empty() ||
+                                            !options.livekit_api_key.empty() ||
+                                            !options.livekit_api_secret_file.empty();
+        const auto has_all_livekit_options = !options.livekit_url.empty() &&
+                                             !options.livekit_api_key.empty() &&
+                                             !options.livekit_api_secret_file.empty();
+        if (has_any_livekit_option && !has_all_livekit_options)
+        {
+            throw std::invalid_argument{
+                "LiveKit grant issuance requires URL, API key and API secret file."};
+        }
+
+        std::optional<application::VoiceGrantAuthorizationService> voice_grants;
+        std::optional<livekit::LiveKitTokenAdapter> voice_grant_issuer;
+        if (has_all_livekit_options)
+        {
+            voice_grants.emplace(repository, runtime_store,
+                                 application::VoiceGrantPolicy{std::chrono::seconds{30}});
+            voice_grant_issuer.emplace(livekit::LiveKitCredentials{
+                options.livekit_api_key,
+                readCredentialFile(options.livekit_api_secret_file, "LiveKit API secret")});
+        }
+
+        network::ControlPlaneHttpAdapter api{authenticator,
+                                             repository,
+                                             runtime_store,
+                                             transmissions,
+                                             &runtime_store,
+                                             &membership_administration,
+                                             voice_grants ? &*voice_grants : nullptr,
+                                             voice_grant_issuer ? &*voice_grant_issuer : nullptr,
+                                             options.livekit_url};
         return hvc::control_plane::runLinuxHttpServer(options.listen_address, options.port, api);
 #else
         throw std::invalid_argument{"--listen is supported only by the Linux build."};
