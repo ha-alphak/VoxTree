@@ -226,6 +226,12 @@ class DenyMembershipAdministration final : public application::IAdministrativeMe
     {
         return false;
     }
+
+    [[nodiscard]] auto canReplace(const domain::PlayerId&, const domain::PlayerId&) const
+        -> bool override
+    {
+        return false;
+    }
 };
 } // namespace
 

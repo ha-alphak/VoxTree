@@ -169,14 +169,41 @@ Transmissionen des Spielers atomar. Auch dieser Endpunkt wird separat über
 administrativen Operationen standardmäßig, bis ein Deployment einen
 autoritativen Admin-/Rollenadapter bereitstellt.
 
+### `PUT /api/v1/admin/memberships/{player-id}`
+
+Ersetzt die Membership des angegebenen Spielers innerhalb des vollständigen
+autoritativen Snapshots. `membership_version` muss strikt größer als die
+gespeicherte Version sein; Lesen, Vergleichen und Ersetzen erfolgen atomar über
+den bestehenden Control-Plane-Store. Der Endpunkt verlangt zusätzlich
+`canReplace` vom administrativen Authorizer.
+
+```json
+{
+  "membership_version": 43,
+  "group_id": "group-1",
+  "specialization_id": "specialization-1",
+  "team_id": "team-1",
+  "role_ids": "speaker,moderator",
+  "connected": true,
+  "can_receive_voice": true,
+  "transmit_muted": false
+}
+```
+
+`role_ids` ist eine kommaseparierte Liste opaker Rollen-IDs. Ein erfolgreicher
+Wechsel beendet eine aktive Transmission des Spielers atomar. Veraltete oder
+wiederholte Versionen liefern `409 membership_version_not_newer`.
+
 ## Voice-Grant-Vorbereitung
 
-`VoiceGrantAuthorizationService` erzeugt noch kein transportspezifisches Token.
-Er leitet kurzlebige Claims ausschließlich aus der aktiven, gerätegebundenen
+`VoiceGrantAuthorizationService` leitet kurzlebige Claims ausschließlich aus der aktiven, gerätegebundenen
 Session, der aktuellen Membership-Version und der serverseitigen Rollenrichtlinie
 ab. Die Laufzeit ist konfigurierbar und wird zusätzlich durch das Session-Ende
-begrenzt. Ein späterer LiveKit-Adapter signiert diese Claims und bildet die
-abgeleiteten Sende-/Empfangs-Scopes auf Räume und Berechtigungen ab.
+begrenzt. Der `hvc-livekit`-Adapter signiert daraus pro autorisiertem Scope ein
+kurzlebiges HS256-JWT. Team, Specialization und Group werden auf getrennte Räume
+abgebildet; `canPublish` und `canSubscribe` werden unabhängig und nach dem
+Least-Privilege-Prinzip gesetzt. Geräte-ID und Membership-Version stehen als
+signierte Participant-Metadaten zur Verfügung.
 
 ## Transmission starten
 

@@ -69,7 +69,9 @@ auto VoiceGrantAuthorizationService::derive(const domain::SessionId& session_id,
     }
     const auto expiration = std::min(session->expires_at, now + policy_.lifetime);
     return {VoiceGrantClaims{session->player_id, device_id, context->snapshot->version(),
-                             std::move(transmit), std::move(receive), expiration},
+                             membership->group_id, membership->specialization_id,
+                             membership->team_id, std::move(transmit), std::move(receive),
+                             expiration},
             {}};
 }
 

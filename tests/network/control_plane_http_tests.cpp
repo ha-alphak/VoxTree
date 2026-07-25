@@ -191,6 +191,12 @@ class MembershipAdministrator final : public application::IAdministrativeMembers
     {
         return actor == domain::PlayerId{"sender"};
     }
+
+    [[nodiscard]] auto canReplace(const domain::PlayerId& actor, const domain::PlayerId&) const
+        -> bool override
+    {
+        return actor == domain::PlayerId{"sender"};
+    }
 };
 
 struct Fixture final
@@ -356,12 +362,26 @@ struct Fixture final
     const auto read = fixture.adapter.handle(
         Fixture::request("GET", "/api/v1/admin/memberships/sender", "Session session-1"),
         fixture.now);
+    const auto replaced = fixture.adapter.handle(
+        Fixture::request(
+            "PUT", "/api/v1/admin/memberships/sender", "Session session-1",
+            R"({"membership_version":43,"group_id":"group-1","specialization_id":"specialization-1","team_id":"team-1","role_ids":"speaker","connected":true,"can_receive_voice":true,"transmit_muted":false})"),
+        fixture.now);
+    const auto stale = fixture.adapter.handle(
+        Fixture::request(
+            "PUT", "/api/v1/admin/memberships/sender", "Session session-1",
+            R"({"membership_version":43,"group_id":"group-1","specialization_id":"specialization-1","team_id":"team-1","role_ids":"speaker","connected":true,"can_receive_voice":true,"transmit_muted":false})"),
+        fixture.now);
     const auto removed = fixture.adapter.handle(
         Fixture::request("DELETE", "/api/v1/admin/memberships/sender", "Session session-1"),
         fixture.now);
 
     return read.status_code == 200 &&
            read.body.find("\"player_id\":\"sender\"") != std::string::npos &&
+           replaced.status_code == 200 &&
+           replaced.body.find("\"membership_version\":43") != std::string::npos &&
+           stale.status_code == 409 &&
+           stale.body.find("membership_version_not_newer") != std::string::npos &&
            removed.status_code == 200 &&
            removed.body.find("\"status\":\"removed\"") != std::string::npos;
 }

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <hvc/network/control_plane_http.hpp>
+#include <memory>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -17,6 +18,7 @@ struct JsonScalar final
 {
     std::optional<std::string> string_value;
     std::optional<std::uint64_t> unsigned_value;
+    std::optional<bool> boolean_value;
 };
 
 using JsonObject = std::map<std::string, JsonScalar, std::less<>>;
@@ -239,6 +241,16 @@ void skipWhitespace(std::string_view input, std::size_t& position) noexcept
                 return std::nullopt;
             }
         }
+        else if (input.substr(position).starts_with("true"))
+        {
+            scalar.boolean_value = true;
+            position += 4;
+        }
+        else if (input.substr(position).starts_with("false"))
+        {
+            scalar.boolean_value = false;
+            position += 5;
+        }
         else
         {
             scalar.unsigned_value = parseJsonUnsigned(input, position);
@@ -302,6 +314,13 @@ void skipWhitespace(std::string_view input, std::size_t& position) noexcept
         return std::nullopt;
     }
     return field->second.unsigned_value;
+}
+
+[[nodiscard]] auto booleanField(const JsonObject& object, std::string_view name)
+    -> std::optional<bool>
+{
+    const auto field = object.find(name);
+    return field == object.end() ? std::nullopt : field->second.boolean_value;
 }
 
 [[nodiscard]] auto jsonResponse(int status_code, std::string body) -> HttpResponse
@@ -611,6 +630,121 @@ void skipWhitespace(std::string_view input, std::size_t& position) noexcept
                  ",\"transmit_muted\":" + (membership->transmit_muted ? "true" : "false") + '}');
 }
 
+[[nodiscard]] auto parseRoles(std::string_view value) -> std::optional<std::vector<domain::RoleId>>
+{
+    std::vector<domain::RoleId> roles;
+    std::size_t offset{};
+    while (offset < value.size())
+    {
+        const auto separator = value.find(',', offset);
+        const auto role =
+            value.substr(offset, separator == std::string_view::npos ? value.size() - offset
+                                                                     : separator - offset);
+        if (role.empty() || std::ranges::any_of(roles, [role](const auto& existing) {
+                return existing.value() == role;
+            }))
+        {
+            return std::nullopt;
+        }
+        roles.emplace_back(std::string{role});
+        if (separator == std::string_view::npos)
+        {
+            break;
+        }
+        offset = separator + 1U;
+    }
+    return roles.empty() ? std::nullopt
+                         : std::optional<std::vector<domain::RoleId>>{std::move(roles)};
+}
+
+[[nodiscard]] auto replaceMembershipResponse(
+    const RequestSession& authenticated, const domain::PlayerId& subject, const JsonObject& body,
+    application::IAdministrativeMembershipService& administration, application::TimePoint now)
+    -> HttpResponse
+{
+    if (!hasOnlyFields(body, {"membership_version", "group_id", "specialization_id", "team_id",
+                              "role_ids", "connected", "can_receive_voice", "transmit_muted"}))
+    {
+        return errorResponse(400, "unknown_field", "The request contains an unknown field.");
+    }
+    const auto version = unsignedField(body, "membership_version");
+    const auto group = stringField(body, "group_id");
+    const auto specialization = stringField(body, "specialization_id");
+    const auto team = stringField(body, "team_id");
+    const auto role_values = stringField(body, "role_ids");
+    const auto connected = booleanField(body, "connected");
+    const auto can_receive = booleanField(body, "can_receive_voice");
+    const auto transmit_muted = booleanField(body, "transmit_muted");
+    const auto roles = role_values ? parseRoles(*role_values) : std::nullopt;
+    if (!version || !group || !specialization || !team || !roles || !connected || !can_receive ||
+        !transmit_muted)
+    {
+        return errorResponse(
+            400, "invalid_body",
+            "A version, hierarchy path, role_ids and all membership flags are required.");
+    }
+
+    const auto current = administration.currentFor(subject);
+    if (!current)
+    {
+        return errorResponse(404, "membership_unavailable",
+                             "No authoritative membership is available.");
+    }
+    const auto& hierarchy = current->snapshot->hierarchy();
+    std::vector<domain::ScopeDefinition> scopes{hierarchy.scopes().begin(),
+                                                hierarchy.scopes().end()};
+    std::vector<domain::Group> groups{hierarchy.groups().begin(), hierarchy.groups().end()};
+    std::vector<domain::Specialization> specializations{hierarchy.specializations().begin(),
+                                                        hierarchy.specializations().end()};
+    std::vector<domain::Team> teams{hierarchy.teams().begin(), hierarchy.teams().end()};
+    std::vector<domain::VoiceMembership> memberships{current->snapshot->memberships().begin(),
+                                                     current->snapshot->memberships().end()};
+    const auto existing = std::ranges::find_if(memberships, [&subject](const auto& membership) {
+        return membership.player_id == subject;
+    });
+    if (existing == memberships.end())
+    {
+        return errorResponse(409, "membership_inconsistent",
+                             "The authoritative membership does not contain the subject.");
+    }
+    domain::VoiceMembership replacement{subject, domain::GroupId{std::string{*group}},
+                                        domain::SpecializationId{std::string{*specialization}},
+                                        domain::TeamId{std::string{*team}}, *roles};
+    replacement.connected = *connected;
+    replacement.can_receive_voice = *can_receive;
+    replacement.transmit_muted = *transmit_muted;
+    replacement.voice_ban_status = existing->voice_ban_status;
+    *existing = std::move(replacement);
+
+    try
+    {
+        domain::Hierarchy replacement_hierarchy{hierarchy.id(), std::move(scopes),
+                                                std::move(groups), std::move(specializations),
+                                                std::move(teams)};
+        application::AuthoritativeMembershipContext context{
+            std::make_shared<const domain::MembershipSnapshot>(
+                *version, std::move(replacement_hierarchy), std::move(memberships)),
+            current->role_policy};
+        const auto result = administration.replaceMembership(subject, std::move(context), now,
+                                                             authenticated.correlation_id);
+        if (!result.successful())
+        {
+            return errorResponse(409, "membership_version_not_newer",
+                                 "The replacement version must be strictly newer.");
+        }
+        return jsonResponse(200,
+                            "{\"api_version\":\"v1\",\"player_id\":" + escapeJson(subject.value()) +
+                                ",\"membership_version\":" + std::to_string(*version) +
+                                ",\"status\":\"replaced\",\"interrupted_transmission_count\":" +
+                                std::to_string(result.interrupted.size()) + '}');
+    }
+    catch (const std::invalid_argument&)
+    {
+        return errorResponse(400, "invalid_membership",
+                             "The replacement membership is inconsistent with the hierarchy.");
+    }
+}
+
 [[nodiscard]] auto startTransmissionResponse(const RequestSession& authenticated,
                                              const JsonObject& body,
                                              application::TransmissionApplicationService& service,
@@ -828,6 +962,21 @@ auto ControlPlaneHttpAdapter::handle(const HttpRequest& request, application::Ti
                     200, "{\"api_version\":\"v1\",\"player_id\":" + escapeJson(subject.value()) +
                              ",\"status\":\"removed\",\"interrupted_transmission_count\":" +
                              std::to_string(interrupted.size()) + '}');
+            }
+            if (request.method == "PUT")
+            {
+                if (!administration_authorizer_->canReplace(session.session.player_id, subject))
+                {
+                    return errorResponse(403, "not_authorized",
+                                         "The session cannot replace administrative memberships.");
+                }
+                const auto body = parseFlatJsonObject(request.body);
+                if (!body)
+                {
+                    return errorResponse(400, "invalid_json",
+                                         "The request body must be a flat JSON object.");
+                }
+                return replaceMembershipResponse(session, subject, *body, *administration_, now);
             }
             return errorResponse(404, "route_not_found", "No v1 route matches the request.");
         }

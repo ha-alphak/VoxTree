@@ -150,6 +150,8 @@ class IAdministrativeMembershipAuthorizer
                                        const domain::PlayerId& subject) const -> bool = 0;
     [[nodiscard]] virtual auto canRemove(const domain::PlayerId& actor,
                                          const domain::PlayerId& subject) const -> bool = 0;
+    [[nodiscard]] virtual auto canReplace(const domain::PlayerId& actor,
+                                          const domain::PlayerId& subject) const -> bool = 0;
 };
 
 struct VoiceGrantPolicy final
@@ -164,6 +166,9 @@ struct VoiceGrantClaims final
     domain::PlayerId player_id;
     domain::DeviceId device_id;
     std::uint64_t membership_version;
+    domain::GroupId group_id;
+    domain::SpecializationId specialization_id;
+    domain::TeamId team_id;
     std::vector<domain::VoiceScope> transmit_scopes;
     std::vector<domain::VoiceScope> receive_scopes;
     TimePoint expires_at;
@@ -386,11 +391,38 @@ struct EndedTransmission final
     domain::CorrelationId correlation_id;
 };
 
+using MembershipUpdateError = AuthoritativeMembershipWriteError;
+
+struct MembershipUpdateResult final
+{
+    [[nodiscard]] static auto updated(std::vector<EndedTransmission> interrupted_transmissions)
+        -> MembershipUpdateResult;
+    [[nodiscard]] static auto rejected(MembershipUpdateError update_error)
+        -> MembershipUpdateResult;
+
+    [[nodiscard]] auto successful() const noexcept -> bool
+    {
+        return !error.has_value();
+    }
+
+    std::vector<EndedTransmission> interrupted;
+    std::optional<MembershipUpdateError> error;
+
+  private:
+    MembershipUpdateResult(std::vector<EndedTransmission> interrupted_transmissions,
+                           std::optional<MembershipUpdateError> update_error);
+};
+
 class IAdministrativeMembershipService : public IAuthoritativeMembershipProvider
 {
   public:
     ~IAdministrativeMembershipService() override = default;
 
+    [[nodiscard]] virtual auto replaceMembership(const domain::PlayerId& player_id,
+                                                 AuthoritativeMembershipContext context,
+                                                 TimePoint now,
+                                                 const domain::CorrelationId& correlation_id)
+        -> MembershipUpdateResult = 0;
     [[nodiscard]] virtual auto removeMembership(const domain::PlayerId& player_id, TimePoint now,
                                                 const domain::CorrelationId& correlation_id)
         -> std::vector<EndedTransmission> = 0;

@@ -14,28 +14,6 @@ enum class AuthoritativeContextChange : std::uint8_t
     permissions_changed
 };
 
-using MembershipUpdateError = AuthoritativeMembershipWriteError;
-
-struct MembershipUpdateResult final
-{
-    [[nodiscard]] static auto updated(std::vector<EndedTransmission> interrupted_transmissions)
-        -> MembershipUpdateResult;
-    [[nodiscard]] static auto rejected(MembershipUpdateError update_error)
-        -> MembershipUpdateResult;
-
-    [[nodiscard]] auto successful() const noexcept -> bool
-    {
-        return !error.has_value();
-    }
-
-    std::vector<EndedTransmission> interrupted;
-    std::optional<MembershipUpdateError> error;
-
-  private:
-    MembershipUpdateResult(std::vector<EndedTransmission> interrupted_transmissions,
-                           std::optional<MembershipUpdateError> update_error);
-};
-
 class InMemoryControlPlaneStore final : public ISessionRepository,
                                         public IAdministrativeMembershipService,
                                         public IActiveTransmissionRepository
@@ -63,6 +41,10 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
                                         const domain::CorrelationId& correlation_id,
                                         AuthoritativeContextChange change)
         -> MembershipUpdateResult;
+    [[nodiscard]] auto replaceMembership(const domain::PlayerId& player_id,
+                                         AuthoritativeMembershipContext context, TimePoint now,
+                                         const domain::CorrelationId& correlation_id)
+        -> MembershipUpdateResult override;
     [[nodiscard]] auto removeMembership(const domain::PlayerId& player_id, TimePoint now,
                                         const domain::CorrelationId& correlation_id)
         -> std::vector<EndedTransmission> override;

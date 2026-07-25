@@ -143,6 +143,12 @@
   ergänzt; normale Sessions erhalten keine impliziten Verwaltungsrechte.
 - Kurzlebige Voice-Grant-Claims werden serverseitig aus gerätegebundener Session,
   aktueller Membership-Version und Rollenrichtlinie abgeleitet.
+- Separat autorisierte administrative Compare-and-Replace-Updates für einzelne
+  Spieler-Memberships über `PUT /api/v1/admin/memberships/{player-id}` ergänzt.
+- Strikt aufsteigende Membership-Versionen und atomarer Transmissionsabbruch
+  bleiben auch über den Netzwerkvertrag erhalten.
+- Eigenständigen LiveKit-Tokenadapter mit HS256-Signatur, getrennten
+  Scope-Räumen und unabhängigen Publish-/Subscribe-Rechten implementiert.
 
 ## Aktueller Stand
 
@@ -157,7 +163,8 @@
   vorbereitet. Die konkrete externe Provider-Anbindung ist eine
   Deployment-Entscheidung; der lokale Linux-Start verwendet weiterhin den
   Bootstrap-Provider.
-- Es existiert noch kein Voice-Transportadapter.
+- Die LiveKit-Tokenausstellung ist vorhanden; die native Client-/Audioanbindung
+  wurde noch nicht begonnen.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
@@ -165,8 +172,8 @@
 
 ## Nächster Schritt
 
-Administrative Compare-and-Replace-Updates über den Netzwerkvertrag ergänzen
-und die abgeleiteten Voice-Grant-Claims in einem LiveKit-Adapter signieren.
+Das LiveKit-C++-Quality-Gate beginnen und zunächst die reproduzierbare native
+SDK-Anbindung sowie die Verbindung zweier Windows-Testclients nachweisen.
 
 ## Validierung
 
@@ -174,8 +181,8 @@ und die abgeleiteten Voice-Grant-Claims in einem LiveKit-Adapter signieren.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug | 8 von 8 Tests bestanden |
-| CTest Release | 7 von 7 Tests bestanden |
+| CTest Debug | 9 von 9 Tests bestanden |
+| CTest Release | 9 von 9 Tests bestanden |
 | Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden unter Debian 13 mit Clang 19 |

@@ -19,6 +19,7 @@ add_subdirectory(libs/domain)
 add_subdirectory(libs/application)
 add_subdirectory(libs/persistence)
 add_subdirectory(libs/network)
+add_subdirectory(libs/livekit)
 add_subdirectory(apps/control-plane)
 
 if(HVC_BUILD_TESTS)

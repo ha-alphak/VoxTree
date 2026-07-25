@@ -110,3 +110,11 @@ target_link_libraries(
 set_target_properties(hvc_network_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME network.control_plane_http COMMAND hvc_network_tests)
+
+add_executable(hvc_livekit_tests livekit/livekit_token_tests.cpp)
+target_link_libraries(
+  hvc_livekit_tests
+  PRIVATE hvc::livekit hvc::project_options
+)
+set_target_properties(hvc_livekit_tests PROPERTIES CXX_EXTENSIONS OFF)
+add_test(NAME livekit.token COMMAND hvc_livekit_tests)

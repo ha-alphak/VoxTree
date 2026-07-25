@@ -139,6 +139,16 @@ auto InMemoryControlPlaneStore::updateMembership(const domain::PlayerId& player_
     return MembershipUpdateResult::updated(std::move(interrupted));
 }
 
+auto InMemoryControlPlaneStore::replaceMembership(const domain::PlayerId& player_id,
+                                                  AuthoritativeMembershipContext context,
+                                                  TimePoint now,
+                                                  const domain::CorrelationId& correlation_id)
+    -> MembershipUpdateResult
+{
+    return updateMembership(player_id, std::move(context), now, correlation_id,
+                            AuthoritativeContextChange::membership_changed);
+}
+
 auto InMemoryControlPlaneStore::removeMembership(const domain::PlayerId& player_id, TimePoint now,
                                                  const domain::CorrelationId& correlation_id)
     -> std::vector<EndedTransmission>
