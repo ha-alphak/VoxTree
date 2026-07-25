@@ -25,6 +25,52 @@ auto mapRoutingError(domain::RoutingError error) -> TransmissionAuthorizationErr
 
     throw std::logic_error{"Unhandled routing error."};
 }
+
+auto mapAuthorizationError(TransmissionAuthorizationError error) -> StartTransmissionError
+{
+    switch (error)
+    {
+    case TransmissionAuthorizationError::session_not_found:
+        return StartTransmissionError::session_not_found;
+    case TransmissionAuthorizationError::session_device_mismatch:
+        return StartTransmissionError::session_device_mismatch;
+    case TransmissionAuthorizationError::session_expired:
+        return StartTransmissionError::session_expired;
+    case TransmissionAuthorizationError::membership_unavailable:
+        return StartTransmissionError::membership_unavailable;
+    case TransmissionAuthorizationError::voice_not_connected:
+        return StartTransmissionError::voice_not_connected;
+    case TransmissionAuthorizationError::voice_no_active_membership:
+        return StartTransmissionError::voice_no_active_membership;
+    case TransmissionAuthorizationError::voice_scope_not_found:
+        return StartTransmissionError::voice_scope_not_found;
+    case TransmissionAuthorizationError::voice_scope_not_authorized:
+        return StartTransmissionError::voice_scope_not_authorized;
+    case TransmissionAuthorizationError::voice_transmit_muted:
+        return StartTransmissionError::voice_transmit_muted;
+    case TransmissionAuthorizationError::voice_membership_stale:
+        return StartTransmissionError::voice_membership_stale;
+    }
+
+    throw std::logic_error{"Unhandled transmission authorization error."};
+}
+
+auto mapActivationError(TransmissionActivationError error) -> StartTransmissionError
+{
+    switch (error)
+    {
+    case TransmissionActivationError::session_changed:
+        return StartTransmissionError::session_changed_during_start;
+    case TransmissionActivationError::membership_changed:
+        return StartTransmissionError::membership_changed_during_start;
+    case TransmissionActivationError::sender_already_transmitting:
+        return StartTransmissionError::sender_already_transmitting;
+    case TransmissionActivationError::transmission_id_conflict:
+        return StartTransmissionError::transmission_id_conflict;
+    }
+
+    throw std::logic_error{"Unhandled transmission activation error."};
+}
 } // namespace
 
 SessionAuthenticationResult::SessionAuthenticationResult(
@@ -134,5 +180,156 @@ auto TransmissionAuthorizationService::authorizeStart(const StartTransmissionCom
         {transmission_ids_.next(), command.client_transmission_id, session->player_id,
          command.scope, membership->snapshot->version(), resolution.recipients,
          command.correlation_id});
+}
+
+TransmissionActivationResult::TransmissionActivationResult(
+    std::optional<ActiveTransmission> active_transmission,
+    std::optional<TransmissionActivationError> activation_error)
+    : transmission(std::move(active_transmission)), error(activation_error)
+{
+    if (transmission.has_value() == error.has_value())
+    {
+        throw std::invalid_argument{
+            "A transmission activation result must contain either a transmission or an error."};
+    }
+}
+
+auto TransmissionActivationResult::activated(ActiveTransmission active_transmission)
+    -> TransmissionActivationResult
+{
+    return TransmissionActivationResult{std::move(active_transmission), std::nullopt};
+}
+
+auto TransmissionActivationResult::rejected(TransmissionActivationError activation_error)
+    -> TransmissionActivationResult
+{
+    return TransmissionActivationResult{std::nullopt, activation_error};
+}
+
+TransmissionEndRepositoryResult::TransmissionEndRepositoryResult(
+    std::optional<EndedTransmission> ended_transmission,
+    std::optional<TransmissionEndRepositoryError> repository_error)
+    : transmission(std::move(ended_transmission)), error(repository_error)
+{
+    if (transmission.has_value() == error.has_value())
+    {
+        throw std::invalid_argument{
+            "A transmission end result must contain either a transmission or an error."};
+    }
+}
+
+auto TransmissionEndRepositoryResult::ended(EndedTransmission ended_transmission)
+    -> TransmissionEndRepositoryResult
+{
+    return TransmissionEndRepositoryResult{std::move(ended_transmission), std::nullopt};
+}
+
+auto TransmissionEndRepositoryResult::rejected(TransmissionEndRepositoryError repository_error)
+    -> TransmissionEndRepositoryResult
+{
+    return TransmissionEndRepositoryResult{std::nullopt, repository_error};
+}
+
+StartTransmissionResult::StartTransmissionResult(
+    std::optional<ActiveTransmission> active_transmission,
+    std::optional<StartTransmissionError> start_error)
+    : transmission(std::move(active_transmission)), error(start_error)
+{
+    if (transmission.has_value() == error.has_value())
+    {
+        throw std::invalid_argument{
+            "A start transmission result must contain either a transmission or an error."};
+    }
+}
+
+auto StartTransmissionResult::started(ActiveTransmission active_transmission)
+    -> StartTransmissionResult
+{
+    return StartTransmissionResult{std::move(active_transmission), std::nullopt};
+}
+
+auto StartTransmissionResult::rejected(StartTransmissionError start_error)
+    -> StartTransmissionResult
+{
+    return StartTransmissionResult{std::nullopt, start_error};
+}
+
+EndTransmissionResult::EndTransmissionResult(std::optional<EndedTransmission> ended_transmission,
+                                             std::optional<EndTransmissionError> end_error)
+    : transmission(std::move(ended_transmission)), error(end_error)
+{
+    if (transmission.has_value() == error.has_value())
+    {
+        throw std::invalid_argument{
+            "An end transmission result must contain either a transmission or an error."};
+    }
+}
+
+auto EndTransmissionResult::ended(EndedTransmission ended_transmission) -> EndTransmissionResult
+{
+    return EndTransmissionResult{std::move(ended_transmission), std::nullopt};
+}
+
+auto EndTransmissionResult::rejected(EndTransmissionError end_error) -> EndTransmissionResult
+{
+    return EndTransmissionResult{std::nullopt, end_error};
+}
+
+TransmissionApplicationService::TransmissionApplicationService(
+    const ISessionRepository& sessions, const IAuthoritativeMembershipProvider& memberships,
+    ITransmissionIdGenerator& transmission_ids, IActiveTransmissionRepository& active_transmissions)
+    : sessions_(sessions), authorization_(sessions, memberships, transmission_ids),
+      active_transmissions_(active_transmissions)
+{
+}
+
+auto TransmissionApplicationService::start(const StartTransmissionCommand& command, TimePoint now)
+    -> StartTransmissionResult
+{
+    auto authorization = authorization_.authorizeStart(command, now);
+    if (!authorization.authorized())
+    {
+        return StartTransmissionResult::rejected(mapAuthorizationError(*authorization.error));
+    }
+
+    auto activation = active_transmissions_.activate(std::move(*authorization.transmission),
+                                                     command.session_id, command.device_id, now);
+    if (!activation.active())
+    {
+        return StartTransmissionResult::rejected(mapActivationError(*activation.error));
+    }
+
+    return StartTransmissionResult::started(std::move(*activation.transmission));
+}
+
+auto TransmissionApplicationService::end(const EndTransmissionCommand& command, TimePoint now)
+    -> EndTransmissionResult
+{
+    const auto session = sessions_.find(command.session_id);
+    if (!session)
+    {
+        return EndTransmissionResult::rejected(EndTransmissionError::session_not_found);
+    }
+    if (session->device_id != command.device_id)
+    {
+        return EndTransmissionResult::rejected(EndTransmissionError::session_device_mismatch);
+    }
+    if (!session->activeAt(now))
+    {
+        return EndTransmissionResult::rejected(EndTransmissionError::session_expired);
+    }
+
+    auto ended = active_transmissions_.end(
+        command.transmission_id, command.session_id, command.device_id,
+        domain::TransmissionStopReason::push_to_talk_released, now, command.correlation_id);
+    if (!ended.successful())
+    {
+        const auto error = *ended.error == TransmissionEndRepositoryError::transmission_not_found
+                               ? EndTransmissionError::transmission_not_found
+                               : EndTransmissionError::transmission_not_owned;
+        return EndTransmissionResult::rejected(error);
+    }
+
+    return EndTransmissionResult::ended(std::move(*ended.transmission));
 }
 } // namespace hvc::application

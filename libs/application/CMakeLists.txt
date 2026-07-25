@@ -5,12 +5,14 @@ target_sources(
   hvc_application
   PRIVATE
     src/control_plane.cpp
+    src/in_memory_control_plane.cpp
   PUBLIC
     FILE_SET public_headers
     TYPE HEADERS
     BASE_DIRS include
     FILES
       include/hvc/application/control_plane.hpp
+      include/hvc/application/in_memory_control_plane.hpp
 )
 
 target_include_directories(

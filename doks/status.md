@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Linux-Control-Plane – Anwendungsgrundgerüst<br>
+**Phase:** Linux-Control-Plane – In-Memory-Transmissionslebenszyklus<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -60,22 +60,33 @@
 - Korrelations-, Session- und Geräte-IDs als starke Typen ergänzt.
 - Anwendungstests für gültige, unbekannte, gerätefremde, abgelaufene, veraltete
   und nicht autorisierte Anfragen ergänzt.
+- Threadsicheren In-Memory-Store für Sessions, autoritative
+  Membership-Kontexte und aktive Transmissionen implementiert.
+- Vollständige Start- und End-Anwendungsfälle mit Geräte- und
+  Session-Ownership sowie genau einer aktiven Transmission pro Spieler
+  umgesetzt.
+- Race zwischen Autorisierung und Aktivierung durch atomare erneute Prüfung von
+  Session und Membership-Version geschlossen.
+- Membership- und Rechteänderungen mit höherer Version sowie Session-Entfernung
+  beenden aktive Transmissionen atomar mit nachvollziehbarem Abbruchgrund.
+- Anwendungstests für Start, Ende, fremde Endanforderungen, parallelen
+  Startkonflikt, veraltete Updates und atomare Abbrüche ergänzt.
 
 ## Aktueller Stand
 
-- Das technische Projektfundament, der transportunabhängige Domänenkern und das
-  erste Control-Plane-Anwendungsgrundgerüst sind vorhanden und lokal validiert.
-- Es existieren noch keine Netzwerk-, Persistenz- oder Voice-Transportadapter.
+- Das technische Projektfundament, der transportunabhängige Domänenkern und der
+  In-Memory-Transmissionslebenszyklus sind vorhanden und lokal validiert.
+- Es existieren noch keine Netzwerk-, dauerhaften Persistenz- oder
+  Voice-Transportadapter.
 - Das Projektfundament benötigt keine externen C++-Abhängigkeiten.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Konkrete In-Memory-Adapter für Sessions, autoritative Membership-Kontexte und
-aktive Transmissionen implementieren. Danach Start- und End-Anwendungsfälle
-einschließlich atomarem Abbruch bei Membership- oder Rechteänderungen
-vervollständigen.
+Transmission-Timeouts, Rate Limits und Moderationsabbrüche als
+frameworkunabhängige Anwendungsfälle ergänzen. Danach strukturierte Audit-Events
+für Start, Ende, Ablehnung und erzwungenen Abbruch anbinden.
 
 ## Validierung
 
@@ -83,8 +94,8 @@ vervollständigen.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug | 4 von 4 Tests bestanden |
-| CTest Release | 4 von 4 Tests bestanden |
+| CTest Debug | 5 von 5 Tests bestanden |
+| CTest Release | 5 von 5 Tests bestanden |
 | Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Konfiguriert, aktueller Lauf über Debian-CI |

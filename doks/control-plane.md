@@ -4,13 +4,14 @@
 
 ## Modulgrenzen
 
-Das Grundgerüst besteht aus zwei neuen Targets:
+Die Control-Plane besteht aus zwei Targets:
 
 - `hvc-application` enthält transport- und frameworkunabhängige
-  Anwendungs-Schnittstellen sowie die serverseitige Autorisierung für den Start
-  einer Transmission.
+  Anwendungs-Schnittstellen, die serverseitige Autorisierung sowie vollständige
+  Start- und End-Anwendungsfälle für Transmissionen.
 - `hvc-control-plane` ist der ausführbare Server-Entry-Point. Netzwerkprotokoll,
-  Persistenz und konkrete Adapter werden in folgenden Schritten ergänzt.
+  dauerhafte Persistenz und Transportadapter werden in folgenden Schritten
+  ergänzt.
 
 Die Anwendungsschicht verwendet `hvc-domain` für die autoritative
 Empfängerermittlung. Sie hängt weder von LiveKit noch von einem HTTP-Framework
@@ -40,7 +41,10 @@ einen konsistenten Anwendungskontext aus:
 
 Beide Objekte werden zusammen bezogen, damit die Transmission nicht gegen eine
 Membership-Version und eine davon abweichende Rollenrichtlinie geprüft wird.
-Persistenz, Cache-Invalidierung und atomare Aktualisierung sind Adapteraufgaben.
+Persistenz und Cache-Invalidierung bleiben Adapteraufgaben. Der
+`InMemoryControlPlaneStore` aktualisiert einen Kontext nur mit einer höheren
+Version und beendet eine aktive Transmission desselben Spielers innerhalb
+desselben kritischen Abschnitts.
 
 ## Transmission-Autorisierung
 
@@ -57,6 +61,25 @@ Der Befehl enthält absichtlich weder eine Sender-ID noch eine Empfängerliste.
 Session ab und berechnet die Empfänger aus dem autoritativen Membership-Kontext.
 Eine erfolgreiche Autorisierung erzeugt über `ITransmissionIdGenerator` eine
 serverseitige Transmission-ID und gibt den internen Routing-Grantsatz zurück.
+`TransmissionApplicationService` registriert diesen Satz anschließend als
+aktive Transmission. Dabei werden Session, Gerät und Membership-Version
+atomar erneut geprüft, um Änderungen zwischen Autorisierung und Aktivierung
+sicher abzufangen.
+
+## Aktive Transmissionen
+
+`IActiveTransmissionRepository` kapselt die atomare Aktivierung und Beendigung.
+Der konkrete `InMemoryControlPlaneStore` implementiert gemeinsam:
+
+- Session-Ablage und gerätegebundenes Entfernen,
+- autoritative Membership-Kontexte,
+- die Registry aktiver Transmissionen.
+
+Pro Spieler ist höchstens eine aktive Transmission zulässig. Ein Endbefehl
+darf nur über die Session und das Gerät erfolgen, mit denen die Transmission
+gestartet wurde. Membership- und Rechteänderungen mit höherer Version sowie das
+Entfernen einer Session beenden betroffene Transmissionen atomar und liefern
+den jeweiligen Abbruchgrund zurück.
 
 Die Schnittstelle ist der Anwendungskern. Ein späterer HTTP-Adapter darf nach
 außen nur geeignete Metadaten wie Transmission-ID, Scope, Status und
@@ -65,8 +88,7 @@ Empfängeranzahl ausgeben, nicht die interne Empfängerliste.
 ## Noch nicht enthalten
 
 - HTTP- oder gRPC-Endpunkte
-- konkrete Account-, Session- oder Gerätepersistenz
+- dauerhafte Account-, Session- oder Gerätepersistenz
 - kryptografische Tokenprüfung und kurzlebige Voice-Grants
-- Registry und Beendigung aktiver Transmissionen
 - Rate Limits, Moderation und Audit-Log-Adapter
 - LiveKit-Anbindung
