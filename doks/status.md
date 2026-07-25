@@ -163,6 +163,14 @@
 - Mikrofonaufnahme und direkte Opus-Publikation/-Subscription lokal mit zwei
   nativen Clientprozessen gegen LiveKit Server 1.13.4 nachgewiesen; Sender und
   Empfänger meldeten jeweils `PASS`.
+- Parallelen Empfang der getrennten Team-, Specialization- und Group-Räume im
+  nativen Quality-Gate-Client ergänzt. Ein lokaler Empfänger hielt alle drei
+  Raumverbindungen gleichzeitig und bestätigte Remote-Opus-Mikrofontracks von
+  drei parallelen Senderprozessen in sämtlichen Scopes mit `PASS`.
+- Native PTT-Probe ergänzt: Der Sender veröffentlicht das Mikrofon nur für die
+  vorgegebene PTT-Dauer, unpubliziert den Track beim Loslassen und hält die
+  Raumverbindung aufrecht. Der Empfänger bestätigte Opus-Start und
+  Track-Entfernung Ende-zu-Ende mit `PASS`.
 
 ## Aktueller Stand
 
@@ -177,8 +185,8 @@
   vorbereitet. Die konkrete externe Provider-Anbindung ist eine
   Deployment-Entscheidung; der lokale Linux-Start verwendet weiterhin den
   Bootstrap-Provider.
-- Die LiveKit-Tokenausstellung ist vorhanden; die native Client-/Audioanbindung
-  wurde noch nicht begonnen.
+- Die LiveKit-Tokenausstellung sowie die native Client- und Audioanbindung sind
+  vorhanden.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
@@ -186,15 +194,18 @@
   Quality-Gate-Client kann Windows-Audiogeräte auflisten und auswählen,
   Mikrofon-Audio mit Echo Cancellation, Noise Suppression und Automatic Gain
   Control als Opus veröffentlichen sowie einen empfangenen `audio/opus`-Track
-  über den nativen Plattform-Audiopfad wiedergeben. Der lokale Zwei-Prozess-
-  Nachweis ist bestanden; der reale Zwei-Rechner-Nachweis mit Mikrofonen steht
-  noch aus.
+  über den nativen Plattform-Audiopfad wiedergeben. Zusätzlich kann er Team-,
+  Specialization- und Group-Räume parallel verbinden und den gleichzeitigen
+  Opus-Empfang in allen drei Scopes prüfen. PTT-Publikation und sauberer
+  Track-Abbruch ohne Raum-Disconnect sind ebenfalls nachgewiesen. Der lokale
+  Zwei-Prozess-, Drei-Scope- und PTT-Nachweis ist bestanden. Der reale
+  Zwei-Rechner-Nachweis mit Mikrofonen wird übersprungen.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Mikrofonaufnahme sowie Opus-Publikation/-Empfang auf zwei Windows-Rechnern
-nachweisen.
+Nativen LiveKit-Reconnect nach einer Verbindungsunterbrechung nachweisen, ohne
+eine zuvor beendete Transmission automatisch fortzusetzen.
 
 ## Validierung
 
@@ -207,7 +218,10 @@ nachweisen.
 | Lokale native LiveKit-Zwei-Client-Verbindung | Bestanden |
 | Native Windows-Audiogeräteerkennung | Bestanden |
 | Lokaler Mikrofon-/Opus-Zwei-Prozess-Nachweis | Bestanden |
-| Reconnect ohne automatische Transmission | Bestanden |
+| Mikrofon-/Opus-Nachweis auf zwei Windows-Rechnern | Übersprungen |
+| Lokaler paralleler Drei-Scope-Opus-Empfang | Bestanden |
+| Nativer PTT-Start und sauberer Track-Abbruch | Bestanden |
+| Domänen-Zustandsautomat: Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
 | CMake-Installation und Paketexport inklusive `hvc::domain` | Bestanden |

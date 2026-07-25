@@ -92,11 +92,63 @@ Für eine bidirektionale Probe können beide Prozesse mit `--publish-audio` und
 `--expect-audio` gestartet werden. Die Tokens müssen dann sowohl Publish- als
 auch Subscribe-Rechte enthalten.
 
+## Parallele Drei-Scope-Empfangsprobe
+
+Der Empfänger kann gleichzeitig je eine Verbindung zum Team-,
+Specialization- und Group-Raum halten. Dafür werden drei getrennte, auf den
+jeweiligen Raum beschränkte Join-Tokens übergeben:
+
+```powershell
+.\out\build\windows-msvc-livekit-quality-gate\apps\livekit-quality-gate\Release\hvc-livekit-quality-gate.exe `
+  --url 'ws://SERVER:7880' `
+  --team-token 'TOKEN_TEAM_RECEIVER' `
+  --specialization-token 'TOKEN_SPECIALIZATION_RECEIVER' `
+  --group-token 'TOKEN_GROUP_RECEIVER' `
+  --expect-audio --wait-for-peer 60
+```
+
+In jedem der drei Räume muss gleichzeitig ein anderer Teilnehmer verbunden
+sein. Mit `--expect-audio` verlangt die Probe zusätzlich in jedem Raum einen
+abonnierten Mikrofon-Track mit MIME-Typ `audio/opus`. Die Probe meldet erst
+`PASS`, wenn alle drei Scope-Bedingungen gleichzeitig erfüllt sind; bei einem
+Timeout werden die fehlgeschlagenen Scopes einzeln ausgegeben.
+
+Zum Senden können drei Instanzen der vorhandenen Ein-Raum-Probe mit je einem
+raumgebundenen Publish-Token gestartet werden. Der lokale Nachweis gegen
+LiveKit Server 1.13.4 wurde mit einem Drei-Scope-Empfänger und drei parallelen
+Mikrofon-/Opus-Sendern erbracht.
+
+## PTT-Start und sauberer Abbruch
+
+Die PTT-Probe veröffentlicht das Mikrofon nur für die mit `--ptt` angegebene
+Dauer. Beim Loslassen wird der Track explizit unpubliziert, während die
+LiveKit-Raumverbindung bestehen bleibt:
+
+```powershell
+.\out\build\windows-msvc-livekit-quality-gate\apps\livekit-quality-gate\Release\hvc-livekit-quality-gate.exe `
+  --url 'ws://SERVER:7880' --token 'TOKEN_RECEIVER' `
+  --expect-ptt --wait-for-peer 30
+```
+
+Danach den Sender starten:
+
+```powershell
+.\hvc-livekit-quality-gate.exe `
+  --url 'ws://SERVER:7880' --token 'TOKEN_SENDER' --ptt 5
+```
+
+Der Sender meldet nur dann `PASS`, wenn die Mikrofonpublikation entfernt wurde
+und der Raum danach weiterhin verbunden ist. Der Empfänger verlangt in dieser
+Reihenfolge einen abonnierten `audio/opus`-Mikrofontrack und dessen
+anschließendes Unpublish/Unsubscribe; eine getrennte Senderverbindung gilt
+nicht als sauberer PTT-Abbruch.
+
+Der ursprünglich vorgesehene Mikrofon-/Opus-Nachweis auf zwei getrennten
+Windows-Rechnern wird gemäß Projektentscheidung übersprungen. Die lokalen
+Zwei-Prozess-, Drei-Scope- und PTT-Nachweise bleiben verbindlich.
+
 ## Noch offene Quality-Gate-Nachweise
 
-- Zwei-Rechner-Nachweis für Mikrofonaufnahme und Opus-Publikation/-Empfang
-- paralleler Empfang der drei Scope-Räume
-- PTT und Abbruch
 - Reconnect ohne automatische Transmission
 - Audiogerätewechsel
 - serverseitiger Rechteentzug und Subscription-Isolation

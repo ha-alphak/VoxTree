@@ -38,7 +38,7 @@
     {
       "name": "windows-msvc-livekit-quality-gate",
       "displayName": "Windows x64 - LiveKit quality gate",
-      "description": "Native LiveKit SDK integration and two-client probe",
+      "description": "Native LiveKit SDK integration, audio, and multi-room probes",
       "inherits": "windows-msvc",
       "cacheVariables": {
         "HVC_BUILD_LIVEKIT_QUALITY_GATE": "ON"
