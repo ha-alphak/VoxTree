@@ -123,6 +123,24 @@ class IAuthoritativeMembershipProvider
         -> std::optional<AuthoritativeMembershipContext> = 0;
 };
 
+enum class AuthoritativeMembershipWriteError : std::uint8_t
+{
+    player_not_in_snapshot,
+    version_not_newer
+};
+
+class IMutableAuthoritativeMembershipRepository : public IAuthoritativeMembershipProvider
+{
+  public:
+    ~IMutableAuthoritativeMembershipRepository() override = default;
+
+    // The implementation must compare and replace the complete context in one atomic operation.
+    [[nodiscard]] virtual auto upsertIfNewer(const domain::PlayerId& player_id,
+                                             AuthoritativeMembershipContext context)
+        -> std::optional<AuthoritativeMembershipWriteError> = 0;
+    [[nodiscard]] virtual auto erase(const domain::PlayerId& player_id) -> bool = 0;
+};
+
 struct StartTransmissionCommand final
 {
     StartTransmissionCommand(domain::SessionId session, domain::DeviceId device,

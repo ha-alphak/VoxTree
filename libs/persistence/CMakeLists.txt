@@ -17,6 +17,7 @@ target_sources(
     TYPE HEADERS
     BASE_DIRS include
     FILES
+      include/hvc/persistence/sqlite_control_plane_repository.hpp
       include/hvc/persistence/sqlite_session_repository.hpp
 )
 

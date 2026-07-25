@@ -190,6 +190,11 @@ RolePolicy::RolePolicy(std::vector<RolePermissions> roles) : roles_(std::move(ro
         roles_, [](const RolePermissions& role) -> const RoleId& { return role.role_id; }, "role");
 }
 
+auto RolePolicy::roles() const noexcept -> std::span<const RolePermissions>
+{
+    return roles_;
+}
+
 auto RolePolicy::canTransmit(std::span<const RoleId> roles, VoiceScope scope) const noexcept -> bool
 {
     return std::ranges::any_of(roles, [&](const RoleId& role_id) {

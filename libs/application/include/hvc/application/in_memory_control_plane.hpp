@@ -14,11 +14,7 @@ enum class AuthoritativeContextChange : std::uint8_t
     permissions_changed
 };
 
-enum class MembershipUpdateError : std::uint8_t
-{
-    player_not_in_snapshot,
-    version_not_newer
-};
+using MembershipUpdateError = AuthoritativeMembershipWriteError;
 
 struct MembershipUpdateResult final
 {
@@ -46,6 +42,9 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
 {
   public:
     explicit InMemoryControlPlaneStore(
+        ITransmissionAuditEventSink* audit_events = nullptr) noexcept;
+    explicit InMemoryControlPlaneStore(
+        IMutableAuthoritativeMembershipRepository& persistent_memberships,
         ITransmissionAuditEventSink* audit_events = nullptr) noexcept;
 
     void upsertSession(AuthenticatedSession session);
@@ -102,9 +101,12 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
         -> std::vector<EndedTransmission>;
     void recordForcedInterruptions(const std::vector<EndedTransmission>& interrupted_transmissions,
                                    TransmissionAuditOperation operation) const noexcept;
+    [[nodiscard]] auto currentMembershipLocked(const domain::PlayerId& player_id) const
+        -> std::optional<AuthoritativeMembershipContext>;
 
     mutable std::mutex mutex_;
     ITransmissionAuditEventSink* audit_events_;
+    IMutableAuthoritativeMembershipRepository* persistent_memberships_{nullptr};
     std::map<domain::SessionId, AuthenticatedSession> sessions_;
     std::map<domain::PlayerId, AuthoritativeMembershipContext> memberships_;
     std::map<domain::TransmissionId, ActiveTransmission> active_transmissions_;

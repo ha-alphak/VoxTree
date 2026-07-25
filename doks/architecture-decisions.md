@@ -71,6 +71,13 @@
   statt.
 - Sessions werden mit Session-, Spieler- und Geräte-ID sowie Ablaufzeitpunkt in
   Millisekunden seit der Unix-Epoche gespeichert.
+- Autoritative Membership-Kontexte werden vollständig mit Hierarchie,
+  Memberships, Rollenzuweisungen und getrennten Sende-/Empfangsrechten
+  gespeichert. Ein Kontext wird nur durch eine strikt höhere Version ersetzt.
+- Der `InMemoryControlPlaneStore` kann SQLite als autoritative
+  Membership-Quelle verwenden. Persistentes Versionsupdate und Abbruch einer
+  betroffenen aktiven Transmission sind dann gegenüber allen
+  Store-Operationen ein atomarer kritischer Abschnitt.
 - Aktive Transmissionen bleiben flüchtig und werden nach einem Neustart niemals
   wieder aufgenommen.
 

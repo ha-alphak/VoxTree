@@ -165,6 +165,7 @@ class RolePolicy final
   public:
     explicit RolePolicy(std::vector<RolePermissions> roles);
 
+    [[nodiscard]] auto roles() const noexcept -> std::span<const RolePermissions>;
     [[nodiscard]] auto canTransmit(std::span<const RoleId> roles, VoiceScope scope) const noexcept
         -> bool;
     [[nodiscard]] auto canReceive(std::span<const RoleId> roles, VoiceScope scope) const noexcept

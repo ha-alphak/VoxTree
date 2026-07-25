@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <exception>
 #include <filesystem>
-#include <hvc/persistence/sqlite_session_repository.hpp>
+#include <hvc/persistence/sqlite_control_plane_repository.hpp>
 #include <string_view>
 
 auto main(int argument_count, char** arguments) -> int
@@ -24,8 +24,8 @@ auto main(int argument_count, char** arguments) -> int
             return 2;
         }
 
-        const hvc::persistence::SqliteSessionRepository sessions{database_path};
-        std::printf("hvc-control-plane: database schema %u ready\n", sessions.schemaVersion());
+        const hvc::persistence::SqliteControlPlaneRepository repository{database_path};
+        std::printf("hvc-control-plane: database schema %u ready\n", repository.schemaVersion());
         return 0;
     }
     catch (const std::exception& error)

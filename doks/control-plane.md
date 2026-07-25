@@ -18,8 +18,9 @@ Empfängerermittlung. Sie hängt weder von LiveKit noch von einem HTTP-Framework
 oder einer Datenbank ab.
 
 `hvc-persistence` ist ein Adaptermodul. Es hängt von `hvc-application` ab und
-stellt mit `SqliteSessionRepository` die erste dauerhafte Implementierung einer
-Anwendungsschnittstelle bereit.
+stellt mit `SqliteControlPlaneRepository` die dauerhafte Implementierung für
+Sessions und autoritative Membership-Kontexte bereit. Der bisherige Name
+`SqliteSessionRepository` bleibt als Quellcode-Kompatibilitätsalias erhalten.
 
 ## Authentifizierte Sessions
 
@@ -43,8 +44,8 @@ Sessions zu verlieren.
 
 ## Schema-Migrationen
 
-`SqliteSessionRepository` migriert seine Datenbank beim Öffnen auf die aktuell
-unterstützte Schemaversion. Die erste Migration legt an:
+`SqliteControlPlaneRepository` migriert seine Datenbank beim Öffnen auf die
+aktuell unterstützte Schemaversion. Die erste Migration legt an:
 
 - `schema_migrations` als nachvollziehbare Historie,
 - `sessions` als dauerhafte Session-Ablage,
@@ -54,6 +55,18 @@ Jede Migration läuft innerhalb von `BEGIN IMMEDIATE` und `COMMIT`; bei einem
 Fehler erfolgt ein Rollback. `PRAGMA user_version` ist die verbindliche
 Schemaversion. Fehlende Versionsschritte und neuere, vom Programm nicht
 unterstützte Datenbanken werden abgelehnt.
+
+Die zweite Migration ergänzt normalisierte Tabellen für:
+
+- den Kontextbesitzer, die Snapshot-Version und die Hierarchie-ID,
+- Scope-, Gruppen-, Specialization- und Team-Definitionen,
+- Memberships einschließlich Verbindungs-, Mute- und Ban-Status,
+- Rollenzuweisungen sowie getrennte Sende- und Empfangsrechte.
+
+Ein vollständiger Kontext wird mit allen abhängigen Datensätzen in einer
+SQLite-Transaktion ersetzt. Der Adapter vergleicht die als vorzeichenlosen
+64-Bit-Wert gespeicherte Version innerhalb derselben Transaktion und lehnt
+gleiche oder ältere Versionen ab.
 
 Die ausführbare Control-Plane öffnet die Datenbank beim Start und führt damit
 die Migrationen vor allen späteren Netzwerkdiensten aus. Standardmäßig wird
@@ -65,15 +78,18 @@ Pfad gewählt werden.
 `IAuthoritativeMembershipProvider` liefert für einen authentifizierten Spieler
 einen konsistenten Anwendungskontext aus:
 
-- immutablem, versioniertem `MembershipSnapshot`
+- einem immutablen, versionierten `MembershipSnapshot`
 - dazugehöriger `RolePolicy`
 
 Beide Objekte werden zusammen bezogen, damit die Transmission nicht gegen eine
 Membership-Version und eine davon abweichende Rollenrichtlinie geprüft wird.
-Persistenz und Cache-Invalidierung bleiben Adapteraufgaben. Der
-`InMemoryControlPlaneStore` aktualisiert einen Kontext nur mit einer höheren
-Version und beendet eine aktive Transmission desselben Spielers innerhalb
-desselben kritischen Abschnitts.
+`IMutableAuthoritativeMembershipRepository` ergänzt atomare
+Compare-and-Replace- sowie Löschoperationen. Der `InMemoryControlPlaneStore`
+kann diese Schnittstelle als persistente Quelle verwenden. Er hält sein
+Store-Lock über das erfolgreiche SQLite-Update und den Abbruch einer aktiven
+Transmission desselben Spielers. Startaktivierung, Membership-Lesen und
+Membership-Änderung sehen dadurch entweder vollständig den alten oder
+vollständig den neuen Zustand.
 
 ## Transmission-Autorisierung
 
@@ -160,7 +176,7 @@ Empfängeranzahl ausgeben, nicht die interne Empfängerliste.
 ## Noch nicht enthalten
 
 - HTTP- oder gRPC-Endpunkte
-- dauerhafte Account-, Geräte- oder Membership-Persistenz
+- dauerhafte Account- oder Geräte-Persistenz
 - kryptografische Tokenprüfung und kurzlebige Voice-Grants
 - dauerhafte Rate-Limit- und Moderationsrichtlinien
 - Scheduler für die regelmäßige Timeout-Prüfung

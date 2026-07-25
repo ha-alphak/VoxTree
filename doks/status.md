@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Linux-Control-Plane – Persistenz und Schema-Migrationen<br>
+**Phase:** Linux-Control-Plane – autoritative Membership-Persistenz<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -96,14 +96,24 @@
   Datenbankpfad ist per Kommandozeile konfigurierbar.
 - Persistenztests für initiale und idempotente Migration, Neustart,
   Aktualisierung und Löschung von Sessions ergänzt.
+- Schreibbare Anwendungsschnittstelle für autoritative Membership-Kontexte mit
+  atomarem Compare-and-Replace auf strikt höhere Versionen ergänzt.
+- SQLite-Schema auf normalisierte Hierarchien, Scopes, Memberships,
+  Rollenzuweisungen und getrennte Sende-/Empfangsrechte erweitert.
+- Vollständige Membership-Snapshots und Rollenrichtlinien über Prozessneustarts
+  hinweg rekonstruierbar gemacht.
+- Persistentes Membership-Update im `InMemoryControlPlaneStore` mit dem
+  bestehenden atomaren Transmissionsabbruch verbunden.
+- Persistenztests für Kontext-Neustart, Versionsschutz, Löschung sowie
+  gekoppelten Rechtewechsel und Transmissionsabbruch ergänzt.
 
 ## Aktueller Stand
 
 - Das technische Projektfundament, der transportunabhängige Domänenkern, der
-  In-Memory-Transmissionslebenszyklus und die erste dauerhafte Session-Ablage
-  sind vorhanden und lokal validiert.
-- Es existieren noch keine Netzwerk-, Membership-Persistenz-, Audit-Persistenz-
-  oder Voice-Transportadapter.
+  In-Memory-Transmissionslebenszyklus sowie die dauerhafte Session- und
+  Membership-Ablage sind vorhanden und lokal validiert.
+- Es existieren noch keine Netzwerk-, Audit-Persistenz- oder
+  Voice-Transportadapter.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
@@ -111,9 +121,8 @@
 
 ## Nächster Schritt
 
-SQLite-Persistenz auf autoritative Membership-Kontexte und Rollenrichtlinien
-erweitern und dabei atomare Versionsaktualisierungen mit dem bestehenden
-Transmissionsabbruch verbinden.
+Strukturierte Audit-Events in SQLite dauerhaft und geordnet ablegen, ohne
+interne Empfängerlisten zu persistieren, und Aufbewahrungsgrenzen vorbereiten.
 
 ## Validierung
 

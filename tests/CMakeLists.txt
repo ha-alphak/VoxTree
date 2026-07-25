@@ -80,4 +80,4 @@ target_link_libraries(
 
 set_target_properties(hvc_persistence_tests PROPERTIES CXX_EXTENSIONS OFF)
 
-add_test(NAME persistence.sqlite_sessions COMMAND hvc_persistence_tests)
+add_test(NAME persistence.sqlite_control_plane COMMAND hvc_persistence_tests)
