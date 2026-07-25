@@ -192,8 +192,9 @@ struct Fixture final
     {
     }
 
-    [[nodiscard]] auto request(std::string method, std::string target, std::string authorization,
-                               std::string body = {}) const -> network::HttpRequest
+    [[nodiscard]] static auto request(std::string method, std::string target,
+                                      std::string authorization, std::string body = {})
+        -> network::HttpRequest
     {
         return network::HttpRequest{std::move(method),
                                     std::move(target),
@@ -219,7 +220,7 @@ struct Fixture final
 {
     Fixture fixture;
     const auto response = fixture.adapter.handle(
-        fixture.request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now);
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now);
     const auto stored = fixture.sessions.find(domain::SessionId{"session-1"});
 
     return response.status_code == 201 && stored &&
@@ -234,9 +235,9 @@ struct Fixture final
 {
     Fixture fixture;
     static_cast<void>(fixture.adapter.handle(
-        fixture.request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
     const auto response = fixture.adapter.handle(
-        fixture.request("GET", "/api/v1/membership", "Bearer external-secret"), fixture.now);
+        Fixture::request("GET", "/api/v1/membership", "Bearer external-secret"), fixture.now);
 
     return response.status_code == 401 &&
            response.body.find("session_required") != std::string::npos;
@@ -246,8 +247,8 @@ struct Fixture final
 {
     Fixture fixture;
     static_cast<void>(fixture.adapter.handle(
-        fixture.request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
-    auto request = fixture.request("GET", "/api/v1/membership", "Session session-1");
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
+    auto request = Fixture::request("GET", "/api/v1/membership", "Session session-1");
     request.headers.insert_or_assign("x-hvc-device-id", "device-2");
     const auto response = fixture.adapter.handle(request, fixture.now);
 
@@ -268,9 +269,9 @@ struct Fixture final
 {
     Fixture fixture;
     static_cast<void>(fixture.adapter.handle(
-        fixture.request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
     const auto response = fixture.adapter.handle(
-        fixture.request("GET", "/api/v1/membership", "Session session-1"), fixture.now);
+        Fixture::request("GET", "/api/v1/membership", "Session session-1"), fixture.now);
 
     return response.status_code == 200 &&
            response.body.find("\"membership_version\":42") != std::string::npos &&
@@ -282,9 +283,9 @@ struct Fixture final
 {
     Fixture fixture;
     static_cast<void>(fixture.adapter.handle(
-        fixture.request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
     const auto started = fixture.adapter.handle(
-        fixture.request(
+        Fixture::request(
             "POST", "/api/v1/transmissions", "Session session-1",
             R"({"client_transmission_id":"client-1","scope":"group","membership_version":42})"),
         fixture.now);
@@ -301,7 +302,7 @@ struct Fixture final
     }
 
     const auto ended = fixture.adapter.handle(
-        fixture.request("DELETE", "/api/v1/transmissions/transmission-1", "Session session-1"),
+        Fixture::request("DELETE", "/api/v1/transmissions/transmission-1", "Session session-1"),
         fixture.now);
     if (ended.status_code != 200 ||
         fixture.runtime.active(domain::TransmissionId{"transmission-1"}))
@@ -319,11 +320,11 @@ struct Fixture final
 {
     Fixture fixture;
     static_cast<void>(fixture.adapter.handle(
-        fixture.request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
     const auto malformed = fixture.adapter.handle(
-        fixture.request("POST", "/api/v1/transmissions", "Session session-1", "{"), fixture.now);
+        Fixture::request("POST", "/api/v1/transmissions", "Session session-1", "{"), fixture.now);
     const auto unknown = fixture.adapter.handle(
-        fixture.request("GET", "/api/v2/membership", "Session session-1"), fixture.now);
+        Fixture::request("GET", "/api/v2/membership", "Session session-1"), fixture.now);
 
     return malformed.status_code == 400 &&
            malformed.body.find("invalid_json") != std::string::npos && unknown.status_code == 404 &&
@@ -335,14 +336,15 @@ auto main() noexcept -> int
 {
     try
     {
+        using Check = std::pair<const char*, bool (*)()>;
         const std::array checks{
-            std::pair{"session credential boundary", createsSessionOnlyAcrossTheCredentialBoundary},
-            std::pair{"credential reuse", rejectsCredentialReuseAtSessionProtectedRoutes},
-            std::pair{"session device binding", rejectsAValidSessionFromAnotherDevice},
-            std::pair{"readiness", reportsReadinessWithoutAuthentication},
-            std::pair{"membership privacy", exposesOnlyTheAuthenticatedPlayersMembership},
-            std::pair{"transmission lifecycle", startsAndEndsWithoutExposingRecipientIds},
-            std::pair{"invalid input", rejectsUnknownAndMalformedInputDeterministically}};
+            Check{"session credential boundary", &createsSessionOnlyAcrossTheCredentialBoundary},
+            Check{"credential reuse", &rejectsCredentialReuseAtSessionProtectedRoutes},
+            Check{"session device binding", &rejectsAValidSessionFromAnotherDevice},
+            Check{"readiness", &reportsReadinessWithoutAuthentication},
+            Check{"membership privacy", &exposesOnlyTheAuthenticatedPlayersMembership},
+            Check{"transmission lifecycle", &startsAndEndsWithoutExposingRecipientIds},
+            Check{"invalid input", &rejectsUnknownAndMalformedInputDeterministically}};
         for (const auto& [name, check] : checks)
         {
             if (!check())
