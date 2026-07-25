@@ -46,11 +46,11 @@ constexpr std::array<std::uint32_t, 64> round_constants{
         std::array<std::uint32_t, 64> words{};
         for (std::size_t index = 0; index < 16U; ++index)
         {
-            const auto at = offset + index * 4U;
-            words[index] = (static_cast<std::uint32_t>(message[at]) << 24U) |
-                           (static_cast<std::uint32_t>(message[at + 1U]) << 16U) |
-                           (static_cast<std::uint32_t>(message[at + 2U]) << 8U) |
-                           static_cast<std::uint32_t>(message[at + 3U]);
+            const auto byte_offset = offset + (index * 4U);
+            words[index] = (static_cast<std::uint32_t>(message[byte_offset]) << 24U) |
+                           (static_cast<std::uint32_t>(message[byte_offset + 1U]) << 16U) |
+                           (static_cast<std::uint32_t>(message[byte_offset + 2U]) << 8U) |
+                           static_cast<std::uint32_t>(message[byte_offset + 3U]);
         }
         for (std::size_t index = 16U; index < words.size(); ++index)
         {
@@ -61,48 +61,52 @@ constexpr std::array<std::uint32_t, 64> round_constants{
             words[index] = words[index - 16U] + left + words[index - 7U] + right;
         }
 
-        auto a = state[0];
-        auto b = state[1];
-        auto c = state[2];
-        auto d = state[3];
-        auto e = state[4];
-        auto f = state[5];
-        auto g = state[6];
-        auto h = state[7];
+        auto working_a = state[0];
+        auto working_b = state[1];
+        auto working_c = state[2];
+        auto working_d = state[3];
+        auto working_e = state[4];
+        auto working_f = state[5];
+        auto working_g = state[6];
+        auto working_h = state[7];
         for (std::size_t index = 0; index < words.size(); ++index)
         {
-            const auto sum1 = std::rotr(e, 6) ^ std::rotr(e, 11) ^ std::rotr(e, 25);
-            const auto choice = (e & f) ^ (~e & g);
-            const auto temp1 = h + sum1 + choice + round_constants[index] + words[index];
-            const auto sum0 = std::rotr(a, 2) ^ std::rotr(a, 13) ^ std::rotr(a, 22);
-            const auto majority = (a & b) ^ (a & c) ^ (b & c);
+            const auto sum1 =
+                std::rotr(working_e, 6) ^ std::rotr(working_e, 11) ^ std::rotr(working_e, 25);
+            const auto choice = (working_e & working_f) ^ (~working_e & working_g);
+            const auto temp1 = working_h + sum1 + choice + round_constants[index] + words[index];
+            const auto sum0 =
+                std::rotr(working_a, 2) ^ std::rotr(working_a, 13) ^ std::rotr(working_a, 22);
+            const auto majority =
+                (working_a & working_b) ^ (working_a & working_c) ^ (working_b & working_c);
             const auto temp2 = sum0 + majority;
-            h = g;
-            g = f;
-            f = e;
-            e = d + temp1;
-            d = c;
-            c = b;
-            b = a;
-            a = temp1 + temp2;
+            working_h = working_g;
+            working_g = working_f;
+            working_f = working_e;
+            working_e = working_d + temp1;
+            working_d = working_c;
+            working_c = working_b;
+            working_b = working_a;
+            working_a = temp1 + temp2;
         }
-        state[0] += a;
-        state[1] += b;
-        state[2] += c;
-        state[3] += d;
-        state[4] += e;
-        state[5] += f;
-        state[6] += g;
-        state[7] += h;
+        state[0] += working_a;
+        state[1] += working_b;
+        state[2] += working_c;
+        state[3] += working_d;
+        state[4] += working_e;
+        state[5] += working_f;
+        state[6] += working_g;
+        state[7] += working_h;
     }
 
     Hash result{};
     for (std::size_t index = 0; index < state.size(); ++index)
     {
-        result[index * 4U] = static_cast<std::uint8_t>(state[index] >> 24U);
-        result[index * 4U + 1U] = static_cast<std::uint8_t>(state[index] >> 16U);
-        result[index * 4U + 2U] = static_cast<std::uint8_t>(state[index] >> 8U);
-        result[index * 4U + 3U] = static_cast<std::uint8_t>(state[index]);
+        const auto byte_offset = index * 4U;
+        result[byte_offset] = static_cast<std::uint8_t>(state[index] >> 24U);
+        result[byte_offset + 1U] = static_cast<std::uint8_t>(state[index] >> 16U);
+        result[byte_offset + 2U] = static_cast<std::uint8_t>(state[index] >> 8U);
+        result[byte_offset + 3U] = static_cast<std::uint8_t>(state[index]);
     }
     return result;
 }
