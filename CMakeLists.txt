@@ -19,8 +19,13 @@ option(
   "Build the native LiveKit two-client quality-gate executable"
   OFF
 )
+option(
+  HVC_BUILD_WINDOWS_CLIENT
+  "Build the Windows App SDK / WinUI 3 client"
+  OFF
+)
 
-if(HVC_BUILD_LIVEKIT_QUALITY_GATE)
+if(HVC_BUILD_LIVEKIT_QUALITY_GATE OR HVC_BUILD_WINDOWS_CLIENT)
   include(HvcLiveKitSdk)
   hvc_find_livekit_sdk()
 endif()
@@ -36,6 +41,13 @@ add_subdirectory(apps/control-plane)
 
 if(WIN32)
   add_subdirectory(apps/input-quality-gate)
+endif()
+
+if(HVC_BUILD_WINDOWS_CLIENT)
+  if(NOT WIN32)
+    message(FATAL_ERROR "The WinUI client can only be built on Windows.")
+  endif()
+  add_subdirectory(apps/windows-client)
 endif()
 
 if(HVC_BUILD_LIVEKIT_QUALITY_GATE)

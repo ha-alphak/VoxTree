@@ -242,6 +242,15 @@
   melden 32 beziehungsweise 72 Buttons.
 - Reale HOTAS-/Joysticktaste bei fremdem Vordergrundfenster empfangen und über
   Windows' `RIM_INPUTSINK`-Kennzeichnung als Hintergrundereignis bestätigt.
+- Erste Windows-App-SDK-/WinUI-3-Clientschale mit Server- und Anmeldeansicht
+  angelegt.
+- Control Plane, nativen LiveKit-Transport und Raw Input bis zum verbundenen
+  Bereitschaftszustand in der Clientschale verdrahtet.
+- Vorläufige globale Team-, Specialization- und Group-PTT-Bindings auf
+  `F9`, `F10` und `F11` aktiviert und die aktuelle Membership in der
+  Bereitschaftsansicht dargestellt.
+- Windows App SDK `2.2.0` und C++/WinRT `3.0.260715.1` als reproduzierbare,
+  opt-in NuGet-Abhängigkeiten in ein eigenes CMake-Preset aufgenommen.
 
 ## Aktueller Stand
 
@@ -262,8 +271,9 @@
   WinHTTP-Adapter, das globale Tastatur-/Maus-Eingabesystem und der native
   LiveKit-Transportadapter sind vorhanden. Generische HID-Controller sind für
   Buttons und Geräteprofile verdrahtet. Der physische
-  HOTAS-Fremdfokus-Ereignisnachweis ist bestanden. Die WinUI-Oberfläche fehlt
-  noch.
+  HOTAS-Fremdfokus-Ereignisnachweis ist bestanden. Eine erste WinUI-3-Schale
+  meldet sich an der Control Plane an, verbindet die autorisierten Voice-Räume,
+  startet Raw Input und zeigt anschließend Membership und Bereitschaftsstatus.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
@@ -287,9 +297,9 @@
 
 ## Nächster Schritt
 
-Eine Windows-App-SDK-/WinUI-Clientschale mit Server- und Anmeldeansicht
-anlegen und die vorhandenen Control-Plane-, Voice- und Eingabekomponenten
-zunächst bis zum verbundenen Bereitschaftszustand verdrahten.
+Die Clientschale um eine stabile lokale Geräteidentität, persistente
+Servereinstellungen sowie Membership-/Voice-Grant-Refresh und einen
+UI-sichtbaren Reconnect-Ablauf erweitern.
 
 ## Validierung
 
@@ -299,6 +309,8 @@ zunächst bis zum verbundenen Bereitschaftszustand verdrahten.
 | Windows MSVC Release | Bestanden |
 | CTest Debug | 13 von 13 Tests bestanden |
 | CTest Release | 13 von 13 Tests bestanden |
+| WinUI-3-Client Debug-Build | Bestanden |
+| WinUI-3-Client Start-Smoke-Test | Bestanden |
 | Lokale native LiveKit-Zwei-Client-Verbindung | Bestanden |
 | Native Windows-Audiogeräteerkennung | Bestanden |
 | Lokaler Mikrofon-/Opus-Zwei-Prozess-Nachweis | Bestanden |

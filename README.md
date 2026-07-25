@@ -12,9 +12,10 @@ support future integration into games and other applications.
 > [!IMPORTANT]
 > This project is under active development and is not ready for production use.
 > The domain model and part of the server control plane are implemented; the
-> The UI-independent Windows client core, control-plane client, WinHTTP
-> transport, and native LiveKit adapter are implemented; the graphical client
-> is still planned.
+> UI-independent Windows client core, control-plane client, WinHTTP transport,
+> and native LiveKit adapter are implemented. An initial WinUI 3 shell reaches
+> the connected ready state; the complete graphical client is still in
+> development.
 
 ## Core concepts
 
@@ -65,7 +66,8 @@ The project uses C++20 and CMake.
 - **Network layer** — versioned HTTP boundary for the Linux control plane
 - **Voice transport** — self-hosted LiveKit integration behind the internal
   `IVoiceTransport` abstraction; Mumble remains the fallback option
-- **Windows client** — planned WinUI 3 application using C++/WinRT
+- **Windows client** — WinUI 3 application using C++/WinRT; the initial
+  server, sign-in, and connected-ready shell is implemented
 
 The initial secure transport model uses separate rooms for group,
 specialization, and team scopes. A shared room with selective subscriptions is
@@ -84,7 +86,7 @@ Implemented foundations include:
 - atomic transmission lifecycle handling;
 - rate limiting, timeouts, moderation termination, and typed audit events;
 - SQLite session persistence and schema migrations;
-- deterministic routing tests with a 200-participant group; and
+- deterministic routing tests with a 200-participant group;
 - Windows and Debian CI configurations;
 - UI-independent client core with exclusive multi-scope PTT coordination;
 - opt-in native LiveKit transport with room, audio, device, and reconnect
@@ -92,11 +94,13 @@ Implemented foundations include:
 - typed control-plane client for sessions, membership, grants, and
   transmissions;
 - Windows WinHTTP transport plus authorization-before-audio PTT coordination;
-- separate Team, Specialization, and Group PTT bindings; and
+- separate Team, Specialization, and Group PTT bindings;
 - focus-independent Windows keyboard, mouse, gamepad, joystick, and HOTAS
-  button capture through Win32 Raw Input and generic HID reports.
+  button capture through Win32 Raw Input and generic HID reports; and
+- an initial WinUI 3 shell that connects the control plane, authorized LiveKit
+  rooms, and Raw Input through the ready state.
 
-The graphical client is not yet complete. See
+The graphical client remains incomplete. See
 [the project status](doks/status.md) for the detailed implementation progress.
 
 ## Requirements
@@ -136,6 +140,12 @@ For a Release build:
 
 ```powershell
 .\scripts\build-windows.cmd -Preset windows-msvc-release
+```
+
+Build the opt-in WinUI 3 client with the native LiveKit transport:
+
+```powershell
+.\scripts\build-windows.cmd -Preset windows-msvc-client
 ```
 
 ### Linux

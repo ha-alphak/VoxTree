@@ -3,7 +3,8 @@ param(
     [ValidateSet(
         'windows-msvc-debug',
         'windows-msvc-release',
-        'windows-msvc-livekit-quality-gate'
+        'windows-msvc-livekit-quality-gate',
+        'windows-msvc-client'
     )]
     [string] $Preset = 'windows-msvc-debug'
 )

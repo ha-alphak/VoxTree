@@ -68,6 +68,10 @@ if(WIN32)
       FILES include/hvc/client/win_raw_input.hpp
   )
   target_compile_features(hvc_client_win_raw_input PUBLIC cxx_std_20)
+  target_compile_options(
+    hvc_client_win_raw_input
+    PRIVATE "$<$<CXX_COMPILER_ID:MSVC>:/EHsc>"
+  )
   target_link_libraries(
     hvc_client_win_raw_input
     PUBLIC hvc::client
@@ -106,6 +110,10 @@ if(WIN32)
       FILES include/hvc/client/win_http_transport.hpp
   )
   target_compile_features(hvc_client_winhttp PUBLIC cxx_std_20)
+  target_compile_options(
+    hvc_client_winhttp
+    PRIVATE "$<$<CXX_COMPILER_ID:MSVC>:/EHsc>"
+  )
   target_link_libraries(
     hvc_client_winhttp
     PUBLIC hvc::client

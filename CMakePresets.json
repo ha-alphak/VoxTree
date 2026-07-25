@@ -45,6 +45,15 @@
       }
     },
     {
+      "name": "windows-msvc-client",
+      "displayName": "Windows x64 - WinUI client",
+      "description": "WinUI 3 client shell with the native LiveKit transport",
+      "inherits": "windows-msvc",
+      "cacheVariables": {
+        "HVC_BUILD_WINDOWS_CLIENT": "ON"
+      }
+    },
+    {
       "name": "linux-gcc-debug",
       "displayName": "Debian/Linux GCC - Debug",
       "inherits": "base",
@@ -115,6 +124,15 @@
       "jobs": 0
     },
     {
+      "name": "windows-msvc-client",
+      "configurePreset": "windows-msvc-client",
+      "configuration": "Debug",
+      "targets": [
+        "hvc_windows_client"
+      ],
+      "jobs": 0
+    },
+    {
       "name": "linux-gcc-debug",
       "configurePreset": "linux-gcc-debug",
       "jobs": 0
@@ -143,6 +161,14 @@
       "name": "windows-msvc-release",
       "configurePreset": "windows-msvc",
       "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-client",
+      "configurePreset": "windows-msvc-client",
+      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }
@@ -214,6 +240,19 @@
         {
           "type": "build",
           "name": "windows-msvc-livekit-quality-gate"
+        }
+      ]
+    },
+    {
+      "name": "windows-msvc-client",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "windows-msvc-client"
+        },
+        {
+          "type": "build",
+          "name": "windows-msvc-client"
         }
       ]
     },

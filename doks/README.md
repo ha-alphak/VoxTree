@@ -16,6 +16,7 @@ Communication**.
 | [livekit-quality-gate.md](livekit-quality-gate.md) | Native SDK-Anbindung und Zwei-Client-Probe |
 | [voice-client.md](voice-client.md) | UI-unabhängiger Client-Core und LiveKit-Transportadapter |
 | [input-system.md](input-system.md) | Windows-Raw-Input, PTT-Aktionen und Bindings |
+| [windows-client.md](windows-client.md) | WinUI-Clientschale, Anmeldung und Bereitschaftszustand |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |
 | [status.md](status.md) | Laufender Projektstatus |
 
