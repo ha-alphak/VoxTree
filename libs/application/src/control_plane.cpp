@@ -1,8 +1,80 @@
+#include <algorithm>
 #include <hvc/application/control_plane.hpp>
 #include <stdexcept>
 
 namespace hvc::application
 {
+VoiceGrantPolicy::VoiceGrantPolicy(std::chrono::milliseconds maximum_lifetime)
+    : lifetime(maximum_lifetime)
+{
+    if (lifetime <= std::chrono::milliseconds::zero())
+    {
+        throw std::invalid_argument{"voice grant lifetime must be positive"};
+    }
+}
+
+VoiceGrantAuthorizationService::VoiceGrantAuthorizationService(
+    const ISessionRepository& sessions, const IAuthoritativeMembershipProvider& memberships,
+    VoiceGrantPolicy policy)
+    : sessions_(sessions), memberships_(memberships), policy_(policy)
+{
+}
+
+auto VoiceGrantAuthorizationService::derive(const domain::SessionId& session_id,
+                                            const domain::DeviceId& device_id, TimePoint now) const
+    -> VoiceGrantResult
+{
+    const auto session = sessions_.find(session_id);
+    if (!session)
+    {
+        return {{}, VoiceGrantError::session_not_found};
+    }
+    if (session->device_id != device_id)
+    {
+        return {{}, VoiceGrantError::session_device_mismatch};
+    }
+    if (!session->activeAt(now))
+    {
+        return {{}, VoiceGrantError::session_expired};
+    }
+    const auto context = memberships_.currentFor(session->player_id);
+    if (!context)
+    {
+        return {{}, VoiceGrantError::membership_unavailable};
+    }
+    const auto* membership = context->snapshot->find(session->player_id);
+    if (membership == nullptr)
+    {
+        return {{}, VoiceGrantError::player_not_in_membership};
+    }
+    if (!membership->connected || !membership->can_receive_voice)
+    {
+        return {{}, VoiceGrantError::voice_not_connected};
+    }
+
+    std::vector<domain::VoiceScope> transmit;
+    std::vector<domain::VoiceScope> receive;
+    for (const auto& scope : context->snapshot->hierarchy().scopes())
+    {
+        if (!membership->transmit_muted &&
+            membership->voice_ban_status == domain::VoiceBanStatus::none &&
+            context->role_policy->canTransmit(membership->role_ids, scope.scope))
+        {
+            transmit.push_back(scope.scope);
+        }
+        if (context->role_policy->canReceive(membership->role_ids, scope.scope))
+        {
+            receive.push_back(scope.scope);
+        }
+    }
+    const auto expiration = std::min(session->expires_at, now + policy_.lifetime);
+    return {VoiceGrantClaims{session->player_id, device_id, context->snapshot->version(),
+                             membership->group_id, membership->specialization_id,
+                             membership->team_id, std::move(transmit), std::move(receive),
+                             expiration},
+            {}};
+}
+
 namespace
 {
 auto mapRoutingError(domain::RoutingError error) -> TransmissionAuthorizationError

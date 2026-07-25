@@ -45,6 +45,22 @@ InMemoryControlPlaneStore::InMemoryControlPlaneStore(
 {
 }
 
+InMemoryControlPlaneStore::InMemoryControlPlaneStore(
+    IMutableAuthoritativeMembershipRepository& persistent_memberships,
+    ITransmissionAuditEventSink* audit_events) noexcept
+    : audit_events_(audit_events), persistent_memberships_(&persistent_memberships)
+{
+}
+
+InMemoryControlPlaneStore::InMemoryControlPlaneStore(
+    const ISessionRepository& persistent_sessions,
+    IMutableAuthoritativeMembershipRepository& persistent_memberships,
+    ITransmissionAuditEventSink* audit_events) noexcept
+    : audit_events_(audit_events), persistent_sessions_(&persistent_sessions),
+      persistent_memberships_(&persistent_memberships)
+{
+}
+
 void InMemoryControlPlaneStore::upsertSession(AuthenticatedSession session)
 {
     std::scoped_lock lock{mutex_};
@@ -77,12 +93,7 @@ auto InMemoryControlPlaneStore::find(const domain::SessionId& session_id) const
     -> std::optional<AuthenticatedSession>
 {
     std::scoped_lock lock{mutex_};
-    const auto session = sessions_.find(session_id);
-    if (session == sessions_.end())
-    {
-        return std::nullopt;
-    }
-    return session->second;
+    return currentSessionLocked(session_id);
 }
 
 auto InMemoryControlPlaneStore::updateMembership(const domain::PlayerId& player_id,
@@ -100,21 +111,42 @@ auto InMemoryControlPlaneStore::updateMembership(const domain::PlayerId& player_
             return MembershipUpdateResult::rejected(MembershipUpdateError::player_not_in_snapshot);
         }
 
-        const auto existing = memberships_.find(player_id);
-        if (existing != memberships_.end() &&
-            context.snapshot->version() <= existing->second.snapshot->version())
+        if (persistent_memberships_ != nullptr)
         {
-            return MembershipUpdateResult::rejected(MembershipUpdateError::version_not_newer);
+            if (const auto error = persistent_memberships_->upsertIfNewer(player_id, context);
+                error)
+            {
+                return MembershipUpdateResult::rejected(*error);
+            }
+        }
+        else
+        {
+            const auto existing = memberships_.find(player_id);
+            if (existing != memberships_.end() &&
+                context.snapshot->version() <= existing->second.snapshot->version())
+            {
+                return MembershipUpdateResult::rejected(MembershipUpdateError::version_not_newer);
+            }
+            memberships_.insert_or_assign(player_id, context);
         }
 
         const auto reason = change == AuthoritativeContextChange::permissions_changed
                                 ? domain::TransmissionStopReason::permission_revoked
                                 : domain::TransmissionStopReason::membership_changed;
         interrupted = interruptForPlayerLocked(player_id, reason, now, correlation_id);
-        memberships_.insert_or_assign(player_id, std::move(context));
     }
     recordForcedInterruptions(interrupted, TransmissionAuditOperation::membership_change);
     return MembershipUpdateResult::updated(std::move(interrupted));
+}
+
+auto InMemoryControlPlaneStore::replaceMembership(const domain::PlayerId& player_id,
+                                                  AuthoritativeMembershipContext context,
+                                                  TimePoint now,
+                                                  const domain::CorrelationId& correlation_id)
+    -> MembershipUpdateResult
+{
+    return updateMembership(player_id, std::move(context), now, correlation_id,
+                            AuthoritativeContextChange::membership_changed);
 }
 
 auto InMemoryControlPlaneStore::removeMembership(const domain::PlayerId& player_id, TimePoint now,
@@ -124,7 +156,14 @@ auto InMemoryControlPlaneStore::removeMembership(const domain::PlayerId& player_
     std::vector<EndedTransmission> interrupted;
     {
         std::scoped_lock lock{mutex_};
-        memberships_.erase(player_id);
+        if (persistent_memberships_ != nullptr)
+        {
+            static_cast<void>(persistent_memberships_->erase(player_id));
+        }
+        else
+        {
+            memberships_.erase(player_id);
+        }
         interrupted = interruptForPlayerLocked(
             player_id, domain::TransmissionStopReason::membership_changed, now, correlation_id);
     }
@@ -136,12 +175,7 @@ auto InMemoryControlPlaneStore::currentFor(const domain::PlayerId& player_id) co
     -> std::optional<AuthoritativeMembershipContext>
 {
     std::scoped_lock lock{mutex_};
-    const auto membership = memberships_.find(player_id);
-    if (membership == memberships_.end())
-    {
-        return std::nullopt;
-    }
-    return membership->second;
+    return currentMembershipLocked(player_id);
 }
 
 auto InMemoryControlPlaneStore::activate(AuthorizedTransmission transmission,
@@ -151,16 +185,15 @@ auto InMemoryControlPlaneStore::activate(AuthorizedTransmission transmission,
 {
     std::scoped_lock lock{mutex_};
 
-    const auto session = sessions_.find(session_id);
-    if (session == sessions_.end() || session->second.player_id != transmission.sender_player_id ||
-        session->second.device_id != device_id || !session->second.activeAt(started_at))
+    const auto session = currentSessionLocked(session_id);
+    if (!session || session->player_id != transmission.sender_player_id ||
+        session->device_id != device_id || !session->activeAt(started_at))
     {
         return TransmissionActivationResult::rejected(TransmissionActivationError::session_changed);
     }
 
-    const auto membership = memberships_.find(transmission.sender_player_id);
-    if (membership == memberships_.end() ||
-        membership->second.snapshot->version() != transmission.membership_version)
+    const auto membership = currentMembershipLocked(transmission.sender_player_id);
+    if (!membership || membership->snapshot->version() != transmission.membership_version)
     {
         return TransmissionActivationResult::rejected(
             TransmissionActivationError::membership_changed);
@@ -275,6 +308,37 @@ auto InMemoryControlPlaneStore::activeCount() const -> std::size_t
 {
     std::scoped_lock lock{mutex_};
     return active_transmissions_.size();
+}
+
+auto InMemoryControlPlaneStore::currentMembershipLocked(const domain::PlayerId& player_id) const
+    -> std::optional<AuthoritativeMembershipContext>
+{
+    if (persistent_memberships_ != nullptr)
+    {
+        return persistent_memberships_->currentFor(player_id);
+    }
+
+    const auto membership = memberships_.find(player_id);
+    if (membership == memberships_.end())
+    {
+        return std::nullopt;
+    }
+    return membership->second;
+}
+
+auto InMemoryControlPlaneStore::currentSessionLocked(const domain::SessionId& session_id) const
+    -> std::optional<AuthenticatedSession>
+{
+    const auto session = sessions_.find(session_id);
+    if (session != sessions_.end())
+    {
+        return session->second;
+    }
+    if (persistent_sessions_ != nullptr)
+    {
+        return persistent_sessions_->find(session_id);
+    }
+    return std::nullopt;
 }
 
 auto InMemoryControlPlaneStore::interruptForPlayerLocked(

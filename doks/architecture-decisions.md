@@ -71,8 +71,44 @@
   statt.
 - Sessions werden mit Session-, Spieler- und Geräte-ID sowie Ablaufzeitpunkt in
   Millisekunden seit der Unix-Epoche gespeichert.
+- Autoritative Membership-Kontexte werden vollständig mit Hierarchie,
+  Memberships, Rollenzuweisungen und getrennten Sende-/Empfangsrechten
+  gespeichert. Ein Kontext wird nur durch eine strikt höhere Version ersetzt.
+- Strukturierte Transmission-Audit-Events werden synchron mit einer
+  monotonen Einfügesequenz gespeichert. Das Schema enthält nur die
+  Empfängeranzahl und keine Empfänger-IDs.
+- Audit-Events können sequenzbasiert in stabiler Einfügereihenfolge gelesen
+  werden. Eine zeitbasierte, mengenbegrenzte Löschoperation bildet die
+  Grundlage für spätere Aufbewahrungsjobs.
+- Der `InMemoryControlPlaneStore` kann SQLite als autoritative
+  Membership-Quelle verwenden. Persistentes Versionsupdate und Abbruch einer
+  betroffenen aktiven Transmission sind dann gegenüber allen
+  Store-Operationen ein atomarer kritischer Abschnitt.
 - Aktive Transmissionen bleiben flüchtig und werden nach einem Neustart niemals
   wieder aufgenommen.
+
+## Control-Plane-Netzwerkvertrag
+
+- Der erste Netzwerkvertrag verwendet HTTP/1.1 mit JSON und ist über den
+  Basis-Pfad `/api/v1` explizit versioniert.
+- Externe Bearer-Credentials werden ausschließlich am Session-Endpunkt
+  akzeptiert und dort an `ISessionAuthenticator` übergeben. Nachgelagerte
+  Anwendungsfälle erhalten nur die ausgestellte, gerätegebundene Session-ID.
+- Die produktive Identity-Grenze trennt externe Credential-, Account-,
+  Geräte- und Rate-Limit-Prüfung von der internen Session-ID-Ausstellung.
+  Session-Laufzeiten werden serverseitig durch eine lokale Obergrenze
+  eingeschränkt.
+- Geschützte Requests benötigen zusätzlich Geräte- und Korrelations-ID.
+- Membership-Antworten enthalten ausschließlich die Membership des
+  authentifizierten Spielers.
+- Transmission-Antworten dürfen eine Empfängeranzahl, niemals jedoch interne
+  Empfänger-IDs enthalten.
+- Der erste Linux-Listener ist ein begrenzter HTTP/1.1-Adapter ohne eigene
+  TLS-Terminierung. Er wird nur an Loopback oder hinter einem
+  TLS-terminierenden Reverse Proxy betrieben.
+- Der initiale Bootstrap-Authenticator liest sein Credential aus einer Datei.
+  Er ist eine klar abgegrenzte Integrationsstufe und wird durch einen
+  produktionsfähigen Account-/Identity-Adapter ersetzt.
 
 ## Voice-Transport
 

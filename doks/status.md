@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Linux-Control-Plane – Persistenz und Schema-Migrationen<br>
+**Phase:** Linux-Control-Plane – versionierter HTTP-Netzwerkadapter<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -25,6 +25,8 @@
   angelegt.
 - CTest-Testfundament eingerichtet.
 - GitHub-CI für Windows Server 2022 und Debian 13.6 eingerichtet.
+- Vollständigen GitHub-CI-Lauf mit Windows MSVC Debug/Release, Debian GCC
+  Debug/Release und Debian Clang-Analyse erfolgreich abgeschlossen.
 - Lokale MSVC-Debug- und Release-Builds erfolgreich ausgeführt.
 - Lokale Tests, Formatprüfung, statische Analyse und Paketinstallation
   erfolgreich validiert.
@@ -96,14 +98,73 @@
   Datenbankpfad ist per Kommandozeile konfigurierbar.
 - Persistenztests für initiale und idempotente Migration, Neustart,
   Aktualisierung und Löschung von Sessions ergänzt.
+- Schreibbare Anwendungsschnittstelle für autoritative Membership-Kontexte mit
+  atomarem Compare-and-Replace auf strikt höhere Versionen ergänzt.
+- SQLite-Schema auf normalisierte Hierarchien, Scopes, Memberships,
+  Rollenzuweisungen und getrennte Sende-/Empfangsrechte erweitert.
+- Vollständige Membership-Snapshots und Rollenrichtlinien über Prozessneustarts
+  hinweg rekonstruierbar gemacht.
+- Persistentes Membership-Update im `InMemoryControlPlaneStore` mit dem
+  bestehenden atomaren Transmissionsabbruch verbunden.
+- Persistenztests für Kontext-Neustart, Versionsschutz, Löschung sowie
+  gekoppelten Rechtewechsel und Transmissionsabbruch ergänzt.
+- Strukturierte Transmission-Audit-Events mit monotoner Sequenz vollständig in
+  SQLite persistierbar gemacht.
+- Sequenzbasierte, begrenzte Abfrage in stabiler Einfügereihenfolge und
+  zeitbasierte Löschung in begrenzten Batches ergänzt.
+- Audit-Schema auf Empfängeranzahl beschränkt; interne Empfänger-IDs werden
+  weder gespeichert noch über die Persistenz-API angenommen.
+- Persistenztests für vollständigen Event-Round-trip, Prozessneustart,
+  Einfügereihenfolge, Sequenz-Paginierung und Aufbewahrungsgrenzen ergänzt.
+- Explizit versionierten HTTP/JSON-Vertrag unter `/api/v1` für Session-,
+  Membership- und Transmission-Anwendungsfälle dokumentiert.
+- Frameworkfreien `hvc-network`-Adapter mit stabilen Fehlercodes,
+  Eingabevalidierung und einheitlichen JSON-Envelopes implementiert.
+- Externe Bearer-Credentials auf die Session-Erstellung begrenzt; geschützte
+  Endpunkte akzeptieren ausschließlich ausgestellte, gerätegebundene Sessions.
+- Membership-Antworten auf den authentifizierten Spieler und
+  Transmission-Antworten auf die Empfängeranzahl ohne interne Empfänger-IDs
+  beschränkt.
+- Linux-HTTP/1.1-Listener mit Größenlimits, Timeouts und genau einem Request pro
+  Verbindung an den Control-Plane-Entry-Point angebunden.
+- Dateibasierten Bootstrap-Authenticator, zufällige Session- und
+  Transmission-IDs sowie persistente Session-Auflösung im Runtime-Store
+  verdrahtet.
+- Netzwerkadaptertests für Authentifizierungsgrenze, Gerätebindung,
+  Membership-Datenschutz, Transmission-Lebenszyklus und fehlerhafte Eingaben
+  ergänzt.
+- Produktionsfähige Account-/Identity-Grenze mit getrennten Schnittstellen für
+  externe Identitätsprüfung und interne Session-ID-Ausstellung eingeführt.
+- Serverseitige Session-Laufzeit auf das Minimum aus Provider-Vorgabe und
+  Control-Plane-Richtlinie begrenzt; Provider-Ablehnungen bleiben typisiert.
+- Den dateibasierten Bootstrap-Login als austauschbaren Identity-Provider hinter
+  die neue Grenze verschoben und die Session-Erstellung separat getestet.
+- Separat autorisierte administrative Lese- und Löschendpunkte für Memberships
+  ergänzt; normale Sessions erhalten keine impliziten Verwaltungsrechte.
+- Kurzlebige Voice-Grant-Claims werden serverseitig aus gerätegebundener Session,
+  aktueller Membership-Version und Rollenrichtlinie abgeleitet.
+- Separat autorisierte administrative Compare-and-Replace-Updates für einzelne
+  Spieler-Memberships über `PUT /api/v1/admin/memberships/{player-id}` ergänzt.
+- Strikt aufsteigende Membership-Versionen und atomarer Transmissionsabbruch
+  bleiben auch über den Netzwerkvertrag erhalten.
+- Eigenständigen LiveKit-Tokenadapter mit HS256-Signatur, getrennten
+  Scope-Räumen und unabhängigen Publish-/Subscribe-Rechten implementiert.
 
 ## Aktueller Stand
 
 - Das technische Projektfundament, der transportunabhängige Domänenkern, der
-  In-Memory-Transmissionslebenszyklus und die erste dauerhafte Session-Ablage
-  sind vorhanden und lokal validiert.
-- Es existieren noch keine Netzwerk-, Membership-Persistenz-, Audit-Persistenz-
-  oder Voice-Transportadapter.
+  In-Memory-Transmissionslebenszyklus sowie die dauerhafte Session-,
+  Membership- und Audit-Ablage sind vorhanden und lokal validiert.
+- Der erste versionierte Control-Plane-Netzwerkadapter ist implementiert. Der
+  plattformunabhängige Vertrag und Dispatcher sind unter Windows lokal
+  validiert; der Linux-spezifische Socketpfad wurde durch Debian-CI erfolgreich
+  gebaut und getestet.
+- Der Anwendungskern ist für einen produktiven OIDC-/Account-Adapter
+  vorbereitet. Die konkrete externe Provider-Anbindung ist eine
+  Deployment-Entscheidung; der lokale Linux-Start verwendet weiterhin den
+  Bootstrap-Provider.
+- Die LiveKit-Tokenausstellung ist vorhanden; die native Client-/Audioanbindung
+  wurde noch nicht begonnen.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
@@ -111,9 +172,8 @@
 
 ## Nächster Schritt
 
-SQLite-Persistenz auf autoritative Membership-Kontexte und Rollenrichtlinien
-erweitern und dabei atomare Versionsaktualisierungen mit dem bestehenden
-Transmissionsabbruch verbinden.
+Das LiveKit-C++-Quality-Gate beginnen und zunächst die reproduzierbare native
+SDK-Anbindung sowie die Verbindung zweier Windows-Testclients nachweisen.
 
 ## Validierung
 
@@ -121,13 +181,15 @@ Transmissionsabbruch verbinden.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug | 6 von 6 Tests bestanden |
-| CTest Release | 6 von 6 Tests bestanden |
+| CTest Debug | 9 von 9 Tests bestanden |
+| CTest Release | 9 von 9 Tests bestanden |
 | Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
-| clang-tidy | Konfiguriert, aktueller Lauf über Debian-CI |
+| clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
 | CMake-Installation und Paketexport inklusive `hvc::domain` | Bestanden |
-| Debian-CI | Konfiguriert, Ausführung nach Push |
+| Debian GCC Debug | Bestanden, 7 von 7 Tests |
+| Debian GCC Release | Bestanden, 7 von 7 Tests |
+| GitHub-CI-Gesamtlauf | Bestanden |
 
 ## Risiken
 

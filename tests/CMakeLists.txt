@@ -50,6 +50,19 @@ set_target_properties(hvc_application_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME application.control_plane COMMAND hvc_application_tests)
 
+add_executable(hvc_application_identity_tests application/identity_tests.cpp)
+
+target_link_libraries(
+  hvc_application_identity_tests
+  PRIVATE
+    hvc::application
+    hvc::project_options
+)
+
+set_target_properties(hvc_application_identity_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME application.identity COMMAND hvc_application_identity_tests)
+
 add_executable(
   hvc_application_in_memory_tests
   application/in_memory_control_plane_tests.cpp
@@ -80,4 +93,28 @@ target_link_libraries(
 
 set_target_properties(hvc_persistence_tests PROPERTIES CXX_EXTENSIONS OFF)
 
-add_test(NAME persistence.sqlite_sessions COMMAND hvc_persistence_tests)
+add_test(NAME persistence.sqlite_control_plane COMMAND hvc_persistence_tests)
+
+add_executable(
+  hvc_network_tests
+  network/control_plane_http_tests.cpp
+)
+
+target_link_libraries(
+  hvc_network_tests
+  PRIVATE
+    hvc::network
+    hvc::project_options
+)
+
+set_target_properties(hvc_network_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME network.control_plane_http COMMAND hvc_network_tests)
+
+add_executable(hvc_livekit_tests livekit/livekit_token_tests.cpp)
+target_link_libraries(
+  hvc_livekit_tests
+  PRIVATE hvc::livekit hvc::project_options
+)
+set_target_properties(hvc_livekit_tests PROPERTIES CXX_EXTENSIONS OFF)
+add_test(NAME livekit.token COMMAND hvc_livekit_tests)

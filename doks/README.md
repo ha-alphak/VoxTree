@@ -12,6 +12,7 @@ Communication**.
 | [architecture-decisions.md](architecture-decisions.md) | Aktuell verbindliche Architekturentscheidungen |
 | [state-machines.md](state-machines.md) | Verbindungs- und Transmission-Zustandsautomaten |
 | [control-plane.md](control-plane.md) | Anwendungsschicht und Control-Plane-Schnittstellen |
+| [network-contract-v1.md](network-contract-v1.md) | Versionierter HTTP-Vertrag der Control-Plane |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |
 | [status.md](status.md) | Laufender Projektstatus |
 

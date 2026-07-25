@@ -86,6 +86,27 @@ versioniert.
   Portabilität und Lesbarkeit.
 - clang-format und `.editorconfig` definieren die Quellcodeformatierung.
 
+## Wiederkehrende Clang-Tidy-Regeln
+
+Die Linux-Analyse behandelt sämtliche Clang-Tidy-Befunde als Fehler. Neue
+Implementierungen und Tests müssen deshalb insbesondere folgende Regeln bereits
+beim Schreiben berücksichtigen:
+
+- Variablennamen bestehen aus mindestens drei Zeichen. Auch in
+  kryptografischen Algorithmen werden keine einbuchstabigen Arbeitsvariablen
+  verwendet; stattdessen sind Namen wie `working_a` oder `byte_offset` zu
+  verwenden.
+- Gemischte Rechenausdrücke mit unterschiedlicher Operatorpriorität werden
+  explizit geklammert, beispielsweise `offset + (index * 4U)`.
+- Leere `catch`-Blöcke sind unzulässig. Erwartete Exceptions werden durch einen
+  Rückgabewert oder ein explizites Status-Flag festgehalten.
+- Testprogramme deklarieren `main()` als `noexcept` und fangen unerwartete
+  `std::exception` ab. Der Fehlertext wird auf `stderr` ausgegeben und das
+  Programm endet mit einem von null verschiedenen Status.
+- Nach Änderungen an C++-Dateien werden clang-format, die betroffenen
+  Clang-Tidy-Prüfungen und mindestens der lokale Debug-Build mit allen Tests
+  ausgeführt.
+
 ## Abhängigkeiten
 
 Der SQLite-Persistenzadapter verwendet ausschließlich die C-Schnittstelle der

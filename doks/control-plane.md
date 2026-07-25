@@ -4,22 +4,27 @@
 
 ## Modulgrenzen
 
-Die Control-Plane besteht aus zwei Targets:
+Die Control-Plane besteht aus vier Targets:
 
 - `hvc-application` enthält transport- und frameworkunabhängige
   Anwendungs-Schnittstellen, die serverseitige Autorisierung sowie vollständige
   Start- und End-Anwendungsfälle für Transmissionen.
 - `hvc-control-plane` ist der ausführbare Server-Entry-Point. Netzwerkprotokoll,
-  dauerhafte Persistenz und Transportadapter werden in folgenden Schritten
-  ergänzt.
+  Datenbankmigration, Adapterverdrahtung und Linux-Listener werden hier
+  zusammengeführt.
+- `hvc-network` bildet den versionierten HTTP-v1-Vertrag auf die
+  frameworkunabhängigen Anwendungsschnittstellen ab.
+- `hvc-persistence` bindet SQLite als dauerhafte Ablage an.
 
 Die Anwendungsschicht verwendet `hvc-domain` für die autoritative
 Empfängerermittlung. Sie hängt weder von LiveKit noch von einem HTTP-Framework
 oder einer Datenbank ab.
 
 `hvc-persistence` ist ein Adaptermodul. Es hängt von `hvc-application` ab und
-stellt mit `SqliteSessionRepository` die erste dauerhafte Implementierung einer
-Anwendungsschnittstelle bereit.
+stellt mit `SqliteControlPlaneRepository` die dauerhafte Implementierung für
+Sessions, autoritative Membership-Kontexte und Transmission-Audit-Events
+bereit. Der bisherige Name `SqliteSessionRepository` bleibt als
+Quellcode-Kompatibilitätsalias erhalten.
 
 ## Authentifizierte Sessions
 
@@ -41,10 +46,18 @@ Session-, Spieler- und Geräte-ID sowie den Ablaufzeitpunkt. Er kann nach dem
 Schließen mit derselben Datenbankdatei erneut geöffnet werden, ohne die
 Sessions zu verlieren.
 
+`IdentitySessionAuthenticator` trennt die produktive Identity-Anbindung in zwei
+Verantwortlichkeiten. `IIdentityProvider` prüft das opake externe Credential,
+den Accountstatus, die Geräterichtlinie und vorgelagerte Rate Limits.
+`ISessionIdGenerator` erzeugt davon unabhängig die interne Session-ID. Die
+ausgestellte Laufzeit ist stets das Minimum aus der vom Provider zugelassenen
+Laufzeit und der lokalen `IdentitySessionPolicy`. Externe Tokens werden dadurch
+weder als interne Session-ID wiederverwendet noch persistiert.
+
 ## Schema-Migrationen
 
-`SqliteSessionRepository` migriert seine Datenbank beim Öffnen auf die aktuell
-unterstützte Schemaversion. Die erste Migration legt an:
+`SqliteControlPlaneRepository` migriert seine Datenbank beim Öffnen auf die
+aktuell unterstützte Schemaversion. Die erste Migration legt an:
 
 - `schema_migrations` als nachvollziehbare Historie,
 - `sessions` als dauerhafte Session-Ablage,
@@ -54,6 +67,24 @@ Jede Migration läuft innerhalb von `BEGIN IMMEDIATE` und `COMMIT`; bei einem
 Fehler erfolgt ein Rollback. `PRAGMA user_version` ist die verbindliche
 Schemaversion. Fehlende Versionsschritte und neuere, vom Programm nicht
 unterstützte Datenbanken werden abgelehnt.
+
+Die zweite Migration ergänzt normalisierte Tabellen für:
+
+- den Kontextbesitzer, die Snapshot-Version und die Hierarchie-ID,
+- Scope-, Gruppen-, Specialization- und Team-Definitionen,
+- Memberships einschließlich Verbindungs-, Mute- und Ban-Status,
+- Rollenzuweisungen sowie getrennte Sende- und Empfangsrechte.
+
+Ein vollständiger Kontext wird mit allen abhängigen Datensätzen in einer
+SQLite-Transaktion ersetzt. Der Adapter vergleicht die als vorzeichenlosen
+64-Bit-Wert gespeicherte Version innerhalb derselben Transaktion und lehnt
+gleiche oder ältere Versionen ab.
+
+Die dritte Migration ergänzt `transmission_audit_events`. Eine automatisch
+vergebene, niemals wiederverwendete Sequenz bildet die verbindliche
+Einfügereihenfolge. Ein Zeitindex unterstützt spätere Aufbewahrungsjobs. Das
+Schema enthält alle typisierten Audit-Felder einschließlich Empfängeranzahl,
+aber keine Spalte für interne Empfänger-IDs.
 
 Die ausführbare Control-Plane öffnet die Datenbank beim Start und führt damit
 die Migrationen vor allen späteren Netzwerkdiensten aus. Standardmäßig wird
@@ -65,15 +96,18 @@ Pfad gewählt werden.
 `IAuthoritativeMembershipProvider` liefert für einen authentifizierten Spieler
 einen konsistenten Anwendungskontext aus:
 
-- immutablem, versioniertem `MembershipSnapshot`
+- einem immutablen, versionierten `MembershipSnapshot`
 - dazugehöriger `RolePolicy`
 
 Beide Objekte werden zusammen bezogen, damit die Transmission nicht gegen eine
 Membership-Version und eine davon abweichende Rollenrichtlinie geprüft wird.
-Persistenz und Cache-Invalidierung bleiben Adapteraufgaben. Der
-`InMemoryControlPlaneStore` aktualisiert einen Kontext nur mit einer höheren
-Version und beendet eine aktive Transmission desselben Spielers innerhalb
-desselben kritischen Abschnitts.
+`IMutableAuthoritativeMembershipRepository` ergänzt atomare
+Compare-and-Replace- sowie Löschoperationen. Der `InMemoryControlPlaneStore`
+kann diese Schnittstelle als persistente Quelle verwenden. Er hält sein
+Store-Lock über das erfolgreiche SQLite-Update und den Abbruch einer aktiven
+Transmission desselben Spielers. Startaktivierung, Membership-Lesen und
+Membership-Änderung sehen dadurch entweder vollständig den alten oder
+vollständig den neuen Zustand.
 
 ## Transmission-Autorisierung
 
@@ -150,19 +184,52 @@ Ein Event enthält je nach Vorgang Session-, Geräte-, Client-Transmission-,
 Transmission-, Akteur- und Sender-ID, Scope, Membership-Version,
 Empfängeranzahl, Zeitpunkt, Korrelations-ID sowie einen typisierten Ablehnungs-
 oder Abbruchgrund. Die interne Empfängerliste ist ausdrücklich kein Bestandteil
-des Events. Ein späterer Adapter übernimmt Serialisierung, dauerhafte Ablage,
-Zugriffsschutz und Aufbewahrungsregeln.
+des Events.
 
-Die Schnittstelle ist der Anwendungskern. Ein späterer HTTP-Adapter darf nach
-außen nur geeignete Metadaten wie Transmission-ID, Scope, Status und
-Empfängeranzahl ausgeben, nicht die interne Empfängerliste.
+`SqliteControlPlaneRepository` implementiert den Audit-Sink synchron. Persistierte
+Events können ab einer exklusiven Sequenz in stabiler Einfügereihenfolge und mit
+einem Ergebnislimit gelesen werden. `eraseAuditEventsBefore` entfernt ältere
+Events in begrenzten Batches; die konkrete Frist und der Scheduler bleiben
+Betriebskonfiguration. Da die Anwendungsschnittstelle `record` bewusst
+`noexcept` ist, zählt `droppedAuditEventCount` fehlgeschlagene Schreibvorgänge
+für die spätere Betriebsüberwachung.
+
+Die Schnittstelle ist der Anwendungskern. Der HTTP-Adapter gibt nach außen nur
+geeignete Metadaten wie Transmission-ID, Scope, Status und Empfängeranzahl aus,
+nicht die interne Empfängerliste.
+
+## HTTP-v1-Adapter
+
+`ControlPlaneHttpAdapter` stellt Session-Erstellung, Abfrage der eigenen
+Membership sowie Start, Ende und Moderationsabbruch von Transmissionen unter
+`/api/v1` bereit. Die vollständige Feld- und Fehlerdefinition steht in
+`network-contract-v1.md`.
+
+Die Authentifizierungsgrenze ist explizit: Nur die Session-Erstellung akzeptiert
+ein externes Bearer-Credential und übergibt es an `ISessionAuthenticator`.
+Geschützte Endpunkte akzeptieren ausschließlich das Schema `Session` mit der
+zuvor ausgestellten Session-ID und prüfen Gerätebindung sowie Ablaufzeitpunkt.
+
+Der Linux-Entry-Point verdrahtet den Adapter mit SQLite, dem
+`InMemoryControlPlaneStore`, Rate Limits und Audit-Persistenz. Persistierte
+Sessions werden beim ersten Anwendungszugriff direkt aus SQLite gelesen; die
+atomare Aktivierungsprüfung verwendet dieselbe Quelle. Ein
+Bootstrap-Identity-Provider liest das Credential aus einer Datei. Die
+allgemeine `IdentitySessionAuthenticator`-Schicht stellt daraus 15 Minuten
+gültige Sessions für genau einen konfigurierten Spieler aus. Ein produktiver
+OIDC-, OAuth- oder eigener Account-Provider kann den Bootstrap-Provider
+ersetzen, ohne HTTP-Adapter, Session-Persistenz oder Anwendungsfälle zu ändern.
+
+Der Linux-Socketadapter begrenzt Header und Body, lehnt Transfer-Encoding ab und
+schließt jede Verbindung nach genau einem HTTP/1.1-Request. TLS bleibt Aufgabe
+eines vorgeschalteten Reverse Proxys.
 
 ## Noch nicht enthalten
 
-- HTTP- oder gRPC-Endpunkte
-- dauerhafte Account-, Geräte- oder Membership-Persistenz
-- kryptografische Tokenprüfung und kurzlebige Voice-Grants
+- konkrete produktive Account-/Identity-Provider-Anbindung und dauerhafte
+  Account- oder Geräte-Persistenz
+- produktionsfähige kryptografische Tokenprüfung und kurzlebige Voice-Grants
+- autorisierte administrative HTTP-Endpunkte für Membership-Änderungen
 - dauerhafte Rate-Limit- und Moderationsrichtlinien
 - Scheduler für die regelmäßige Timeout-Prüfung
-- dauerhafter Audit-Log-Adapter
 - LiveKit-Anbindung
