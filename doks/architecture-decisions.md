@@ -57,6 +57,23 @@
 - HTTP, Persistenz, Tokenprüfung, Audit-Logging und Voice-Transport werden über
   Adapter angebunden.
 
+## Control-Plane-Persistenz
+
+- Persistenz bleibt über Anwendungsschnittstellen vom Control-Plane-Kern
+  getrennt.
+- Die erste dauerhafte Ablage verwendet SQLite. Unter Windows wird die
+  Betriebssystembibliothek `winsqlite3`, unter Debian `libsqlite3` verwendet.
+- Jede Datenbank enthält eine Migrationshistorie und eine ganzzahlige
+  Schemaversion. Migrationen werden strikt aufsteigend und jeweils in einer
+  Transaktion ausgeführt.
+- Eine Datenbank mit einer neueren als der vom Programm unterstützten
+  Schemaversion wird beim Start abgelehnt; ein stilles Downgrade findet nicht
+  statt.
+- Sessions werden mit Session-, Spieler- und Geräte-ID sowie Ablaufzeitpunkt in
+  Millisekunden seit der Unix-Epoche gespeichert.
+- Aktive Transmissionen bleiben flüchtig und werden nach einem Neustart niemals
+  wieder aufgenommen.
+
 ## Voice-Transport
 
 - LiveKit wird als selbst betriebene WebRTC-SFU eingesetzt.

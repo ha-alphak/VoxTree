@@ -65,3 +65,19 @@ target_link_libraries(
 set_target_properties(hvc_application_in_memory_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME application.in_memory_control_plane COMMAND hvc_application_in_memory_tests)
+
+add_executable(
+  hvc_persistence_tests
+  persistence/sqlite_session_repository_tests.cpp
+)
+
+target_link_libraries(
+  hvc_persistence_tests
+  PRIVATE
+    hvc::persistence
+    hvc::project_options
+)
+
+set_target_properties(hvc_persistence_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME persistence.sqlite_sessions COMMAND hvc_persistence_tests)

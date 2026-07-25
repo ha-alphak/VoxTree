@@ -86,23 +86,34 @@
   Rechteänderungen angebunden; interne Empfängerlisten bleiben ausgeschlossen.
 - Anwendungstests für Eventtyp, Operation, Akteur, Korrelation, Ablehnungs- und
   Abbruchgründe ergänzt.
+- Schreibbare Session-Repository-Schnittstelle ergänzend zur lesenden
+  Anwendungsschnittstelle festgelegt.
+- Plattformübergreifenden SQLite-Adapter für dauerhafte, gerätegebundene
+  Sessions implementiert.
+- Transaktionale, strikt aufsteigende Schema-Migrationen mit Migrationshistorie
+  und Schutz vor nicht unterstützten neueren Schemaversionen eingerichtet.
+- Control-Plane-Start an die Datenbankinitialisierung und Migration angebunden;
+  Datenbankpfad ist per Kommandozeile konfigurierbar.
+- Persistenztests für initiale und idempotente Migration, Neustart,
+  Aktualisierung und Löschung von Sessions ergänzt.
 
 ## Aktueller Stand
 
-- Das technische Projektfundament, der transportunabhängige Domänenkern sowie
-  der In-Memory-Transmissionslebenszyklus einschließlich Rate Limits, Timeouts
-  Moderationsabbrüchen und strukturierter Audit-Events sind vorhanden und lokal
-  validiert.
-- Es existieren noch keine Netzwerk-, dauerhaften Persistenz- oder
-  Voice-Transportadapter.
-- Das Projektfundament benötigt keine externen C++-Abhängigkeiten.
+- Das technische Projektfundament, der transportunabhängige Domänenkern, der
+  In-Memory-Transmissionslebenszyklus und die erste dauerhafte Session-Ablage
+  sind vorhanden und lokal validiert.
+- Es existieren noch keine Netzwerk-, Membership-Persistenz-, Audit-Persistenz-
+  oder Voice-Transportadapter.
+- SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
+  Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Persistenzschnittstellen festlegen und eine erste dauerhafte Speicherung mit
-versionierten Schema-Migrationen für Control-Plane-Daten anbinden.
+SQLite-Persistenz auf autoritative Membership-Kontexte und Rollenrichtlinien
+erweitern und dabei atomare Versionsaktualisierungen mit dem bestehenden
+Transmissionsabbruch verbinden.
 
 ## Validierung
 
@@ -110,8 +121,8 @@ versionierten Schema-Migrationen für Control-Plane-Daten anbinden.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug | 5 von 5 Tests bestanden |
-| CTest Release | 5 von 5 Tests bestanden |
+| CTest Debug | 6 von 6 Tests bestanden |
+| CTest Release | 6 von 6 Tests bestanden |
 | Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Konfiguriert, aktueller Lauf über Debian-CI |

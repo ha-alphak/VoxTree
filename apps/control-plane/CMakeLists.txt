@@ -5,6 +5,7 @@ target_link_libraries(
   hvc_control_plane
   PRIVATE
     hvc::application
+    hvc::persistence
     hvc::project_options
 )
 

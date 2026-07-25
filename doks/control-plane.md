@@ -17,6 +17,10 @@ Die Anwendungsschicht verwendet `hvc-domain` für die autoritative
 Empfängerermittlung. Sie hängt weder von LiveKit noch von einem HTTP-Framework
 oder einer Datenbank ab.
 
+`hvc-persistence` ist ein Adaptermodul. Es hängt von `hvc-application` ab und
+stellt mit `SqliteSessionRepository` die erste dauerhafte Implementierung einer
+Anwendungsschnittstelle bereit.
+
 ## Authentifizierte Sessions
 
 `ISessionAuthenticator` bildet einen externen Berechtigungsnachweis und eine
@@ -30,6 +34,31 @@ Geräte-ID auf eine `AuthenticatedSession` ab. Eine Session bindet serverseitig:
 `ISessionRepository` stellt bereits ausgestellte Sessions für
 Anwendungsfälle bereit. Eine Transmission wird abgelehnt, wenn die Session
 fehlt, abgelaufen ist oder nicht zum anfragenden Gerät gehört.
+
+`IMutableSessionRepository` ergänzt die Schreiboperationen `upsert` und
+`erase`. Der SQLite-Adapter implementiert diese Schnittstelle und speichert
+Session-, Spieler- und Geräte-ID sowie den Ablaufzeitpunkt. Er kann nach dem
+Schließen mit derselben Datenbankdatei erneut geöffnet werden, ohne die
+Sessions zu verlieren.
+
+## Schema-Migrationen
+
+`SqliteSessionRepository` migriert seine Datenbank beim Öffnen auf die aktuell
+unterstützte Schemaversion. Die erste Migration legt an:
+
+- `schema_migrations` als nachvollziehbare Historie,
+- `sessions` als dauerhafte Session-Ablage,
+- Indizes für Spieler und Ablaufzeitpunkt.
+
+Jede Migration läuft innerhalb von `BEGIN IMMEDIATE` und `COMMIT`; bei einem
+Fehler erfolgt ein Rollback. `PRAGMA user_version` ist die verbindliche
+Schemaversion. Fehlende Versionsschritte und neuere, vom Programm nicht
+unterstützte Datenbanken werden abgelehnt.
+
+Die ausführbare Control-Plane öffnet die Datenbank beim Start und führt damit
+die Migrationen vor allen späteren Netzwerkdiensten aus. Standardmäßig wird
+`hvc-control-plane.db` verwendet; mit `--database <path>` kann ein anderer
+Pfad gewählt werden.
 
 ## Autoritative Membership
 
@@ -131,7 +160,7 @@ Empfängeranzahl ausgeben, nicht die interne Empfängerliste.
 ## Noch nicht enthalten
 
 - HTTP- oder gRPC-Endpunkte
-- dauerhafte Account-, Session- oder Gerätepersistenz
+- dauerhafte Account-, Geräte- oder Membership-Persistenz
 - kryptografische Tokenprüfung und kurzlebige Voice-Grants
 - dauerhafte Rate-Limit- und Moderationsrichtlinien
 - Scheduler für die regelmäßige Timeout-Prüfung

@@ -43,7 +43,7 @@ findet die mit Visual Studio installierte Version über `vswhere.exe`.
 Benötigte Pakete:
 
 ```bash
-apt-get install build-essential cmake ninja-build
+apt-get install build-essential cmake libsqlite3-dev ninja-build
 ```
 
 Debug-Build mit AddressSanitizer und UndefinedBehaviorSanitizer:
@@ -88,8 +88,13 @@ versioniert.
 
 ## Abhängigkeiten
 
-Das Projektfundament verwendet noch keine externen C++-Bibliotheken. Neue
-Abhängigkeiten werden erst nach Lizenz-, Sicherheits- und Wartungsprüfung
-aufgenommen und müssen auf eine reproduzierbare Version festgelegt werden.
-Direkte Downloads einer unbestimmten neuesten Version sind in Build und CI
-nicht zulässig.
+Der SQLite-Persistenzadapter verwendet ausschließlich die C-Schnittstelle der
+Plattformbibliothek:
+
+- Windows: `winsqlite3` aus dem Windows SDK,
+- Debian: `libsqlite3-dev` aus der auf Debian 13.6 festgelegten CI-Umgebung.
+
+Weitere Abhängigkeiten werden erst nach Lizenz-, Sicherheits- und
+Wartungsprüfung aufgenommen und müssen auf eine reproduzierbare Version
+festgelegt werden. Direkte Downloads einer unbestimmten neuesten Version sind
+in Build und CI nicht zulässig.

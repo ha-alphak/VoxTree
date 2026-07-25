@@ -43,6 +43,7 @@ jobs:
             build-essential \
             ca-certificates \
             cmake \
+            libsqlite3-dev \
             ninja-build
 
       - name: Check out sources
@@ -65,6 +66,7 @@ jobs:
             clang-format \
             clang-tidy \
             cmake \
+            libsqlite3-dev \
             ninja-build
 
       - name: Check out sources

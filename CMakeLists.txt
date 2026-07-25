@@ -17,6 +17,7 @@ hvc_initialize_project_options()
 add_subdirectory(libs/foundation)
 add_subdirectory(libs/domain)
 add_subdirectory(libs/application)
+add_subdirectory(libs/persistence)
 add_subdirectory(apps/control-plane)
 
 if(HVC_BUILD_TESTS)

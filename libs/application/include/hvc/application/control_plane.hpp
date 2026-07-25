@@ -96,6 +96,15 @@ class ISessionRepository
         -> std::optional<AuthenticatedSession> = 0;
 };
 
+class IMutableSessionRepository : public ISessionRepository
+{
+  public:
+    ~IMutableSessionRepository() override = default;
+
+    virtual void upsert(AuthenticatedSession session) = 0;
+    [[nodiscard]] virtual auto erase(const domain::SessionId& session_id) -> bool = 0;
+};
+
 struct AuthoritativeMembershipContext final
 {
     AuthoritativeMembershipContext(std::shared_ptr<const domain::MembershipSnapshot> snapshot_value,
