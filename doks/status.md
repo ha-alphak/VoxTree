@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Domänenkern – Routing abgeschlossen  
+**Phase:** Domänenkern – Zustandsautomaten abgeschlossen<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -41,11 +41,19 @@
   Mute-/Block-Restriktionen implementiert.
 - Routing- und Validierungstests einschließlich eines deterministischen
   200-Spieler-Szenarios ergänzt.
+- Transportunabhängige Zustandsautomaten für Verbindung, Reconnect und
+  Transmission ergänzt.
+- Membership-Refresh und Wiederherstellung der Empfangsabonnements als
+  Voraussetzung für einen bereiten Verbindungszustand umgesetzt.
+- Sicheren Transmissionsabbruch bei Disconnect, Membership-Änderung,
+  Rechteentzug, Timeout und Transportfehler umgesetzt.
+- Korrelierte Transmission-Anfragen verhindern, dass verspätete Antworten eine
+  neue oder nach einem Reconnect verworfene Transmission aktivieren.
 
 ## Aktueller Stand
 
-- Das technische Projektfundament und der erste fachliche Domänenkern sind
-  vorhanden und lokal validiert.
+- Das technische Projektfundament und der transportunabhängige Domänenkern für
+  Hierarchie, Routing und Sitzungszustände sind vorhanden und lokal validiert.
 - Es existiert noch kein Anwendungs-, Control-Plane- oder Transportcode.
 - Das Projektfundament benötigt keine externen C++-Abhängigkeiten.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
@@ -53,9 +61,9 @@
 
 ## Nächster Schritt
 
-Transportunabhängige Zustandsautomaten für Verbindung, Reconnect und
-Transmission anlegen. Insbesondere darf eine vor dem Verbindungsabbruch aktive
-Transmission nach dem Reconnect nicht automatisch fortgesetzt werden.
+Grundgerüst der Linux-Control-Plane anlegen und die ersten
+Anwendungs-Schnittstellen für authentifizierte Sessions, autoritative
+Membership-Snapshots und serverseitig autorisierte Transmissionen definieren.
 
 ## Validierung
 
@@ -63,7 +71,8 @@ Transmission nach dem Reconnect nicht automatisch fortgesetzt werden.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug und Release | 2 von 2 Tests bestanden |
+| CTest Debug und Release | 3 von 3 Tests bestanden |
+| Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden |
 | CMake-Installation und Paketexport inklusive `hvc::domain` | Bestanden |

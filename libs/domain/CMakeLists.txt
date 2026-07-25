@@ -6,6 +6,7 @@ target_sources(
   PRIVATE
     src/model.cpp
     src/routing.cpp
+    src/state_machine.cpp
   PUBLIC
     FILE_SET public_headers
     TYPE HEADERS
@@ -14,6 +15,7 @@ target_sources(
       include/hvc/domain/id.hpp
       include/hvc/domain/model.hpp
       include/hvc/domain/routing.hpp
+      include/hvc/domain/state_machine.hpp
 )
 
 target_include_directories(

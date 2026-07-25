@@ -36,6 +36,7 @@ struct SpecializationIdTag;
 struct TeamIdTag;
 struct HierarchyIdTag;
 struct TransmissionIdTag;
+struct ClientTransmissionIdTag;
 struct RoleIdTag;
 
 using PlayerId = StrongId<PlayerIdTag>;
@@ -44,5 +45,6 @@ using SpecializationId = StrongId<SpecializationIdTag>;
 using TeamId = StrongId<TeamIdTag>;
 using HierarchyId = StrongId<HierarchyIdTag>;
 using TransmissionId = StrongId<TransmissionIdTag>;
+using ClientTransmissionId = StrongId<ClientTransmissionIdTag>;
 using RoleId = StrongId<RoleIdTag>;
 } // namespace hvc::domain

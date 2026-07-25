@@ -58,6 +58,20 @@
 - Ein gemeinsamer Group-Raum mit servergesteuerter Selective Subscription ist
   eine spätere Optimierung und erfordert vorher einen Security-Nachweis.
 
+## Verbindungs- und Transmission-Zustände
+
+- Die Domänenzustände sind unabhängig vom Voice-Transport modelliert.
+- Eine Transportverbindung gilt erst nach einem autoritativen Membership-Refresh
+  und dem Wiederherstellen der Empfangsabonnements als bereit.
+- Jeder Verbindungsverlust verwirft die bekannte Membership-Version und beendet
+  eine angefragte oder aktive Transmission unmittelbar.
+- Ein Reconnect stellt den ausgewählten lokalen Scope wieder her, setzt eine
+  zuvor aktive Transmission aber niemals automatisch fort.
+- Asynchrone Transmission-Antworten werden über eine Client-Transmission-ID
+  korreliert, damit verspätete Antworten keine neue Transmission aktivieren.
+- Membership-Änderungen müssen eine höhere Version besitzen, beenden aktive
+  Transmissionen und erfordern erneut angewendete Empfangsabonnements.
+
 ## Push-to-Talk und Eingabegeräte
 
 - Team, Specialization und Group besitzen jeweils eine separate
@@ -84,4 +98,3 @@ Alle Grenzwerte sind konfigurierbar. Die initialen Standardwerte sind:
 
 Die Priorität lautet Group, Specialization, Team. Priorisierung beeinflusst
 Ducking und Stream-Admission, niemals die Empfängerberechtigung.
-

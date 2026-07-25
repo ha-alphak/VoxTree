@@ -10,6 +10,7 @@ Communication**.
 | [spec.md](spec.md) | Ursprüngliche Software Feature Specification |
 | [implementation-plan.md](implementation-plan.md) | Abgestimmter Umsetzungsplan |
 | [architecture-decisions.md](architecture-decisions.md) | Aktuell verbindliche Architekturentscheidungen |
+| [state-machines.md](state-machines.md) | Verbindungs- und Transmission-Zustandsautomaten |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |
 | [status.md](status.md) | Laufender Projektstatus |
 
@@ -18,4 +19,3 @@ Communication**.
 Spezifikationen, Pläne, Architekturentscheidungen, technische Dokumentationen
 und Statusberichte werden ausschließlich in diesem Ordner abgelegt und mit Git
 versioniert.
-
