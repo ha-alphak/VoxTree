@@ -1,6 +1,7 @@
 #include <array>
 #include <chrono>
 #include <cstdio>
+#include <exception>
 #include <hvc/livekit/livekit_token.hpp>
 
 namespace
@@ -38,11 +39,19 @@ namespace livekit = hvc::livekit;
 }
 } // namespace
 
-auto main() -> int
+auto main() noexcept -> int
 {
-    if (!signsOnlyAuthorizedRoomsWithLeastPrivilege())
+    try
     {
-        std::fputs("LiveKit token test failed\n", stderr);
+        if (!signsOnlyAuthorizedRoomsWithLeastPrivilege())
+        {
+            std::fputs("LiveKit token test failed\n", stderr);
+            return 1;
+        }
+    }
+    catch (const std::exception& error)
+    {
+        std::fprintf(stderr, "unexpected exception: %s\n", error.what());
         return 1;
     }
     std::puts("LiveKit token tests passed");

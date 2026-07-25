@@ -81,13 +81,18 @@ auto preservesProviderRejection() -> bool
 
 auto rejectsInvalidLifetimes() -> bool
 {
+    bool policy_rejected{};
     try
     {
         static_cast<void>(application::IdentitySessionPolicy{std::chrono::milliseconds::zero()});
-        return false;
     }
     catch (const std::invalid_argument&)
     {
+        policy_rejected = true;
+    }
+    if (!policy_rejected)
+    {
+        return false;
     }
 
     try
