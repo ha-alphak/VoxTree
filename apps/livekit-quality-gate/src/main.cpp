@@ -29,7 +29,10 @@ struct Arguments
     std::string group_token;
     std::optional<std::string> recording_device_id;
     std::optional<std::string> playout_device_id;
+    std::optional<std::string> switch_recording_device_id;
+    std::optional<std::string> switch_playout_device_id;
     std::optional<std::chrono::seconds> ptt_duration;
+    std::optional<std::chrono::seconds> device_switch_after;
     std::chrono::seconds wait_for_peer{30};
     bool hold_connection{false};
     bool list_audio_devices{false};
@@ -48,6 +51,8 @@ void print_usage()
               << "    [--expect-audio | --expect-ptt]\n"
               << "    [--expect-reconnect]\n"
               << "    [--recording-device <id>] [--playout-device <id>]\n"
+              << "    [--switch-recording-device <id>] [--switch-playout-device <id>]\n"
+              << "    [--switch-after <seconds>]\n"
               << "    (--wait-for-peer <seconds> | --hold <seconds>)\n"
               << "  hvc-livekit-quality-gate --url <ws-url>\n"
               << "    --team-token <jwt> --specialization-token <jwt> --group-token <jwt>\n"
@@ -101,6 +106,18 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         {
             arguments.playout_device_id = argv[++index];
         }
+        else if (option == "--switch-recording-device" && index + 1 < argc)
+        {
+            arguments.switch_recording_device_id = argv[++index];
+        }
+        else if (option == "--switch-playout-device" && index + 1 < argc)
+        {
+            arguments.switch_playout_device_id = argv[++index];
+        }
+        else if (option == "--switch-after" && index + 1 < argc)
+        {
+            arguments.device_switch_after = std::chrono::seconds{std::stoll(argv[++index])};
+        }
         else if (option == "--ptt" && index + 1 < argc)
         {
             arguments.ptt_duration = std::chrono::seconds{std::stoll(argv[++index])};
@@ -148,7 +165,13 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     {
         throw std::invalid_argument{"PTT duration must be at least one second"};
     }
+    if (arguments.device_switch_after.has_value() && arguments.device_switch_after->count() < 1)
+    {
+        throw std::invalid_argument{"device switch delay must be at least one second"};
+    }
     const auto has_scope_tokens = has_any_scope_token(arguments);
+    const auto has_device_switch = arguments.switch_recording_device_id.has_value() ||
+                                   arguments.switch_playout_device_id.has_value();
     if (!arguments.list_audio_devices && arguments.url.empty())
     {
         throw std::invalid_argument{"missing required URL"};
@@ -176,6 +199,10 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     {
         throw std::invalid_argument{"--expect-ptt is only supported by the single-room probe"};
     }
+    if (has_scope_tokens && has_device_switch)
+    {
+        throw std::invalid_argument{"device switching is only supported by the single-room probe"};
+    }
     if (arguments.publish_audio && arguments.ptt_duration.has_value())
     {
         throw std::invalid_argument{"--publish-audio cannot be combined with --ptt"};
@@ -191,6 +218,37 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     if (arguments.expect_reconnect && !arguments.ptt_duration.has_value())
     {
         throw std::invalid_argument{"--expect-reconnect requires --ptt"};
+    }
+    if (arguments.switch_recording_device_id.has_value() && !arguments.publish_audio)
+    {
+        throw std::invalid_argument{"--switch-recording-device requires --publish-audio"};
+    }
+    if (arguments.switch_playout_device_id.has_value() && !arguments.expect_audio)
+    {
+        throw std::invalid_argument{"--switch-playout-device requires --expect-audio"};
+    }
+    if (has_device_switch && !arguments.hold_connection)
+    {
+        throw std::invalid_argument{"device switching requires --hold"};
+    }
+    if (!has_device_switch && arguments.device_switch_after.has_value())
+    {
+        throw std::invalid_argument{"--switch-after requires a device switch option"};
+    }
+    const auto switch_after = arguments.device_switch_after.value_or(std::chrono::seconds{3});
+    if (has_device_switch && arguments.wait_for_peer <= switch_after)
+    {
+        throw std::invalid_argument{"hold duration must exceed the device switch delay"};
+    }
+    if (arguments.recording_device_id == arguments.switch_recording_device_id &&
+        arguments.recording_device_id.has_value())
+    {
+        throw std::invalid_argument{"initial and switched recording devices must differ"};
+    }
+    if (arguments.playout_device_id == arguments.switch_playout_device_id &&
+        arguments.playout_device_id.has_value())
+    {
+        throw std::invalid_argument{"initial and switched playout devices must differ"};
     }
     if (arguments.recording_device_id.has_value() && !arguments.publish_audio &&
         !arguments.ptt_duration.has_value())
@@ -291,6 +349,12 @@ class ProbeObserver final : public livekit::RoomDelegate
         return received_opus_microphone_ && remote_audio_stopped_;
     }
 
+    [[nodiscard]] auto hasActiveOpusMicrophone() const -> bool
+    {
+        const std::scoped_lock lock{audio_mutex_};
+        return received_opus_microphone_ && !remote_audio_stopped_;
+    }
+
     [[nodiscard]] auto completedReconnect() const -> bool
     {
         return reconnecting_.load() && reconnected_.load();
@@ -365,6 +429,41 @@ void configure_audio_devices(const Arguments& arguments,
         platform_audio.setPlayoutDevice(*arguments.playout_device_id);
         std::cout << "Selected requested playout device.\n";
     }
+}
+
+[[nodiscard]] auto has_device_switch(const Arguments& arguments) -> bool
+{
+    return arguments.switch_recording_device_id.has_value() ||
+           arguments.switch_playout_device_id.has_value();
+}
+
+[[nodiscard]] auto switch_audio_devices(const Arguments& arguments,
+                                        livekit::PlatformAudio& platform_audio) -> bool
+{
+    auto playout_reconnect_required = false;
+    if (arguments.switch_recording_device_id.has_value())
+    {
+        platform_audio.setRecordingDevice(*arguments.switch_recording_device_id);
+        std::cout << "Switched to the requested recording device while connected.\n";
+    }
+    if (arguments.switch_playout_device_id.has_value())
+    {
+        try
+        {
+            platform_audio.setPlayoutDevice(*arguments.switch_playout_device_id);
+        }
+        catch (const livekit::PlatformAudioError&)
+        {
+            std::cout << "Direct active playout switch was rejected; a controlled room "
+                         "reconnect is required.\n";
+            playout_reconnect_required = true;
+        }
+        if (!playout_reconnect_required)
+        {
+            std::cout << "Switched to the requested playout device while connected.\n";
+        }
+    }
+    return playout_reconnect_required;
 }
 
 struct PublishedAudio
@@ -580,6 +679,8 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
 {
     ProbeObserver observer;
     livekit::Room room;
+    livekit::Room* active_room = &room;
+    std::unique_ptr<livekit::Room> switched_room;
     room.setDelegate(&observer);
 
     std::cout << "Connecting to " << arguments.url << "...\n";
@@ -657,19 +758,76 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
     {
         std::cout << "Connected. Holding the room connection for "
                   << arguments.wait_for_peer.count() << " seconds...\n";
-        std::this_thread::sleep_for(arguments.wait_for_peer);
+        if (has_device_switch(arguments))
+        {
+            const auto switch_after =
+                arguments.device_switch_after.value_or(std::chrono::seconds{3});
+            std::this_thread::sleep_for(switch_after);
+            if (platform_audio == nullptr)
+            {
+                throw std::logic_error{"platform audio was not initialized for device switching"};
+            }
+            const auto playout_reconnect_required =
+                switch_audio_devices(arguments, *platform_audio);
+            if (playout_reconnect_required)
+            {
+                if (!room.disconnect())
+                {
+                    throw std::runtime_error{
+                        "failed to disconnect the room for the playout device switch"};
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds{500});
+                platform_audio->setPlayoutDevice(*arguments.switch_playout_device_id);
+
+                switched_room = std::make_unique<livekit::Room>();
+                switched_room->setDelegate(&observer);
+                if (!switched_room->connect(arguments.url, arguments.token, livekit::RoomOptions{}))
+                {
+                    throw std::runtime_error{
+                        "failed to reconnect the room after the playout device switch"};
+                }
+                active_room = switched_room.get();
+                std::cout << "Switched to the requested playout device and reconnected the "
+                             "authorized room.\n";
+            }
+            std::this_thread::sleep_for(arguments.wait_for_peer - switch_after);
+        }
+        else
+        {
+            std::this_thread::sleep_for(arguments.wait_for_peer);
+        }
 
         if (arguments.expect_ptt && !observer.receivedAndStoppedOpusMicrophone())
         {
             std::cerr << "FAIL: remote Opus microphone did not start and stop cleanly.\n";
             return EXIT_FAILURE;
         }
-        if (arguments.expect_audio && !observer.receivedOpusMicrophone())
+        if (arguments.expect_audio &&
+            (has_device_switch(arguments) ? !observer.hasActiveOpusMicrophone()
+                                          : !observer.receivedOpusMicrophone()))
         {
             std::cerr << "FAIL: " << observer.subscribedAudioDescription() << ".\n";
             return EXIT_FAILURE;
         }
-        if (arguments.expect_ptt)
+        if (has_device_switch(arguments))
+        {
+            const auto local_participant = active_room->localParticipant().lock();
+            if (active_room->connectionState() != livekit::ConnectionState::Connected ||
+                local_participant == nullptr)
+            {
+                std::cerr << "FAIL: room disconnected during the audio device switch.\n";
+                return EXIT_FAILURE;
+            }
+            if (arguments.switch_recording_device_id.has_value() &&
+                local_participant->trackPublications().empty())
+            {
+                std::cerr << "FAIL: microphone publication stopped during the device switch.\n";
+                return EXIT_FAILURE;
+            }
+            std::cout << "PASS: audio device switch completed and the requested Opus media "
+                         "path remained active in the application session.\n";
+        }
+        else if (arguments.expect_ptt)
         {
             std::cout << "PASS: observed remote Opus PTT start and clean track removal.\n";
         }

@@ -170,7 +170,43 @@ weiterhin leere lokale Track-Publikationsliste. Sie meldet nur dann `PASS`,
 wenn die vor dem Ausfall beendete PTT-Transmission nicht automatisch
 fortgesetzt wurde.
 
+## Audiogerätewechsel während der Sitzung
+
+Ausgangs- und Zielgeräte werden über die stabilen IDs aus
+`--list-audio-devices` angegeben. Der Sender wechselt das Aufnahmegerät bei
+laufender Opus-Publikation:
+
+```powershell
+.\hvc-livekit-quality-gate.exe `
+  --url 'ws://SERVER:7880' --token 'TOKEN_SENDER' --publish-audio `
+  --recording-device 'MIKROFON_ID_A' `
+  --switch-recording-device 'MIKROFON_ID_B' `
+  --switch-after 3 --hold 15
+```
+
+Der Empfänger wechselt parallel das Wiedergabegerät:
+
+```powershell
+.\hvc-livekit-quality-gate.exe `
+  --url 'ws://SERVER:7880' --token 'TOKEN_RECEIVER' --expect-audio `
+  --playout-device 'AUSGABE_ID_A' `
+  --switch-playout-device 'AUSGABE_ID_B' `
+  --switch-after 3 --hold 12
+```
+
+LiveKit-C++-SDK 1.4.0 akzeptiert den Aufnahmegerätewechsel bei laufender
+Publikation. Einen direkten Wiedergabegerätewechsel lehnt das SDK dagegen bei
+aktivem Playout mit `Device not found` ab, obwohl dasselbe Zielgerät vor dem
+Playout auswählbar ist. Die Probe verwendet deshalb einen kontrollierten
+Reconnect des autorisierten Raums: Raum trennen, Zielgerät setzen und mit
+demselben raumgebundenen Token erneut verbinden. Die Anwendungssitzung bleibt
+dabei erhalten.
+
+`PASS` verlangt nach dem Wechsel einen verbundenen Raum sowie die weiterhin
+aktive lokale Opus-Publikation beziehungsweise das erneut aktive
+Remote-Opus-Abonnement. Ausgangs- und Ziel-ID müssen verschieden und die
+`--hold`-Dauer größer als `--switch-after` sein.
+
 ## Noch offene Quality-Gate-Nachweise
 
-- Audiogerätewechsel
 - serverseitiger Rechteentzug und Subscription-Isolation

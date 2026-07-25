@@ -175,6 +175,11 @@
   nachgewiesen. Die zuvor beendete PTT-Publikation blieb nach dem vollständigen
   Reconnect beendet; Raumzustand und leere Track-Publikationsliste wurden mit
   `PASS` bestätigt.
+- Aufnahme- und Wiedergabegerätewechsel während einer nativen LiveKit-Sitzung
+  nachgewiesen. Der Aufnahmewechsel bleibt im verbundenen Raum; für aktives
+  Playout verwendet die Probe wegen einer SDK-1.4-Einschränkung einen
+  kontrollierten Raum-Reconnect. Opus-Publikation und -Abonnement wurden danach
+  jeweils mit `PASS` bestätigt.
 
 ## Aktueller Stand
 
@@ -203,12 +208,16 @@
   Opus-Empfang in allen drei Scopes prüfen. PTT-Publikation und sauberer
   Track-Abbruch ohne Raum-Disconnect sind ebenfalls nachgewiesen. Der lokale
   Zwei-Prozess-, Drei-Scope-, PTT- und Serverneustart-/Reconnect-Nachweis ist
-  bestanden. Der reale Zwei-Rechner-Nachweis mit Mikrofonen wird übersprungen.
+  bestanden. Aufnahme- und Wiedergabegeräte können innerhalb der
+  Anwendungssitzung gewechselt werden; der Wiedergabewechsel erfordert mit dem
+  aktuellen SDK einen kontrollierten Raum-Reconnect. Der reale
+  Zwei-Rechner-Nachweis mit Mikrofonen wird übersprungen.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Audiogerätewechsel während einer laufenden nativen LiveKit-Sitzung nachweisen.
+Sofortigen serverseitigen Rechteentzug sowie die Verhinderung nicht
+autorisierter Raum- und Track-Abonnements nachweisen.
 
 ## Validierung
 
@@ -225,6 +234,8 @@ Audiogerätewechsel während einer laufenden nativen LiveKit-Sitzung nachweisen.
 | Lokaler paralleler Drei-Scope-Opus-Empfang | Bestanden |
 | Nativer PTT-Start und sauberer Track-Abbruch | Bestanden |
 | Nativer LiveKit-Reconnect ohne automatische Transmission | Bestanden |
+| Nativer Aufnahmegerätewechsel bei aktiver Opus-Publikation | Bestanden |
+| Nativer Wiedergabegerätewechsel mit kontrolliertem Raum-Reconnect | Bestanden |
 | Domänen-Zustandsautomat: Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
