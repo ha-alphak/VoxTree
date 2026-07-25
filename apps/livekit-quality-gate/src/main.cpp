@@ -40,6 +40,8 @@ struct Arguments
     bool expect_audio{false};
     bool expect_ptt{false};
     bool expect_reconnect{false};
+    bool expect_no_audio{false};
+    bool expect_empty_room{false};
 };
 
 void print_usage()
@@ -50,6 +52,7 @@ void print_usage()
               << "    [--publish-audio | --ptt <seconds>]\n"
               << "    [--expect-audio | --expect-ptt]\n"
               << "    [--expect-reconnect]\n"
+              << "    [--expect-no-audio | --expect-empty-room]\n"
               << "    [--recording-device <id>] [--playout-device <id>]\n"
               << "    [--switch-recording-device <id>] [--switch-playout-device <id>]\n"
               << "    [--switch-after <seconds>]\n"
@@ -151,6 +154,14 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         {
             arguments.expect_reconnect = true;
         }
+        else if (option == "--expect-no-audio")
+        {
+            arguments.expect_no_audio = true;
+        }
+        else if (option == "--expect-empty-room")
+        {
+            arguments.expect_empty_room = true;
+        }
         else
         {
             throw std::invalid_argument{"unknown or incomplete option: " + option};
@@ -199,6 +210,11 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     {
         throw std::invalid_argument{"--expect-ptt is only supported by the single-room probe"};
     }
+    if (has_scope_tokens && (arguments.expect_no_audio || arguments.expect_empty_room))
+    {
+        throw std::invalid_argument{
+            "security expectation options are only supported by the single-room probe"};
+    }
     if (has_scope_tokens && has_device_switch)
     {
         throw std::invalid_argument{"device switching is only supported by the single-room probe"};
@@ -210,6 +226,27 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     if (arguments.expect_audio && arguments.expect_ptt)
     {
         throw std::invalid_argument{"--expect-audio cannot be combined with --expect-ptt"};
+    }
+    const auto security_expectation_count =
+        static_cast<int>(arguments.expect_no_audio) + static_cast<int>(arguments.expect_empty_room);
+    if (security_expectation_count > 1)
+    {
+        throw std::invalid_argument{"security expectation options cannot be combined"};
+    }
+    if (security_expectation_count > 0 && (arguments.expect_audio || arguments.expect_ptt))
+    {
+        throw std::invalid_argument{
+            "security expectation options cannot be combined with audio or PTT expectations"};
+    }
+    if ((arguments.expect_no_audio || arguments.expect_empty_room) &&
+        (arguments.publish_audio || arguments.ptt_duration.has_value()))
+    {
+        throw std::invalid_argument{"negative subscription and room probes cannot publish audio"};
+    }
+    if (security_expectation_count > 0 && arguments.hold_connection)
+    {
+        throw std::invalid_argument{
+            "security expectation options use --wait-for-peer and cannot be combined with --hold"};
     }
     if (arguments.ptt_duration.has_value() && arguments.hold_connection)
     {
@@ -754,6 +791,51 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
         return EXIT_SUCCESS;
     }
 
+    if (arguments.expect_no_audio || arguments.expect_empty_room)
+    {
+        std::cout << "Connected. Observing the authorization boundary for "
+                  << arguments.wait_for_peer.count() << " seconds...\n"
+                  << std::flush;
+        const auto deadline = std::chrono::steady_clock::now() + arguments.wait_for_peer;
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            if (observer.receivedOpusMicrophone())
+            {
+                std::cerr << "FAIL: an unauthorized remote Opus track was subscribed.\n";
+                return EXIT_FAILURE;
+            }
+            if (arguments.expect_empty_room &&
+                (observer.peerConnected() || !room.remoteParticipants().empty()))
+            {
+                std::cerr << "FAIL: a participant or track crossed the room boundary.\n";
+                return EXIT_FAILURE;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds{100});
+        }
+
+        if (room.connectionState() != livekit::ConnectionState::Connected)
+        {
+            std::cerr << "FAIL: room disconnected during the authorization probe.\n";
+            return EXIT_FAILURE;
+        }
+        if (arguments.expect_no_audio && !observer.peerConnected())
+        {
+            std::cerr << "FAIL: no remote participant was observed; subscription denial was not "
+                         "exercised.\n";
+            return EXIT_FAILURE;
+        }
+        if (arguments.expect_no_audio)
+        {
+            std::cout << "PASS: the remote participant was visible but no Opus track was "
+                         "subscribed without canSubscribe permission.\n";
+        }
+        else
+        {
+            std::cout << "PASS: no participant or track crossed the authorized room boundary.\n";
+        }
+        return EXIT_SUCCESS;
+    }
+
     if (arguments.hold_connection)
     {
         std::cout << "Connected. Holding the room connection for "
@@ -904,7 +986,7 @@ auto main(const int argc, char** argv) -> int
 
         std::optional<livekit::PlatformAudio> platform_audio;
         if (arguments.list_audio_devices || arguments.publish_audio || arguments.expect_audio ||
-            arguments.ptt_duration.has_value() || arguments.expect_ptt)
+            arguments.ptt_duration.has_value() || arguments.expect_ptt || arguments.expect_no_audio)
         {
             platform_audio.emplace();
             configure_audio_devices(arguments, *platform_audio);
@@ -915,7 +997,8 @@ auto main(const int argc, char** argv) -> int
             print_audio_devices(*platform_audio);
             return EXIT_SUCCESS;
         }
-        if (arguments.expect_audio && platform_audio->playoutDeviceCount() < 1)
+        if ((arguments.expect_audio || arguments.expect_no_audio) &&
+            platform_audio->playoutDeviceCount() < 1)
         {
             throw std::runtime_error{"no audio playout device is available"};
         }

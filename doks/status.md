@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Linux-Control-Plane – versionierter HTTP-Netzwerkadapter<br>
+**Phase:** Voice-Routing – LiveKit-Transportintegration<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -180,6 +180,20 @@
   Playout verwendet die Probe wegen einer SDK-1.4-Einschränkung einen
   kontrollierten Raum-Reconnect. Opus-Publikation und -Abonnement wurden danach
   jeweils mit `PASS` bestätigt.
+- Sofortigen serverseitigen Publish-Rechteentzug über
+  `RoomService.UpdateParticipant` nachgewiesen. LiveKit entfernte den aktiven
+  Opus-Track innerhalb des gesetzten Zwei-Sekunden-Limits; ein verbundener
+  Empfänger bestätigte das Remote-Unpublish.
+- Subscription-Isolation mit einem Token ohne `can_subscribe` nachgewiesen:
+  Teilnehmer und aktiver Servertrack waren vorhanden, beim nicht berechtigten
+  nativen Client entstand jedoch kein Opus-Abonnement.
+- Cross-Room-Isolation mit zwei gleichzeitig verbundenen, raumgebundenen Tokens
+  nachgewiesen. Teilnehmer und Track des fremden Raums blieben für den
+  Empfänger unsichtbar.
+- Wiederholbares Sicherheits-Quality-Gate-Skript ergänzt, das den lokalen
+  LiveKit-Server bei Bedarf kontrolliert startet, kurzlebige Test-Tokens nur im
+  Arbeitsspeicher hält und ausschließlich den selbst gestarteten Prozess wieder
+  beendet.
 
 ## Aktueller Stand
 
@@ -210,14 +224,19 @@
   Zwei-Prozess-, Drei-Scope-, PTT- und Serverneustart-/Reconnect-Nachweis ist
   bestanden. Aufnahme- und Wiedergabegeräte können innerhalb der
   Anwendungssitzung gewechselt werden; der Wiedergabewechsel erfordert mit dem
-  aktuellen SDK einen kontrollierten Raum-Reconnect. Der reale
-  Zwei-Rechner-Nachweis mit Mikrofonen wird übersprungen.
+  aktuellen SDK einen kontrollierten Raum-Reconnect. Serverseitiger
+  Rechteentzug, verweigerte Track-Subscriptions und die Isolation getrennter
+  Räume sind ebenfalls lokal Ende-zu-Ende bestanden. Der reale
+  Zwei-Rechner-Nachweis mit Mikrofonen wird übersprungen. Damit ist das
+  LiveKit-Quality-Gate abgeschlossen.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Sofortigen serverseitigen Rechteentzug sowie die Verhinderung nicht
-autorisierter Raum- und Track-Abonnements nachweisen.
+Einen produktionsfähigen Windows-Client-Kern mit einer
+`IVoiceTransport`-Abstraktion anlegen und die im Quality Gate validierten
+LiveKit-Raum-, Audio- und PTT-Pfade aus dem Probeprogramm in den Adapter
+überführen.
 
 ## Validierung
 
@@ -236,6 +255,9 @@ autorisierter Raum- und Track-Abonnements nachweisen.
 | Nativer LiveKit-Reconnect ohne automatische Transmission | Bestanden |
 | Nativer Aufnahmegerätewechsel bei aktiver Opus-Publikation | Bestanden |
 | Nativer Wiedergabegerätewechsel mit kontrolliertem Raum-Reconnect | Bestanden |
+| Sofortiger serverseitiger LiveKit-Publish-Rechteentzug | Bestanden |
+| Verhinderung nicht autorisierter LiveKit-Track-Abonnements | Bestanden |
+| LiveKit-Cross-Room-Isolation | Bestanden |
 | Domänen-Zustandsautomat: Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
@@ -248,8 +270,8 @@ autorisierter Raum- und Track-Abonnements nachweisen.
 
 | Risiko | Status | Maßnahme |
 |---|---|---|
-| Reife und Integration des LiveKit-C++-SDK | Offen | Frühes Quality Gate und Transportabstraktion |
-| Autoritative Isolation im Shared-Room-Modell | Offen | Zunächst getrennte Räume verwenden |
+| Reife und Integration des LiveKit-C++-SDK | Beobachten | Quality Gate bestanden; bekannte Geräte- und Publication-Handle-Einschränkungen im Adapter kapseln |
+| Autoritative Isolation im Shared-Room-Modell | Zurückgestellt | Getrennte, erfolgreich isolierte Räume verwenden |
 | Hintergrund-PTT für unterschiedliche HID-Geräte | Offen | Früher Hardware-Prototyp mit Raw Input |
 | Windows 10 außerhalb des regulären Supports | Akzeptiert | Build 19045 unterstützen und Windows 11 mittesten |
 | 200-Spieler-Skalierung | Offen | Früher Lasttest vor UI-Vollausbau |

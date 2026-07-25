@@ -207,6 +207,52 @@ aktive lokale Opus-Publikation beziehungsweise das erneut aktive
 Remote-Opus-Abonnement. Ausgangs- und Ziel-ID müssen verschieden und die
 `--hold`-Dauer größer als `--switch-after` sein.
 
-## Noch offene Quality-Gate-Nachweise
+## Rechteentzug und Autorisierungsgrenzen
 
-- serverseitiger Rechteentzug und Subscription-Isolation
+Die Sicherheitsprobe ist als wiederholbares PowerShell-Skript hinterlegt. Sie
+erzeugt kurzlebige Tokens ausschließlich im Arbeitsspeicher und schreibt weder
+Tokens noch das API-Secret in die Testausgabe:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\Invoke-LiveKitSecurityQualityGate.ps1
+```
+
+Standardmäßig verwendet das Skript den lokalen LiveKit-Server 1.13.4 mit den
+Entwicklungs-Credentials `devkey`/`secret`. Falls Port `7880` frei ist, startet
+es den in `ToolChains.md` angegebenen Server selbst und beendet ausschließlich
+diesen eigenen Prozess im `finally`-Block. Für einen bereits laufenden,
+abweichend konfigurierten Server können `-Url`, `-ApiKey` und `-ApiSecret`
+übergeben werden.
+
+Die Probe führt drei voneinander getrennte Nachweise:
+
+1. Ein Sender veröffentlicht einen Opus-Mikrofontrack. Danach entzieht
+   `RoomService.UpdateParticipant` serverseitig `can_publish`. `PASS` verlangt
+   in der autoritativen Antwort `can_publish=false`, eine leere Trackliste und
+   `is_publisher=false` innerhalb von höchstens zwei Sekunden. Der verbundene
+   Empfänger muss außerdem erst das Opus-Abonnement und anschließend dessen
+   Entfernung sehen.
+2. Ein Token mit `can_subscribe=false` verbindet sich mit demselben Raum wie
+   ein aktiver Opus-Sender. Die Admin-API bestätigt den vorhandenen Sendertrack;
+   der native Empfänger sieht den Teilnehmer während des gesamten
+   Beobachtungsfensters, erhält aber kein Track-Abonnement.
+3. Empfänger und aktiver Opus-Sender verbinden sich mit unterschiedlich
+   benannten, jeweils im Token festgelegten Räumen. Der Empfänger darf weder
+   den fremden Teilnehmer noch dessen Track sehen.
+
+LiveKit-C++-SDK 1.4.0 entfernt nach dem administrativen Rechteentzug den
+veralteten lokalen Publication-Handle des Senders nicht zuverlässig aus seiner
+eigenen C++-Ansicht. Der Sicherheitsnachweis stützt sich deshalb auf die
+autoritative Serverantwort und das tatsächlich am Remote-Empfänger eintretende
+Unpublish. Der Server stoppt die Auslieferung unmittelbar; der Anwendungskern
+beendet bei einem Rechtewechsel zusätzlich seine lokale Aufnahme über den
+bereits vorhandenen Transmissionszustandsautomaten.
+
+## Quality-Gate-Ergebnis
+
+Alle nicht ausdrücklich übersprungenen Nachweise sind bestanden. Der
+ursprünglich geforderte Mikrofon-/Opus-Test auf zwei physischen Windows-Rechnern
+ist gemäß Projektentscheidung übersprungen; die entsprechenden lokalen
+Mehrprozess-Nachweise sind bestanden. LiveKit bleibt damit der ausgewählte
+Voice-Transport.
