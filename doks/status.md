@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Linux-Control-Plane – persistente Audit-Spur<br>
+**Phase:** Linux-Control-Plane – versionierter HTTP-Netzwerkadapter<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -114,13 +114,34 @@
   weder gespeichert noch über die Persistenz-API angenommen.
 - Persistenztests für vollständigen Event-Round-trip, Prozessneustart,
   Einfügereihenfolge, Sequenz-Paginierung und Aufbewahrungsgrenzen ergänzt.
+- Explizit versionierten HTTP/JSON-Vertrag unter `/api/v1` für Session-,
+  Membership- und Transmission-Anwendungsfälle dokumentiert.
+- Frameworkfreien `hvc-network`-Adapter mit stabilen Fehlercodes,
+  Eingabevalidierung und einheitlichen JSON-Envelopes implementiert.
+- Externe Bearer-Credentials auf die Session-Erstellung begrenzt; geschützte
+  Endpunkte akzeptieren ausschließlich ausgestellte, gerätegebundene Sessions.
+- Membership-Antworten auf den authentifizierten Spieler und
+  Transmission-Antworten auf die Empfängeranzahl ohne interne Empfänger-IDs
+  beschränkt.
+- Linux-HTTP/1.1-Listener mit Größenlimits, Timeouts und genau einem Request pro
+  Verbindung an den Control-Plane-Entry-Point angebunden.
+- Dateibasierten Bootstrap-Authenticator, zufällige Session- und
+  Transmission-IDs sowie persistente Session-Auflösung im Runtime-Store
+  verdrahtet.
+- Netzwerkadaptertests für Authentifizierungsgrenze, Gerätebindung,
+  Membership-Datenschutz, Transmission-Lebenszyklus und fehlerhafte Eingaben
+  ergänzt.
 
 ## Aktueller Stand
 
 - Das technische Projektfundament, der transportunabhängige Domänenkern, der
   In-Memory-Transmissionslebenszyklus sowie die dauerhafte Session-,
   Membership- und Audit-Ablage sind vorhanden und lokal validiert.
-- Es existieren noch keine Netzwerk- oder Voice-Transportadapter.
+- Der erste versionierte Control-Plane-Netzwerkadapter ist implementiert. Der
+  plattformunabhängige Vertrag und Dispatcher sind unter Windows lokal
+  validiert; der Linux-spezifische Socketpfad wird zusätzlich durch Debian-CI
+  gebaut und getestet.
+- Es existiert noch kein Voice-Transportadapter.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
@@ -128,9 +149,9 @@
 
 ## Nächster Schritt
 
-Einen versionierten Netzwerkvertrag für Session-, Membership- und
-Transmission-Anwendungsfälle definieren und den ersten Linux-Netzwerkadapter
-mit klarer Authentifizierungsgrenze anbinden.
+Den Bootstrap-Authenticator durch einen produktionsfähigen Account- und
+Identity-Adapter ersetzen und getrennt autorisierte administrative
+Membership-Endpunkte mit kurzlebigen Voice-Grants vorbereiten.
 
 ## Validierung
 
@@ -138,8 +159,8 @@ mit klarer Authentifizierungsgrenze anbinden.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug | 6 von 6 Tests bestanden |
-| CTest Release | 6 von 6 Tests bestanden |
+| CTest Debug | 7 von 7 Tests bestanden |
+| CTest Release | 7 von 7 Tests bestanden |
 | Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Konfiguriert, aktueller Lauf über Debian-CI |

@@ -52,6 +52,15 @@ InMemoryControlPlaneStore::InMemoryControlPlaneStore(
 {
 }
 
+InMemoryControlPlaneStore::InMemoryControlPlaneStore(
+    const ISessionRepository& persistent_sessions,
+    IMutableAuthoritativeMembershipRepository& persistent_memberships,
+    ITransmissionAuditEventSink* audit_events) noexcept
+    : audit_events_(audit_events), persistent_sessions_(&persistent_sessions),
+      persistent_memberships_(&persistent_memberships)
+{
+}
+
 void InMemoryControlPlaneStore::upsertSession(AuthenticatedSession session)
 {
     std::scoped_lock lock{mutex_};
@@ -84,12 +93,7 @@ auto InMemoryControlPlaneStore::find(const domain::SessionId& session_id) const
     -> std::optional<AuthenticatedSession>
 {
     std::scoped_lock lock{mutex_};
-    const auto session = sessions_.find(session_id);
-    if (session == sessions_.end())
-    {
-        return std::nullopt;
-    }
-    return session->second;
+    return currentSessionLocked(session_id);
 }
 
 auto InMemoryControlPlaneStore::updateMembership(const domain::PlayerId& player_id,
@@ -171,9 +175,9 @@ auto InMemoryControlPlaneStore::activate(AuthorizedTransmission transmission,
 {
     std::scoped_lock lock{mutex_};
 
-    const auto session = sessions_.find(session_id);
-    if (session == sessions_.end() || session->second.player_id != transmission.sender_player_id ||
-        session->second.device_id != device_id || !session->second.activeAt(started_at))
+    const auto session = currentSessionLocked(session_id);
+    if (!session || session->player_id != transmission.sender_player_id ||
+        session->device_id != device_id || !session->activeAt(started_at))
     {
         return TransmissionActivationResult::rejected(TransmissionActivationError::session_changed);
     }
@@ -310,6 +314,21 @@ auto InMemoryControlPlaneStore::currentMembershipLocked(const domain::PlayerId& 
         return std::nullopt;
     }
     return membership->second;
+}
+
+auto InMemoryControlPlaneStore::currentSessionLocked(const domain::SessionId& session_id) const
+    -> std::optional<AuthenticatedSession>
+{
+    const auto session = sessions_.find(session_id);
+    if (session != sessions_.end())
+    {
+        return session->second;
+    }
+    if (persistent_sessions_ != nullptr)
+    {
+        return persistent_sessions_->find(session_id);
+    }
+    return std::nullopt;
 }
 
 auto InMemoryControlPlaneStore::interruptForPlayerLocked(

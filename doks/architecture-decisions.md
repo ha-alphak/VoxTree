@@ -87,6 +87,25 @@
 - Aktive Transmissionen bleiben flüchtig und werden nach einem Neustart niemals
   wieder aufgenommen.
 
+## Control-Plane-Netzwerkvertrag
+
+- Der erste Netzwerkvertrag verwendet HTTP/1.1 mit JSON und ist über den
+  Basis-Pfad `/api/v1` explizit versioniert.
+- Externe Bearer-Credentials werden ausschließlich am Session-Endpunkt
+  akzeptiert und dort an `ISessionAuthenticator` übergeben. Nachgelagerte
+  Anwendungsfälle erhalten nur die ausgestellte, gerätegebundene Session-ID.
+- Geschützte Requests benötigen zusätzlich Geräte- und Korrelations-ID.
+- Membership-Antworten enthalten ausschließlich die Membership des
+  authentifizierten Spielers.
+- Transmission-Antworten dürfen eine Empfängeranzahl, niemals jedoch interne
+  Empfänger-IDs enthalten.
+- Der erste Linux-Listener ist ein begrenzter HTTP/1.1-Adapter ohne eigene
+  TLS-Terminierung. Er wird nur an Loopback oder hinter einem
+  TLS-terminierenden Reverse Proxy betrieben.
+- Der initiale Bootstrap-Authenticator liest sein Credential aus einer Datei.
+  Er ist eine klar abgegrenzte Integrationsstufe und wird durch einen
+  produktionsfähigen Account-/Identity-Adapter ersetzt.
+
 ## Voice-Transport
 
 - LiveKit wird als selbst betriebene WebRTC-SFU eingesetzt.

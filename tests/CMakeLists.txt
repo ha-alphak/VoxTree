@@ -81,3 +81,19 @@ target_link_libraries(
 set_target_properties(hvc_persistence_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME persistence.sqlite_control_plane COMMAND hvc_persistence_tests)
+
+add_executable(
+  hvc_network_tests
+  network/control_plane_http_tests.cpp
+)
+
+target_link_libraries(
+  hvc_network_tests
+  PRIVATE
+    hvc::network
+    hvc::project_options
+)
+
+set_target_properties(hvc_network_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME network.control_plane_http COMMAND hvc_network_tests)

@@ -46,6 +46,9 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
     explicit InMemoryControlPlaneStore(
         IMutableAuthoritativeMembershipRepository& persistent_memberships,
         ITransmissionAuditEventSink* audit_events = nullptr) noexcept;
+    InMemoryControlPlaneStore(const ISessionRepository& persistent_sessions,
+                              IMutableAuthoritativeMembershipRepository& persistent_memberships,
+                              ITransmissionAuditEventSink* audit_events = nullptr) noexcept;
 
     void upsertSession(AuthenticatedSession session);
     [[nodiscard]] auto removeSession(const domain::SessionId& session_id, TimePoint now,
@@ -103,9 +106,12 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
                                    TransmissionAuditOperation operation) const noexcept;
     [[nodiscard]] auto currentMembershipLocked(const domain::PlayerId& player_id) const
         -> std::optional<AuthoritativeMembershipContext>;
+    [[nodiscard]] auto currentSessionLocked(const domain::SessionId& session_id) const
+        -> std::optional<AuthenticatedSession>;
 
     mutable std::mutex mutex_;
     ITransmissionAuditEventSink* audit_events_;
+    const ISessionRepository* persistent_sessions_{nullptr};
     IMutableAuthoritativeMembershipRepository* persistent_memberships_{nullptr};
     std::map<domain::SessionId, AuthenticatedSession> sessions_;
     std::map<domain::PlayerId, AuthoritativeMembershipContext> memberships_;

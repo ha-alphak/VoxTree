@@ -4,14 +4,17 @@
 
 ## Modulgrenzen
 
-Die Control-Plane besteht aus zwei Targets:
+Die Control-Plane besteht aus vier Targets:
 
 - `hvc-application` enthält transport- und frameworkunabhängige
   Anwendungs-Schnittstellen, die serverseitige Autorisierung sowie vollständige
   Start- und End-Anwendungsfälle für Transmissionen.
 - `hvc-control-plane` ist der ausführbare Server-Entry-Point. Netzwerkprotokoll,
-  dauerhafte Persistenz und Transportadapter werden in folgenden Schritten
-  ergänzt.
+  Datenbankmigration, Adapterverdrahtung und Linux-Listener werden hier
+  zusammengeführt.
+- `hvc-network` bildet den versionierten HTTP-v1-Vertrag auf die
+  frameworkunabhängigen Anwendungsschnittstellen ab.
+- `hvc-persistence` bindet SQLite als dauerhafte Ablage an.
 
 Die Anwendungsschicht verwendet `hvc-domain` für die autoritative
 Empfängerermittlung. Sie hängt weder von LiveKit noch von einem HTTP-Framework
@@ -183,15 +186,38 @@ Betriebskonfiguration. Da die Anwendungsschnittstelle `record` bewusst
 `noexcept` ist, zählt `droppedAuditEventCount` fehlgeschlagene Schreibvorgänge
 für die spätere Betriebsüberwachung.
 
-Die Schnittstelle ist der Anwendungskern. Ein späterer HTTP-Adapter darf nach
-außen nur geeignete Metadaten wie Transmission-ID, Scope, Status und
-Empfängeranzahl ausgeben, nicht die interne Empfängerliste.
+Die Schnittstelle ist der Anwendungskern. Der HTTP-Adapter gibt nach außen nur
+geeignete Metadaten wie Transmission-ID, Scope, Status und Empfängeranzahl aus,
+nicht die interne Empfängerliste.
+
+## HTTP-v1-Adapter
+
+`ControlPlaneHttpAdapter` stellt Session-Erstellung, Abfrage der eigenen
+Membership sowie Start, Ende und Moderationsabbruch von Transmissionen unter
+`/api/v1` bereit. Die vollständige Feld- und Fehlerdefinition steht in
+`network-contract-v1.md`.
+
+Die Authentifizierungsgrenze ist explizit: Nur die Session-Erstellung akzeptiert
+ein externes Bearer-Credential und übergibt es an `ISessionAuthenticator`.
+Geschützte Endpunkte akzeptieren ausschließlich das Schema `Session` mit der
+zuvor ausgestellten Session-ID und prüfen Gerätebindung sowie Ablaufzeitpunkt.
+
+Der Linux-Entry-Point verdrahtet den Adapter mit SQLite, dem
+`InMemoryControlPlaneStore`, Rate Limits und Audit-Persistenz. Persistierte
+Sessions werden beim ersten Anwendungszugriff direkt aus SQLite gelesen; die
+atomare Aktivierungsprüfung verwendet dieselbe Quelle. Ein
+Bootstrap-Authenticator liest das Credential aus einer Datei und stellt
+15 Minuten gültige Sessions für genau einen konfigurierten Spieler aus.
+
+Der Linux-Socketadapter begrenzt Header und Body, lehnt Transfer-Encoding ab und
+schließt jede Verbindung nach genau einem HTTP/1.1-Request. TLS bleibt Aufgabe
+eines vorgeschalteten Reverse Proxys.
 
 ## Noch nicht enthalten
 
-- HTTP- oder gRPC-Endpunkte
 - dauerhafte Account- oder Geräte-Persistenz
-- kryptografische Tokenprüfung und kurzlebige Voice-Grants
+- produktionsfähige kryptografische Tokenprüfung und kurzlebige Voice-Grants
+- autorisierte administrative HTTP-Endpunkte für Membership-Änderungen
 - dauerhafte Rate-Limit- und Moderationsrichtlinien
 - Scheduler für die regelmäßige Timeout-Prüfung
 - LiveKit-Anbindung
