@@ -72,7 +72,7 @@ jobs:
 
       - name: Check formatting
         run: |
-          find libs tests -type f \
+          find apps libs tests -type f \
             \( -name '*.cpp' -o -name '*.hpp' -o -name '*.hpp.in' -o -name '*.h' \) \
             -print0 |
             xargs --null clang-format --dry-run --Werror

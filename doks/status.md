@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Domänenkern – Zustandsautomaten abgeschlossen<br>
+**Phase:** Linux-Control-Plane – Anwendungsgrundgerüst<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -49,21 +49,33 @@
   Rechteentzug, Timeout und Transportfehler umgesetzt.
 - Korrelierte Transmission-Anfragen verhindern, dass verspätete Antworten eine
   neue oder nach einem Reconnect verworfene Transmission aktivieren.
+- Linux-Control-Plane-Executable und transportunabhängige
+  `hvc-application`-Bibliothek angelegt.
+- Schnittstellen für Session-Authentifizierung, Session-Ablage und
+  autoritative Membership-Kontexte definiert.
+- Serverseitige Start-Autorisierung implementiert, die Senderidentität aus der
+  Session ableitet und keine clientseitige Empfängerliste akzeptiert.
+- Gerätebindung, Session-Ablauf, Membership-Version und Rollenrechte bei der
+  Start-Autorisierung berücksichtigt.
+- Korrelations-, Session- und Geräte-IDs als starke Typen ergänzt.
+- Anwendungstests für gültige, unbekannte, gerätefremde, abgelaufene, veraltete
+  und nicht autorisierte Anfragen ergänzt.
 
 ## Aktueller Stand
 
-- Das technische Projektfundament und der transportunabhängige Domänenkern für
-  Hierarchie, Routing und Sitzungszustände sind vorhanden und lokal validiert.
-- Es existiert noch kein Anwendungs-, Control-Plane- oder Transportcode.
+- Das technische Projektfundament, der transportunabhängige Domänenkern und das
+  erste Control-Plane-Anwendungsgrundgerüst sind vorhanden und lokal validiert.
+- Es existieren noch keine Netzwerk-, Persistenz- oder Voice-Transportadapter.
 - Das Projektfundament benötigt keine externen C++-Abhängigkeiten.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Grundgerüst der Linux-Control-Plane anlegen und die ersten
-Anwendungs-Schnittstellen für authentifizierte Sessions, autoritative
-Membership-Snapshots und serverseitig autorisierte Transmissionen definieren.
+Konkrete In-Memory-Adapter für Sessions, autoritative Membership-Kontexte und
+aktive Transmissionen implementieren. Danach Start- und End-Anwendungsfälle
+einschließlich atomarem Abbruch bei Membership- oder Rechteänderungen
+vervollständigen.
 
 ## Validierung
 
@@ -71,10 +83,11 @@ Membership-Snapshots und serverseitig autorisierte Transmissionen definieren.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug und Release | 3 von 3 Tests bestanden |
+| CTest Debug | 4 von 4 Tests bestanden |
+| CTest Release | 4 von 4 Tests bestanden |
 | Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
-| clang-tidy | Bestanden |
+| clang-tidy | Konfiguriert, aktueller Lauf über Debian-CI |
 | CMake-Installation und Paketexport inklusive `hvc::domain` | Bestanden |
 | Debian-CI | Konfiguriert, Ausführung nach Push |
 

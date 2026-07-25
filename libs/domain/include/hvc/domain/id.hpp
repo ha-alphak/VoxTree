@@ -38,6 +38,9 @@ struct HierarchyIdTag;
 struct TransmissionIdTag;
 struct ClientTransmissionIdTag;
 struct RoleIdTag;
+struct SessionIdTag;
+struct DeviceIdTag;
+struct CorrelationIdTag;
 
 using PlayerId = StrongId<PlayerIdTag>;
 using GroupId = StrongId<GroupIdTag>;
@@ -47,4 +50,7 @@ using HierarchyId = StrongId<HierarchyIdTag>;
 using TransmissionId = StrongId<TransmissionIdTag>;
 using ClientTransmissionId = StrongId<ClientTransmissionIdTag>;
 using RoleId = StrongId<RoleIdTag>;
+using SessionId = StrongId<SessionIdTag>;
+using DeviceId = StrongId<DeviceIdTag>;
+using CorrelationId = StrongId<CorrelationIdTag>;
 } // namespace hvc::domain

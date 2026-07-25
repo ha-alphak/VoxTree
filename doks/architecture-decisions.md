@@ -33,6 +33,20 @@
 - Der initiale Betrieb erfolgt containerisiert mit Docker und Compose.
 - Kubernetes wird erst bei nachgewiesenem Skalierungsbedarf eingeführt.
 
+## Control-Plane-Anwendungsschicht
+
+- Die Control-Plane besitzt einen frameworkunabhängigen Anwendungskern.
+- Authentifizierte Sessions binden Spieler, Gerät und Ablaufzeitpunkt
+  serverseitig.
+- Membership-Snapshot und Rollenrichtlinie werden als konsistenter,
+  autoritativer Kontext geladen.
+- Ein Startbefehl für eine Transmission enthält weder eine vertrauenswürdige
+  Sender-ID noch eine Empfängerliste.
+- Der Sender wird aus der Session abgeleitet; die Empfänger werden durch den
+  Domänenkern aus dem autoritativen Snapshot berechnet.
+- HTTP, Persistenz, Tokenprüfung, Audit-Logging und Voice-Transport werden über
+  Adapter angebunden.
+
 ## Voice-Transport
 
 - LiveKit wird als selbst betriebene WebRTC-SFU eingesetzt.

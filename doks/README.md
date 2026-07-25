@@ -11,6 +11,7 @@ Communication**.
 | [implementation-plan.md](implementation-plan.md) | Abgestimmter Umsetzungsplan |
 | [architecture-decisions.md](architecture-decisions.md) | Aktuell verbindliche Architekturentscheidungen |
 | [state-machines.md](state-machines.md) | Verbindungs- und Transmission-Zustandsautomaten |
+| [control-plane.md](control-plane.md) | Anwendungsschicht und Control-Plane-Schnittstellen |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |
 | [status.md](status.md) | Laufender Projektstatus |
 

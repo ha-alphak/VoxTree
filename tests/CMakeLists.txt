@@ -36,3 +36,16 @@ target_link_libraries(
 set_target_properties(hvc_domain_state_machine_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME domain.state_machine COMMAND hvc_domain_state_machine_tests)
+
+add_executable(hvc_application_tests application/control_plane_tests.cpp)
+
+target_link_libraries(
+  hvc_application_tests
+  PRIVATE
+    hvc::application
+    hvc::project_options
+)
+
+set_target_properties(hvc_application_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME application.control_plane COMMAND hvc_application_tests)
