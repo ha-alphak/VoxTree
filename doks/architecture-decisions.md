@@ -94,6 +94,10 @@
 - Externe Bearer-Credentials werden ausschließlich am Session-Endpunkt
   akzeptiert und dort an `ISessionAuthenticator` übergeben. Nachgelagerte
   Anwendungsfälle erhalten nur die ausgestellte, gerätegebundene Session-ID.
+- Die produktive Identity-Grenze trennt externe Credential-, Account-,
+  Geräte- und Rate-Limit-Prüfung von der internen Session-ID-Ausstellung.
+  Session-Laufzeiten werden serverseitig durch eine lokale Obergrenze
+  eingeschränkt.
 - Geschützte Requests benötigen zusätzlich Geräte- und Korrelations-ID.
 - Membership-Antworten enthalten ausschließlich die Membership des
   authentifizierten Spielers.

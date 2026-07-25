@@ -64,10 +64,12 @@ Externe Credentials und interne Sessions sind absichtlich getrennt:
    Session-Ablauf und Gerätebindung werden vor dem Anwendungsfall erneut
    geprüft.
 
-Der zunächst angebundene Bootstrap-Authenticator liest genau ein Credential aus
-einer Datei und ordnet es einem konfigurierten Spieler zu. Er dient der ersten
-Linux-Integration, bis der Account-/Identity-Adapter folgt. Das Credential wird
-bewusst nicht als Kommandozeilenargument angenommen.
+Der Account-/Identity-Adapter ist hinter `IIdentityProvider` austauschbar. Der
+zunächst angebundene Bootstrap-Provider liest genau ein Credential aus einer
+Datei und ordnet es einem konfigurierten Spieler zu. Er dient nur der lokalen
+Linux-Integration; ein produktiver Deployment-Adapter übernimmt
+Credentialprüfung, Accountstatus, Geräterichtlinie und vorgelagerte Rate Limits.
+Das Credential wird bewusst nicht als Kommandozeilenargument angenommen.
 
 ## Bereitschaft
 

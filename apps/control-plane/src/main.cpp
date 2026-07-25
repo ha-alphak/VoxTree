@@ -7,6 +7,7 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <hvc/application/identity.hpp>
 #include <hvc/application/in_memory_control_plane.hpp>
 #include <hvc/network/control_plane_http.hpp>
 #include <hvc/persistence/sqlite_control_plane_repository.hpp>
@@ -138,7 +139,8 @@ void printUsage()
     return difference == 0;
 }
 
-class RandomIdentifiers final : public application::ITransmissionIdGenerator
+class RandomIdentifiers final : public application::ITransmissionIdGenerator,
+                                public application::ISessionIdGenerator
 {
   public:
     [[nodiscard]] auto next() -> domain::TransmissionId override
@@ -146,7 +148,7 @@ class RandomIdentifiers final : public application::ITransmissionIdGenerator
         return domain::TransmissionId{generate("tx_")};
     }
 
-    [[nodiscard]] auto nextSession() -> domain::SessionId
+    [[nodiscard]] auto nextSession() -> domain::SessionId override
     {
         return domain::SessionId{generate("ses_")};
     }
@@ -174,33 +176,30 @@ class RandomIdentifiers final : public application::ITransmissionIdGenerator
     std::random_device random_device_;
 };
 
-class BootstrapAuthenticator final : public application::ISessionAuthenticator
+class BootstrapIdentityProvider final : public application::IIdentityProvider
 {
   public:
-    BootstrapAuthenticator(std::string credential, domain::PlayerId player,
-                           RandomIdentifiers& identifiers)
-        : credential_(std::move(credential)), player_(std::move(player)), identifiers_(identifiers)
+    BootstrapIdentityProvider(std::string credential, domain::PlayerId player)
+        : credential_(std::move(credential)), player_(std::move(player))
     {
     }
 
-    [[nodiscard]] auto authenticate(const application::AuthenticateSessionCommand& command,
-                                    application::TimePoint now)
-        -> application::SessionAuthenticationResult override
+    [[nodiscard]] auto verify(std::string_view credential, const domain::DeviceId&,
+                              application::TimePoint)
+        -> application::IdentityVerificationResult override
     {
-        if (!constantTimeEqual(command.credential, credential_))
+        if (!constantTimeEqual(credential, credential_))
         {
-            return application::SessionAuthenticationResult::rejected(
+            return application::IdentityVerificationResult::rejected(
                 application::SessionAuthenticationError::invalid_credentials);
         }
-        return application::SessionAuthenticationResult::accepted(
-            application::AuthenticatedSession{identifiers_.nextSession(), player_,
-                                              command.device_id, now + std::chrono::minutes{15}});
+        return application::IdentityVerificationResult::verified(
+            {player_, std::chrono::minutes{15}});
     }
 
   private:
     std::string credential_;
     domain::PlayerId player_;
-    RandomIdentifiers& identifiers_;
 };
 
 class DenyModeration final : public application::ITransmissionModerationAuthorizer
@@ -245,9 +244,10 @@ auto main(int argument_count, char** arguments) -> int
         }
 
         RandomIdentifiers identifiers;
-        BootstrapAuthenticator authenticator{readCredentialFile(options.bootstrap_token_file),
-                                             domain::PlayerId{options.bootstrap_player},
-                                             identifiers};
+        BootstrapIdentityProvider identities{readCredentialFile(options.bootstrap_token_file),
+                                             domain::PlayerId{options.bootstrap_player}};
+        application::IdentitySessionAuthenticator authenticator{
+            identities, identifiers, application::IdentitySessionPolicy{std::chrono::minutes{15}}};
         application::InMemoryControlPlaneStore runtime_store{repository, repository, &repository};
         application::InMemoryTransmissionRateLimiter rate_limiter{
             application::TransmissionRateLimit{10, std::chrono::seconds{1}},

@@ -133,6 +133,12 @@
 - Netzwerkadaptertests für Authentifizierungsgrenze, Gerätebindung,
   Membership-Datenschutz, Transmission-Lebenszyklus und fehlerhafte Eingaben
   ergänzt.
+- Produktionsfähige Account-/Identity-Grenze mit getrennten Schnittstellen für
+  externe Identitätsprüfung und interne Session-ID-Ausstellung eingeführt.
+- Serverseitige Session-Laufzeit auf das Minimum aus Provider-Vorgabe und
+  Control-Plane-Richtlinie begrenzt; Provider-Ablehnungen bleiben typisiert.
+- Den dateibasierten Bootstrap-Login als austauschbaren Identity-Provider hinter
+  die neue Grenze verschoben und die Session-Erstellung separat getestet.
 
 ## Aktueller Stand
 
@@ -143,6 +149,10 @@
   plattformunabhängige Vertrag und Dispatcher sind unter Windows lokal
   validiert; der Linux-spezifische Socketpfad wurde durch Debian-CI erfolgreich
   gebaut und getestet.
+- Der Anwendungskern ist für einen produktiven OIDC-/Account-Adapter
+  vorbereitet. Die konkrete externe Provider-Anbindung ist eine
+  Deployment-Entscheidung; der lokale Linux-Start verwendet weiterhin den
+  Bootstrap-Provider.
 - Es existiert noch kein Voice-Transportadapter.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
@@ -151,9 +161,9 @@
 
 ## Nächster Schritt
 
-Den Bootstrap-Authenticator durch einen produktionsfähigen Account- und
-Identity-Adapter ersetzen und getrennt autorisierte administrative
-Membership-Endpunkte mit kurzlebigen Voice-Grants vorbereiten.
+Getrennt autorisierte administrative Membership-Endpunkte implementieren und
+die Ausstellung kurzlebiger, serverseitig aus der Membership abgeleiteter
+Voice-Grants vorbereiten.
 
 ## Validierung
 
@@ -161,7 +171,7 @@ Membership-Endpunkte mit kurzlebigen Voice-Grants vorbereiten.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug | 7 von 7 Tests bestanden |
+| CTest Debug | 8 von 8 Tests bestanden |
 | CTest Release | 7 von 7 Tests bestanden |
 | Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |

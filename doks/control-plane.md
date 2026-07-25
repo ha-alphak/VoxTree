@@ -46,6 +46,14 @@ Session-, Spieler- und Geräte-ID sowie den Ablaufzeitpunkt. Er kann nach dem
 Schließen mit derselben Datenbankdatei erneut geöffnet werden, ohne die
 Sessions zu verlieren.
 
+`IdentitySessionAuthenticator` trennt die produktive Identity-Anbindung in zwei
+Verantwortlichkeiten. `IIdentityProvider` prüft das opake externe Credential,
+den Accountstatus, die Geräterichtlinie und vorgelagerte Rate Limits.
+`ISessionIdGenerator` erzeugt davon unabhängig die interne Session-ID. Die
+ausgestellte Laufzeit ist stets das Minimum aus der vom Provider zugelassenen
+Laufzeit und der lokalen `IdentitySessionPolicy`. Externe Tokens werden dadurch
+weder als interne Session-ID wiederverwendet noch persistiert.
+
 ## Schema-Migrationen
 
 `SqliteControlPlaneRepository` migriert seine Datenbank beim Öffnen auf die
@@ -206,8 +214,11 @@ Der Linux-Entry-Point verdrahtet den Adapter mit SQLite, dem
 `InMemoryControlPlaneStore`, Rate Limits und Audit-Persistenz. Persistierte
 Sessions werden beim ersten Anwendungszugriff direkt aus SQLite gelesen; die
 atomare Aktivierungsprüfung verwendet dieselbe Quelle. Ein
-Bootstrap-Authenticator liest das Credential aus einer Datei und stellt
-15 Minuten gültige Sessions für genau einen konfigurierten Spieler aus.
+Bootstrap-Identity-Provider liest das Credential aus einer Datei. Die
+allgemeine `IdentitySessionAuthenticator`-Schicht stellt daraus 15 Minuten
+gültige Sessions für genau einen konfigurierten Spieler aus. Ein produktiver
+OIDC-, OAuth- oder eigener Account-Provider kann den Bootstrap-Provider
+ersetzen, ohne HTTP-Adapter, Session-Persistenz oder Anwendungsfälle zu ändern.
 
 Der Linux-Socketadapter begrenzt Header und Body, lehnt Transfer-Encoding ab und
 schließt jede Verbindung nach genau einem HTTP/1.1-Request. TLS bleibt Aufgabe
@@ -215,7 +226,8 @@ eines vorgeschalteten Reverse Proxys.
 
 ## Noch nicht enthalten
 
-- dauerhafte Account- oder Geräte-Persistenz
+- konkrete produktive Account-/Identity-Provider-Anbindung und dauerhafte
+  Account- oder Geräte-Persistenz
 - produktionsfähige kryptografische Tokenprüfung und kurzlebige Voice-Grants
 - autorisierte administrative HTTP-Endpunkte für Membership-Änderungen
 - dauerhafte Rate-Limit- und Moderationsrichtlinien
