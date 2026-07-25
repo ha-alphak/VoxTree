@@ -37,6 +37,19 @@ set_target_properties(hvc_domain_state_machine_tests PROPERTIES CXX_EXTENSIONS O
 
 add_test(NAME domain.state_machine COMMAND hvc_domain_state_machine_tests)
 
+add_executable(hvc_client_tests client/voice_client_tests.cpp)
+
+target_link_libraries(
+  hvc_client_tests
+  PRIVATE
+    hvc::client
+    hvc::project_options
+)
+
+set_target_properties(hvc_client_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME client.voice_client COMMAND hvc_client_tests)
+
 add_executable(hvc_application_tests application/control_plane_tests.cpp)
 
 target_link_libraries(

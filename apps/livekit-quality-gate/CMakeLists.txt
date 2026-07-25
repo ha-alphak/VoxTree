@@ -9,6 +9,7 @@ target_link_libraries(
   hvc_livekit_quality_gate
   PRIVATE
     LiveKit::livekit
+    hvc::livekit_transport
     hvc::project_options
 )
 set_target_properties(

@@ -117,6 +117,15 @@
 - LiveKit wird ausschließlich über eine interne `IVoiceTransport`-Abstraktion
   angebunden.
 - Die Fachlogik darf nicht direkt von LiveKit-Typen abhängen.
+- Der öffentliche Transportvertrag verwendet stabile HVC-Typen und kapselt
+  SDK-Fehler als typisierte Ergebnisse und Observer-Ereignisse.
+- Der Client verbindet Team, Specialization und Group parallel über getrennte
+  Grants. Höchstens ein Scope darf gleichzeitig das Mikrofon publizieren.
+- Der LiveKit-Adapter entfernt eine aktive Mikrofonpublikation bei jedem
+  Reconnect oder Disconnect; eine automatische Wiederaufnahme ist unzulässig.
+- Ein vom SDK abgelehnter aktiver Wiedergabegerätewechsel wird durch einen
+  kontrollierten Reconnect ausschließlich der bereits autorisierten Räume
+  umgesetzt. Eine PTT-Publikation wird dabei nicht wiederhergestellt.
 - Vor der vollständigen Integration muss ein technischer und sicherheitsbezogener
   Prototyp erfolgreich abgeschlossen werden.
 - Mumble ist die bevorzugte Rückfalloption, falls das LiveKit-C++-Quality-Gate

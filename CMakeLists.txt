@@ -27,6 +27,7 @@ endif()
 
 add_subdirectory(libs/foundation)
 add_subdirectory(libs/domain)
+add_subdirectory(libs/client)
 add_subdirectory(libs/application)
 add_subdirectory(libs/persistence)
 add_subdirectory(libs/network)

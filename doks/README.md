@@ -14,6 +14,7 @@ Communication**.
 | [control-plane.md](control-plane.md) | Anwendungsschicht und Control-Plane-Schnittstellen |
 | [network-contract-v1.md](network-contract-v1.md) | Versionierter HTTP-Vertrag der Control-Plane |
 | [livekit-quality-gate.md](livekit-quality-gate.md) | Native SDK-Anbindung und Zwei-Client-Probe |
+| [voice-client.md](voice-client.md) | UI-unabhängiger Client-Core und LiveKit-Transportadapter |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |
 | [status.md](status.md) | Laufender Projektstatus |
 

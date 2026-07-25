@@ -249,6 +249,14 @@ Unpublish. Der Server stoppt die Auslieferung unmittelbar; der Anwendungskern
 beendet bei einem Rechtewechsel zusätzlich seine lokale Aufnahme über den
 bereits vorhandenen Transmissionszustandsautomaten.
 
+## Überführung in den Client
+
+Die validierten Raum-, Mikrofon-, PTT-, Reconnect- und Gerätewechseloperationen
+sind in `hvc::livekit::LiveKitVoiceTransport` hinter die transportneutrale
+`IVoiceTransport`-Schnittstelle überführt. Das Probeprogramm bleibt als
+unabhängiger nativer Regressionstest bestehen und baut den Adapter im selben
+opt-in Preset mit.
+
 ## Quality-Gate-Ergebnis
 
 Alle nicht ausdrücklich übersprungenen Nachweise sind bestanden. Der

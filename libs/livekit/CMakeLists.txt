@@ -28,3 +28,38 @@ install(
   FILE_SET public_headers DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
   ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
 )
+
+if(TARGET LiveKit::livekit)
+  add_library(hvc_livekit_transport STATIC)
+  add_library(hvc::livekit_transport ALIAS hvc_livekit_transport)
+
+  target_sources(
+    hvc_livekit_transport
+    PRIVATE src/livekit_voice_transport.cpp
+    PUBLIC
+      FILE_SET public_headers
+      TYPE HEADERS
+      BASE_DIRS include
+      FILES include/hvc/livekit/livekit_voice_transport.hpp
+  )
+
+  target_compile_features(hvc_livekit_transport PUBLIC cxx_std_20)
+  target_compile_options(
+    hvc_livekit_transport
+    PRIVATE "$<$<CXX_COMPILER_ID:MSVC>:/EHsc>"
+  )
+  target_link_libraries(
+    hvc_livekit_transport
+    PUBLIC hvc::client
+    PRIVATE
+      LiveKit::livekit
+      "$<BUILD_INTERFACE:hvc_project_options>"
+  )
+  set_target_properties(
+    hvc_livekit_transport
+    PROPERTIES
+      CXX_EXTENSIONS OFF
+      EXPORT_NAME livekit_transport
+      OUTPUT_NAME hvc-livekit-transport
+  )
+endif()

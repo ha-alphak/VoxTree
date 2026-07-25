@@ -194,6 +194,19 @@
   LiveKit-Server bei Bedarf kontrolliert startet, kurzlebige Test-Tokens nur im
   Arbeitsspeicher hält und ausschließlich den selbst gestarteten Prozess wieder
   beendet.
+- UI-unabhängige `hvc-client`-Bibliothek mit stabiler
+  `IVoiceTransport`-Abstraktion angelegt.
+- Vollständige Team-, Specialization- und Group-Grant-Prüfung sowie exklusiven
+  PTT-Lebenszyklus im Client-Core umgesetzt.
+- Nativen `LiveKitVoiceTransport`-Adapter mit gekapselten SDK-Typen,
+  Drei-Raum-Verbindung, Remote-Audioereignissen, Opus-Mikrofonpublikation und
+  Audiogeräteverwaltung ergänzt.
+- Die im Quality Gate validierten AEC-, Noise-Suppression-, AGC-, DTX-,
+  Unpublish- und Gerätewechselpfade in den produktiven Adapter übernommen.
+- Aktive PTT-Publikationen werden vor Reconnect und Disconnect beendet und
+  niemals automatisch wieder aufgenommen.
+- Client-Core-Tests für Grant-Grenzen, PTT-Exklusivität und Reconnect-Abbruch
+  ergänzt.
 
 ## Aktueller Stand
 
@@ -210,6 +223,9 @@
   Bootstrap-Provider.
 - Die LiveKit-Tokenausstellung sowie die native Client- und Audioanbindung sind
   vorhanden.
+- Der erste UI-unabhängige Windows-Client-Core und der native
+  LiveKit-Transportadapter sind vorhanden. Die Control-Plane-Clientanbindung
+  und die WinUI-Oberfläche sind noch nicht verdrahtet.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
@@ -233,10 +249,10 @@
 
 ## Nächster Schritt
 
-Einen produktionsfähigen Windows-Client-Kern mit einer
-`IVoiceTransport`-Abstraktion anlegen und die im Quality Gate validierten
-LiveKit-Raum-, Audio- und PTT-Pfade aus dem Probeprogramm in den Adapter
-überführen.
+Einen Control-Plane-Clientadapter für Session, Membership, Voice-Grants und
+Transmission-Autorisierung anlegen und dessen akzeptierte
+Transmissionsergebnisse mit dem neuen `VoiceClient`-PTT-Lebenszyklus
+verdrahten.
 
 ## Validierung
 
@@ -244,8 +260,8 @@ LiveKit-Raum-, Audio- und PTT-Pfade aus dem Probeprogramm in den Adapter
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug | 9 von 9 Tests bestanden |
-| CTest Release | 9 von 9 Tests bestanden |
+| CTest Debug | 10 von 10 Tests bestanden |
+| CTest Release | 10 von 10 Tests bestanden |
 | Lokale native LiveKit-Zwei-Client-Verbindung | Bestanden |
 | Native Windows-Audiogeräteerkennung | Bestanden |
 | Lokaler Mikrofon-/Opus-Zwei-Prozess-Nachweis | Bestanden |
@@ -258,10 +274,12 @@ LiveKit-Raum-, Audio- und PTT-Pfade aus dem Probeprogramm in den Adapter
 | Sofortiger serverseitiger LiveKit-Publish-Rechteentzug | Bestanden |
 | Verhinderung nicht autorisierter LiveKit-Track-Abonnements | Bestanden |
 | LiveKit-Cross-Room-Isolation | Bestanden |
+| Windows-Client-Core und Fake-Transport-Tests | Bestanden |
+| Nativer LiveKit-Transportadapter Release-Build | Bestanden |
 | Domänen-Zustandsautomat: Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
-| CMake-Installation und Paketexport inklusive `hvc::domain` | Bestanden |
+| CMake-Installation und Paketexport inklusive `hvc::domain` und `hvc::client` | Bestanden |
 | Debian GCC Debug | Bestanden, 7 von 7 Tests |
 | Debian GCC Release | Bestanden, 7 von 7 Tests |
 | GitHub-CI-Gesamtlauf | Bestanden |
