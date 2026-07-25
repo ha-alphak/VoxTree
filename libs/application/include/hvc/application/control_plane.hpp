@@ -202,6 +202,21 @@ class ITransmissionIdGenerator
     [[nodiscard]] virtual auto next() -> domain::TransmissionId = 0;
 };
 
+enum class TransmissionRateLimitAction : std::uint8_t
+{
+    start,
+    end
+};
+
+class ITransmissionRateLimiter
+{
+  public:
+    virtual ~ITransmissionRateLimiter() = default;
+
+    [[nodiscard]] virtual auto allow(const domain::PlayerId& player_id,
+                                     TransmissionRateLimitAction action, TimePoint now) -> bool = 0;
+};
+
 class TransmissionAuthorizationService final
 {
   public:
@@ -320,6 +335,15 @@ class IActiveTransmissionRepository
                                    domain::TransmissionStopReason stop_reason, TimePoint ended_at,
                                    const domain::CorrelationId& correlation_id)
         -> TransmissionEndRepositoryResult = 0;
+    [[nodiscard]] virtual auto interrupt(const domain::TransmissionId& transmission_id,
+                                         domain::TransmissionStopReason stop_reason,
+                                         TimePoint ended_at,
+                                         const domain::CorrelationId& correlation_id)
+        -> TransmissionEndRepositoryResult = 0;
+    [[nodiscard]] virtual auto expireTimedOut(std::chrono::milliseconds maximum_duration,
+                                              TimePoint now,
+                                              const domain::CorrelationId& correlation_id)
+        -> std::vector<EndedTransmission> = 0;
 };
 
 enum class StartTransmissionError : std::uint8_t
@@ -337,7 +361,8 @@ enum class StartTransmissionError : std::uint8_t
     session_changed_during_start,
     membership_changed_during_start,
     sender_already_transmitting,
-    transmission_id_conflict
+    transmission_id_conflict,
+    rate_limited
 };
 
 struct StartTransmissionResult final
@@ -381,7 +406,8 @@ enum class EndTransmissionError : std::uint8_t
     session_device_mismatch,
     session_expired,
     transmission_not_found,
-    transmission_not_owned
+    transmission_not_owned,
+    rate_limited
 };
 
 struct EndTransmissionResult final
@@ -402,22 +428,94 @@ struct EndTransmissionResult final
                           std::optional<EndTransmissionError> end_error);
 };
 
+class ITransmissionModerationAuthorizer
+{
+  public:
+    virtual ~ITransmissionModerationAuthorizer() = default;
+
+    [[nodiscard]] virtual auto canInterrupt(const domain::PlayerId& moderator_player_id,
+                                            const domain::TransmissionId& transmission_id) const
+        -> bool = 0;
+};
+
+struct ModerateTransmissionCommand final
+{
+    ModerateTransmissionCommand(domain::SessionId session, domain::DeviceId device,
+                                domain::TransmissionId transmission,
+                                domain::CorrelationId correlation)
+        : session_id(std::move(session)), device_id(std::move(device)),
+          transmission_id(std::move(transmission)), correlation_id(std::move(correlation))
+    {
+    }
+
+    domain::SessionId session_id;
+    domain::DeviceId device_id;
+    domain::TransmissionId transmission_id;
+    domain::CorrelationId correlation_id;
+};
+
+enum class ModerateTransmissionError : std::uint8_t
+{
+    session_not_found,
+    session_device_mismatch,
+    session_expired,
+    not_authorized,
+    transmission_not_found
+};
+
+struct ModerateTransmissionResult final
+{
+    [[nodiscard]] static auto interrupted(EndedTransmission ended_transmission)
+        -> ModerateTransmissionResult;
+    [[nodiscard]] static auto rejected(ModerateTransmissionError moderation_error)
+        -> ModerateTransmissionResult;
+
+    [[nodiscard]] auto successful() const noexcept -> bool
+    {
+        return transmission.has_value();
+    }
+
+    std::optional<EndedTransmission> transmission;
+    std::optional<ModerateTransmissionError> error;
+
+  private:
+    ModerateTransmissionResult(std::optional<EndedTransmission> ended_transmission,
+                               std::optional<ModerateTransmissionError> moderation_error);
+};
+
+struct TransmissionLifecyclePolicy final
+{
+    explicit TransmissionLifecyclePolicy(std::chrono::milliseconds maximum_duration);
+
+    std::chrono::milliseconds maximum_transmission_duration;
+};
+
 class TransmissionApplicationService final
 {
   public:
     TransmissionApplicationService(const ISessionRepository& sessions,
                                    const IAuthoritativeMembershipProvider& memberships,
                                    ITransmissionIdGenerator& transmission_ids,
-                                   IActiveTransmissionRepository& active_transmissions);
+                                   IActiveTransmissionRepository& active_transmissions,
+                                   ITransmissionRateLimiter& rate_limiter,
+                                   const ITransmissionModerationAuthorizer& moderation_authorizer,
+                                   TransmissionLifecyclePolicy lifecycle_policy);
 
     [[nodiscard]] auto start(const StartTransmissionCommand& command, TimePoint now)
         -> StartTransmissionResult;
     [[nodiscard]] auto end(const EndTransmissionCommand& command, TimePoint now)
         -> EndTransmissionResult;
+    [[nodiscard]] auto interruptForModeration(const ModerateTransmissionCommand& command,
+                                              TimePoint now) -> ModerateTransmissionResult;
+    [[nodiscard]] auto expireTimedOut(TimePoint now, const domain::CorrelationId& correlation_id)
+        -> std::vector<EndedTransmission>;
 
   private:
     const ISessionRepository& sessions_;
     TransmissionAuthorizationService authorization_;
     IActiveTransmissionRepository& active_transmissions_;
+    ITransmissionRateLimiter& rate_limiter_;
+    const ITransmissionModerationAuthorizer& moderation_authorizer_;
+    TransmissionLifecyclePolicy lifecycle_policy_;
 };
 } // namespace hvc::application

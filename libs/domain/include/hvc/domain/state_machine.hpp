@@ -55,6 +55,7 @@ enum class TransmissionStopReason : std::uint8_t
     membership_changed,
     permission_revoked,
     timed_out,
+    moderation_interrupted,
     transport_error,
     disconnected
 };

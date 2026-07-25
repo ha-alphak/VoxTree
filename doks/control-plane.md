@@ -81,6 +81,26 @@ gestartet wurde. Membership- und Rechteänderungen mit höherer Version sowie da
 Entfernen einer Session beenden betroffene Transmissionen atomar und liefern
 den jeweiligen Abbruchgrund zurück.
 
+## Lebenszyklusregeln
+
+`TransmissionApplicationService` wendet konfigurierbare, frameworkunabhängige
+Lebenszyklusregeln an:
+
+- `ITransmissionRateLimiter` begrenzt Start- und Endanforderungen getrennt pro
+  authentifiziertem Spieler. Die In-Memory-Implementierung verwendet
+  unabhängige Sliding Windows für beide Aktionen.
+- `TransmissionLifecyclePolicy` legt eine positive Maximaldauer fest.
+  `expireTimedOut` beendet alle zu diesem Zeitpunkt überfälligen
+  Transmissionen atomar mit dem Grund `timed_out`.
+- `ITransmissionModerationAuthorizer` entscheidet unabhängig vom
+  Transportadapter, ob ein authentifizierter Spieler eine konkrete
+  Transmission unterbrechen darf. Nur autorisierte Anforderungen enden sie
+  atomar mit dem Grund `moderation_interrupted`.
+
+Alle drei Anwendungsfälle übernehmen einen serverseitigen Zeitpunkt und
+Korrelations-IDs. Ein späterer Scheduler sowie die dauerhafte Rate-Limit- und
+Moderationsrichtlinie bleiben Adapteraufgaben.
+
 Die Schnittstelle ist der Anwendungskern. Ein späterer HTTP-Adapter darf nach
 außen nur geeignete Metadaten wie Transmission-ID, Scope, Status und
 Empfängeranzahl ausgeben, nicht die interne Empfängerliste.
@@ -90,5 +110,7 @@ Empfängeranzahl ausgeben, nicht die interne Empfängerliste.
 - HTTP- oder gRPC-Endpunkte
 - dauerhafte Account-, Session- oder Gerätepersistenz
 - kryptografische Tokenprüfung und kurzlebige Voice-Grants
-- Rate Limits, Moderation und Audit-Log-Adapter
+- dauerhafte Rate-Limit- und Moderationsrichtlinien
+- Scheduler für die regelmäßige Timeout-Prüfung
+- strukturierte Audit-Events und Audit-Log-Adapter
 - LiveKit-Anbindung

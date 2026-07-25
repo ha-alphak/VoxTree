@@ -3,6 +3,19 @@
 
 namespace hvc::application
 {
+namespace
+{
+void discardExpiredRequests(std::deque<TimePoint>& requests, TimePoint now,
+                            std::chrono::milliseconds window)
+{
+    const auto oldest_allowed = now - window;
+    while (!requests.empty() && requests.front() <= oldest_allowed)
+    {
+        requests.pop_front();
+    }
+}
+} // namespace
+
 MembershipUpdateResult::MembershipUpdateResult(
     std::vector<EndedTransmission> interrupted_transmissions,
     std::optional<MembershipUpdateError> update_error)
@@ -183,6 +196,49 @@ auto InMemoryControlPlaneStore::end(const domain::TransmissionId& transmission_i
     return TransmissionEndRepositoryResult::ended(std::move(ended_transmission));
 }
 
+auto InMemoryControlPlaneStore::interrupt(const domain::TransmissionId& transmission_id,
+                                          domain::TransmissionStopReason stop_reason,
+                                          TimePoint ended_at,
+                                          const domain::CorrelationId& correlation_id)
+    -> TransmissionEndRepositoryResult
+{
+    std::scoped_lock lock{mutex_};
+    const auto transmission = active_transmissions_.find(transmission_id);
+    if (transmission == active_transmissions_.end())
+    {
+        return TransmissionEndRepositoryResult::rejected(
+            TransmissionEndRepositoryError::transmission_not_found);
+    }
+
+    EndedTransmission ended_transmission{transmission->second, stop_reason, ended_at,
+                                         correlation_id};
+    active_transmissions_.erase(transmission);
+    return TransmissionEndRepositoryResult::ended(std::move(ended_transmission));
+}
+
+auto InMemoryControlPlaneStore::expireTimedOut(std::chrono::milliseconds maximum_duration,
+                                               TimePoint now,
+                                               const domain::CorrelationId& correlation_id)
+    -> std::vector<EndedTransmission>
+{
+    std::scoped_lock lock{mutex_};
+    std::vector<EndedTransmission> expired;
+    for (auto transmission = active_transmissions_.begin();
+         transmission != active_transmissions_.end();)
+    {
+        if (now - transmission->second.started_at < maximum_duration)
+        {
+            ++transmission;
+            continue;
+        }
+
+        expired.emplace_back(transmission->second, domain::TransmissionStopReason::timed_out, now,
+                             correlation_id);
+        transmission = active_transmissions_.erase(transmission);
+    }
+    return expired;
+}
+
 auto InMemoryControlPlaneStore::active(const domain::TransmissionId& transmission_id) const
     -> std::optional<ActiveTransmission>
 {
@@ -241,5 +297,41 @@ auto InMemoryControlPlaneStore::interruptForSessionLocked(
         transmission = active_transmissions_.erase(transmission);
     }
     return interrupted;
+}
+
+TransmissionRateLimit::TransmissionRateLimit(std::size_t maximum_request_count,
+                                             std::chrono::milliseconds time_window)
+    : maximum_requests(maximum_request_count), window(time_window)
+{
+    if (maximum_requests == 0 || window <= std::chrono::milliseconds::zero())
+    {
+        throw std::invalid_argument{
+            "A transmission rate limit requires a positive request count and time window."};
+    }
+}
+
+InMemoryTransmissionRateLimiter::InMemoryTransmissionRateLimiter(TransmissionRateLimit start_limit,
+                                                                 TransmissionRateLimit end_limit)
+    : start_limit_(start_limit), end_limit_(end_limit)
+{
+}
+
+auto InMemoryTransmissionRateLimiter::allow(const domain::PlayerId& player_id,
+                                            TransmissionRateLimitAction action, TimePoint now)
+    -> bool
+{
+    std::scoped_lock lock{mutex_};
+    auto& history = histories_[player_id];
+    auto& requests = action == TransmissionRateLimitAction::start ? history.starts : history.ends;
+    const auto& limit = action == TransmissionRateLimitAction::start ? start_limit_ : end_limit_;
+
+    discardExpiredRequests(requests, now, limit.window);
+    if (requests.size() >= limit.maximum_requests)
+    {
+        return false;
+    }
+
+    requests.push_back(now);
+    return true;
 }
 } // namespace hvc::application

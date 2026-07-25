@@ -68,6 +68,18 @@ class TransmissionIdGenerator final : public application::ITransmissionIdGenerat
     int next_id_{0};
 };
 
+class ModerationAuthorizer final : public application::ITransmissionModerationAuthorizer
+{
+  public:
+    [[nodiscard]] auto canInterrupt(const domain::PlayerId& moderator_player_id,
+                                    const domain::TransmissionId& transmission_id) const
+        -> bool override
+    {
+        static_cast<void>(transmission_id);
+        return moderator_player_id == domain::PlayerId{"moderator"};
+    }
+};
+
 struct Fixture final
 {
     Fixture()
@@ -76,6 +88,8 @@ struct Fixture final
                              domain::DeviceId{"device-sender"}, now + std::chrono::minutes{5}});
         store.upsertSession({domain::SessionId{"session-other"}, domain::PlayerId{"other"},
                              domain::DeviceId{"device-other"}, now + std::chrono::minutes{5}});
+        store.upsertSession({domain::SessionId{"session-moderator"}, domain::PlayerId{"moderator"},
+                             domain::DeviceId{"device-moderator"}, now + std::chrono::minutes{5}});
         const auto update =
             store.updateMembership(domain::PlayerId{"sender"}, makeContext(42), now,
                                    domain::CorrelationId{"initial-membership"},
@@ -106,14 +120,20 @@ struct Fixture final
 
     application::TimePoint now{application::Clock::time_point{std::chrono::seconds{1000}}};
     application::InMemoryControlPlaneStore store;
+    application::InMemoryTransmissionRateLimiter rate_limiter{{100, std::chrono::seconds{10}},
+                                                              {100, std::chrono::seconds{10}}};
+    ModerationAuthorizer moderation_authorizer;
+    application::TransmissionLifecyclePolicy lifecycle_policy{std::chrono::seconds{30}};
     TransmissionIdGenerator ids;
 };
 
 auto startsAndEndsAnActiveTransmission() -> bool
 {
     Fixture fixture;
-    application::TransmissionApplicationService service{fixture.store, fixture.store, fixture.ids,
-                                                        fixture.store};
+    application::TransmissionApplicationService service{
+        fixture.store,           fixture.store,        fixture.ids,
+        fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
+        fixture.lifecycle_policy};
 
     const auto started = service.start(fixture.startCommand(), fixture.now);
     if (!started.successful() || fixture.store.activeCount() != 1)
@@ -148,8 +168,10 @@ auto startsAndEndsAnActiveTransmission() -> bool
 auto membershipChangeAtomicallyInterruptsTransmission() -> bool
 {
     Fixture fixture;
-    application::TransmissionApplicationService service{fixture.store, fixture.store, fixture.ids,
-                                                        fixture.store};
+    application::TransmissionApplicationService service{
+        fixture.store,           fixture.store,        fixture.ids,
+        fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
+        fixture.lifecycle_policy};
     const auto started = service.start(fixture.startCommand(), fixture.now);
     if (!started.successful())
     {
@@ -171,8 +193,10 @@ auto membershipChangeAtomicallyInterruptsTransmission() -> bool
 auto permissionChangeAtomicallyInterruptsAndRevokes() -> bool
 {
     Fixture fixture;
-    application::TransmissionApplicationService service{fixture.store, fixture.store, fixture.ids,
-                                                        fixture.store};
+    application::TransmissionApplicationService service{
+        fixture.store,           fixture.store,        fixture.ids,
+        fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
+        fixture.lifecycle_policy};
     const auto started = service.start(fixture.startCommand(), fixture.now);
     if (!started.successful())
     {
@@ -225,8 +249,10 @@ auto staleChangesCannotReplaceStateOrLeaveAStaleTransmission() -> bool
 auto disconnectAtomicallyInterruptsTransmission() -> bool
 {
     Fixture fixture;
-    application::TransmissionApplicationService service{fixture.store, fixture.store, fixture.ids,
-                                                        fixture.store};
+    application::TransmissionApplicationService service{
+        fixture.store,           fixture.store,        fixture.ids,
+        fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
+        fixture.lifecycle_policy};
     const auto started = service.start(fixture.startCommand(), fixture.now);
     if (!started.successful())
     {
@@ -262,6 +288,131 @@ auto sessionChangeDuringStartCannotActivateTransmission() -> bool
     return activation.error == application::TransmissionActivationError::session_changed &&
            fixture.store.activeCount() == 0;
 }
+
+auto rateLimitsStartAndEndRequestsPerPlayer() -> bool
+{
+    application::InMemoryTransmissionRateLimiter limiter{{2, std::chrono::seconds{10}},
+                                                         {1, std::chrono::seconds{5}}};
+    const auto now = application::TimePoint{std::chrono::seconds{1000}};
+    const domain::PlayerId player{"sender"};
+
+    return limiter.allow(player, application::TransmissionRateLimitAction::start, now) &&
+           limiter.allow(player, application::TransmissionRateLimitAction::start,
+                         now + std::chrono::seconds{1}) &&
+           !limiter.allow(player, application::TransmissionRateLimitAction::start,
+                          now + std::chrono::seconds{2}) &&
+           limiter.allow(player, application::TransmissionRateLimitAction::end, now) &&
+           !limiter.allow(player, application::TransmissionRateLimitAction::end,
+                          now + std::chrono::seconds{1}) &&
+           limiter.allow(player, application::TransmissionRateLimitAction::start,
+                         now + std::chrono::seconds{10}) &&
+           limiter.allow(player, application::TransmissionRateLimitAction::end,
+                         now + std::chrono::seconds{5});
+}
+
+auto applicationServiceReportsRateLimitedRequests() -> bool
+{
+    Fixture start_fixture;
+    application::InMemoryTransmissionRateLimiter start_limiter{{1, std::chrono::seconds{10}},
+                                                               {10, std::chrono::seconds{10}}};
+    application::TransmissionApplicationService start_service{
+        start_fixture.store,           start_fixture.store, start_fixture.ids,
+        start_fixture.store,           start_limiter,       start_fixture.moderation_authorizer,
+        start_fixture.lifecycle_policy};
+    if (start_service.start(start_fixture.startCommand(41), start_fixture.now).error !=
+            application::StartTransmissionError::voice_membership_stale ||
+        start_service.start(start_fixture.startCommand(), start_fixture.now).error !=
+            application::StartTransmissionError::rate_limited ||
+        start_fixture.store.activeCount() != 0)
+    {
+        return false;
+    }
+
+    Fixture end_fixture;
+    application::InMemoryTransmissionRateLimiter end_limiter{{10, std::chrono::seconds{10}},
+                                                             {1, std::chrono::seconds{10}}};
+    application::TransmissionApplicationService end_service{
+        end_fixture.store,           end_fixture.store, end_fixture.ids,
+        end_fixture.store,           end_limiter,       end_fixture.moderation_authorizer,
+        end_fixture.lifecycle_policy};
+    const auto started = end_service.start(end_fixture.startCommand(), end_fixture.now);
+    if (!started.successful())
+    {
+        return false;
+    }
+
+    const application::EndTransmissionCommand missing{
+        domain::SessionId{"session-sender"}, domain::DeviceId{"device-sender"},
+        domain::TransmissionId{"missing"}, domain::CorrelationId{"missing-end"}};
+    const auto missing_result = end_service.end(missing, end_fixture.now);
+    const auto limited_result =
+        end_service.end(end_fixture.endCommand(started.transmission->authorization.transmission_id),
+                        end_fixture.now);
+
+    return missing_result.error == application::EndTransmissionError::transmission_not_found &&
+           limited_result.error == application::EndTransmissionError::rate_limited &&
+           end_fixture.store.activeCount() == 1;
+}
+
+auto timeoutExpiresOnlyOverdueTransmissions() -> bool
+{
+    Fixture fixture;
+    application::TransmissionApplicationService service{
+        fixture.store,           fixture.store,        fixture.ids,
+        fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
+        fixture.lifecycle_policy};
+    const auto started = service.start(fixture.startCommand(), fixture.now);
+    if (!started.successful())
+    {
+        return false;
+    }
+
+    const auto early = service.expireTimedOut(fixture.now + std::chrono::seconds{29},
+                                              domain::CorrelationId{"timeout-scan-early"});
+    const auto expired = service.expireTimedOut(fixture.now + std::chrono::seconds{30},
+                                                domain::CorrelationId{"timeout-scan"});
+
+    return early.empty() && expired.size() == 1 &&
+           expired.front().stop_reason == domain::TransmissionStopReason::timed_out &&
+           expired.front().correlation_id == domain::CorrelationId{"timeout-scan"} &&
+           fixture.store.activeCount() == 0;
+}
+
+auto authorizedModerationInterruptsTransmission() -> bool
+{
+    Fixture fixture;
+    application::TransmissionApplicationService service{
+        fixture.store,           fixture.store,        fixture.ids,
+        fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
+        fixture.lifecycle_policy};
+    const auto started = service.start(fixture.startCommand(), fixture.now);
+    if (!started.successful())
+    {
+        return false;
+    }
+    const auto transmission_id = started.transmission->authorization.transmission_id;
+
+    const application::ModerateTransmissionCommand unauthorized{
+        domain::SessionId{"session-other"}, domain::DeviceId{"device-other"}, transmission_id,
+        domain::CorrelationId{"unauthorized-moderation"}};
+    if (service.interruptForModeration(unauthorized, fixture.now).error !=
+            application::ModerateTransmissionError::not_authorized ||
+        fixture.store.activeCount() != 1)
+    {
+        return false;
+    }
+
+    const application::ModerateTransmissionCommand authorized{
+        domain::SessionId{"session-moderator"}, domain::DeviceId{"device-moderator"},
+        transmission_id, domain::CorrelationId{"moderation"}};
+    const auto interrupted = service.interruptForModeration(authorized, fixture.now);
+
+    return interrupted.successful() &&
+           interrupted.transmission->stop_reason ==
+               domain::TransmissionStopReason::moderation_interrupted &&
+           interrupted.transmission->correlation_id == domain::CorrelationId{"moderation"} &&
+           fixture.store.activeCount() == 0;
+}
 } // namespace
 
 auto main() noexcept -> int
@@ -273,7 +424,11 @@ auto main() noexcept -> int
                             permissionChangeAtomicallyInterruptsAndRevokes() &&
                             staleChangesCannotReplaceStateOrLeaveAStaleTransmission() &&
                             disconnectAtomicallyInterruptsTransmission() &&
-                            sessionChangeDuringStartCannotActivateTransmission();
+                            sessionChangeDuringStartCannotActivateTransmission() &&
+                            rateLimitsStartAndEndRequestsPerPlayer() &&
+                            applicationServiceReportsRateLimitedRequests() &&
+                            timeoutExpiresOnlyOverdueTransmissions() &&
+                            authorizedModerationInterruptsTransmission();
         if (!passed)
         {
             std::fputs("in-memory control-plane tests failed\n", stderr);

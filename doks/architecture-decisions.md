@@ -44,6 +44,12 @@
   Sender-ID noch eine Empfängerliste.
 - Der Sender wird aus der Session abgeleitet; die Empfänger werden durch den
   Domänenkern aus dem autoritativen Snapshot berechnet.
+- Start- und Endanforderungen werden getrennt pro authentifiziertem Spieler
+  begrenzt.
+- Transmission-Timeouts und autorisierte Moderationsabbrüche werden im
+  Repository atomar auf aktive Transmissionen angewendet.
+- Die Moderationsberechtigung wird über eine eigenständige
+  Anwendungsschnittstelle bezogen.
 - HTTP, Persistenz, Tokenprüfung, Audit-Logging und Voice-Transport werden über
   Adapter angebunden.
 

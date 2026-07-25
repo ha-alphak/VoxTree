@@ -275,17 +275,72 @@ auto EndTransmissionResult::rejected(EndTransmissionError end_error) -> EndTrans
     return EndTransmissionResult{std::nullopt, end_error};
 }
 
+ModerateTransmissionResult::ModerateTransmissionResult(
+    std::optional<EndedTransmission> ended_transmission,
+    std::optional<ModerateTransmissionError> moderation_error)
+    : transmission(std::move(ended_transmission)), error(moderation_error)
+{
+    if (transmission.has_value() == error.has_value())
+    {
+        throw std::invalid_argument{
+            "A moderation result must contain either an interrupted transmission or an error."};
+    }
+}
+
+auto ModerateTransmissionResult::interrupted(EndedTransmission ended_transmission)
+    -> ModerateTransmissionResult
+{
+    return ModerateTransmissionResult{std::move(ended_transmission), std::nullopt};
+}
+
+auto ModerateTransmissionResult::rejected(ModerateTransmissionError moderation_error)
+    -> ModerateTransmissionResult
+{
+    return ModerateTransmissionResult{std::nullopt, moderation_error};
+}
+
+TransmissionLifecyclePolicy::TransmissionLifecyclePolicy(std::chrono::milliseconds maximum_duration)
+    : maximum_transmission_duration(maximum_duration)
+{
+    if (maximum_transmission_duration <= std::chrono::milliseconds::zero())
+    {
+        throw std::invalid_argument{"The maximum transmission duration must be positive."};
+    }
+}
+
 TransmissionApplicationService::TransmissionApplicationService(
     const ISessionRepository& sessions, const IAuthoritativeMembershipProvider& memberships,
-    ITransmissionIdGenerator& transmission_ids, IActiveTransmissionRepository& active_transmissions)
+    ITransmissionIdGenerator& transmission_ids, IActiveTransmissionRepository& active_transmissions,
+    ITransmissionRateLimiter& rate_limiter,
+    const ITransmissionModerationAuthorizer& moderation_authorizer,
+    TransmissionLifecyclePolicy lifecycle_policy)
     : sessions_(sessions), authorization_(sessions, memberships, transmission_ids),
-      active_transmissions_(active_transmissions)
+      active_transmissions_(active_transmissions), rate_limiter_(rate_limiter),
+      moderation_authorizer_(moderation_authorizer), lifecycle_policy_(std::move(lifecycle_policy))
 {
 }
 
 auto TransmissionApplicationService::start(const StartTransmissionCommand& command, TimePoint now)
     -> StartTransmissionResult
 {
+    const auto session = sessions_.find(command.session_id);
+    if (!session)
+    {
+        return StartTransmissionResult::rejected(StartTransmissionError::session_not_found);
+    }
+    if (session->device_id != command.device_id)
+    {
+        return StartTransmissionResult::rejected(StartTransmissionError::session_device_mismatch);
+    }
+    if (!session->activeAt(now))
+    {
+        return StartTransmissionResult::rejected(StartTransmissionError::session_expired);
+    }
+    if (!rate_limiter_.allow(session->player_id, TransmissionRateLimitAction::start, now))
+    {
+        return StartTransmissionResult::rejected(StartTransmissionError::rate_limited);
+    }
+
     auto authorization = authorization_.authorizeStart(command, now);
     if (!authorization.authorized())
     {
@@ -318,6 +373,10 @@ auto TransmissionApplicationService::end(const EndTransmissionCommand& command, 
     {
         return EndTransmissionResult::rejected(EndTransmissionError::session_expired);
     }
+    if (!rate_limiter_.allow(session->player_id, TransmissionRateLimitAction::end, now))
+    {
+        return EndTransmissionResult::rejected(EndTransmissionError::rate_limited);
+    }
 
     auto ended = active_transmissions_.end(
         command.transmission_id, command.session_id, command.device_id,
@@ -331,5 +390,47 @@ auto TransmissionApplicationService::end(const EndTransmissionCommand& command, 
     }
 
     return EndTransmissionResult::ended(std::move(*ended.transmission));
+}
+
+auto TransmissionApplicationService::interruptForModeration(
+    const ModerateTransmissionCommand& command, TimePoint now) -> ModerateTransmissionResult
+{
+    const auto session = sessions_.find(command.session_id);
+    if (!session)
+    {
+        return ModerateTransmissionResult::rejected(ModerateTransmissionError::session_not_found);
+    }
+    if (session->device_id != command.device_id)
+    {
+        return ModerateTransmissionResult::rejected(
+            ModerateTransmissionError::session_device_mismatch);
+    }
+    if (!session->activeAt(now))
+    {
+        return ModerateTransmissionResult::rejected(ModerateTransmissionError::session_expired);
+    }
+    if (!moderation_authorizer_.canInterrupt(session->player_id, command.transmission_id))
+    {
+        return ModerateTransmissionResult::rejected(ModerateTransmissionError::not_authorized);
+    }
+
+    auto interrupted = active_transmissions_.interrupt(
+        command.transmission_id, domain::TransmissionStopReason::moderation_interrupted, now,
+        command.correlation_id);
+    if (!interrupted.successful())
+    {
+        return ModerateTransmissionResult::rejected(
+            ModerateTransmissionError::transmission_not_found);
+    }
+
+    return ModerateTransmissionResult::interrupted(std::move(*interrupted.transmission));
+}
+
+auto TransmissionApplicationService::expireTimedOut(TimePoint now,
+                                                    const domain::CorrelationId& correlation_id)
+    -> std::vector<EndedTransmission>
+{
+    return active_transmissions_.expireTimedOut(lifecycle_policy_.maximum_transmission_duration,
+                                                now, correlation_id);
 }
 } // namespace hvc::application

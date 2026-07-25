@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <deque>
 #include <hvc/application/control_plane.hpp>
 #include <map>
 #include <mutex>
@@ -73,6 +74,13 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
                            domain::TransmissionStopReason stop_reason, TimePoint ended_at,
                            const domain::CorrelationId& correlation_id)
         -> TransmissionEndRepositoryResult override;
+    [[nodiscard]] auto interrupt(const domain::TransmissionId& transmission_id,
+                                 domain::TransmissionStopReason stop_reason, TimePoint ended_at,
+                                 const domain::CorrelationId& correlation_id)
+        -> TransmissionEndRepositoryResult override;
+    [[nodiscard]] auto expireTimedOut(std::chrono::milliseconds maximum_duration, TimePoint now,
+                                      const domain::CorrelationId& correlation_id)
+        -> std::vector<EndedTransmission> override;
 
     [[nodiscard]] auto active(const domain::TransmissionId& transmission_id) const
         -> std::optional<ActiveTransmission>;
@@ -94,5 +102,35 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
     std::map<domain::SessionId, AuthenticatedSession> sessions_;
     std::map<domain::PlayerId, AuthoritativeMembershipContext> memberships_;
     std::map<domain::TransmissionId, ActiveTransmission> active_transmissions_;
+};
+
+struct TransmissionRateLimit final
+{
+    TransmissionRateLimit(std::size_t maximum_request_count, std::chrono::milliseconds time_window);
+
+    std::size_t maximum_requests;
+    std::chrono::milliseconds window;
+};
+
+class InMemoryTransmissionRateLimiter final : public ITransmissionRateLimiter
+{
+  public:
+    InMemoryTransmissionRateLimiter(TransmissionRateLimit start_limit,
+                                    TransmissionRateLimit end_limit);
+
+    [[nodiscard]] auto allow(const domain::PlayerId& player_id, TransmissionRateLimitAction action,
+                             TimePoint now) -> bool override;
+
+  private:
+    struct RequestHistory final
+    {
+        std::deque<TimePoint> starts;
+        std::deque<TimePoint> ends;
+    };
+
+    mutable std::mutex mutex_;
+    TransmissionRateLimit start_limit_;
+    TransmissionRateLimit end_limit_;
+    std::map<domain::PlayerId, RequestHistory> histories_;
 };
 } // namespace hvc::application

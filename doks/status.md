@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Linux-Control-Plane – In-Memory-Transmissionslebenszyklus<br>
+**Phase:** Linux-Control-Plane – Audit-Events<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -71,11 +71,21 @@
   beenden aktive Transmissionen atomar mit nachvollziehbarem Abbruchgrund.
 - Anwendungstests für Start, Ende, fremde Endanforderungen, parallelen
   Startkonflikt, veraltete Updates und atomare Abbrüche ergänzt.
+- Konfigurierbare Sliding-Window-Rate-Limits für Start- und Endanforderungen
+  getrennt pro authentifiziertem Spieler umgesetzt.
+- Konfigurierbare Transmission-Maximaldauer und atomare Timeout-Prüfung mit
+  korrelierten Abbruchergebnissen ergänzt.
+- Frameworkunabhängigen Moderationsabbruch mit eigener
+  Autorisierungsschnittstelle, Session- und Geräteprüfung sowie atomarer
+  Beendigung implementiert.
+- Anwendungstests für Rate-Limit-Grenzen und -Fehler, Timeout-Grenzzeitpunkte
+  sowie autorisierte und nicht autorisierte Moderationsabbrüche ergänzt.
 
 ## Aktueller Stand
 
-- Das technische Projektfundament, der transportunabhängige Domänenkern und der
-  In-Memory-Transmissionslebenszyklus sind vorhanden und lokal validiert.
+- Das technische Projektfundament, der transportunabhängige Domänenkern sowie
+  der In-Memory-Transmissionslebenszyklus einschließlich Rate Limits, Timeouts
+  und Moderationsabbrüchen sind vorhanden und lokal validiert.
 - Es existieren noch keine Netzwerk-, dauerhaften Persistenz- oder
   Voice-Transportadapter.
 - Das Projektfundament benötigt keine externen C++-Abhängigkeiten.
@@ -84,9 +94,8 @@
 
 ## Nächster Schritt
 
-Transmission-Timeouts, Rate Limits und Moderationsabbrüche als
-frameworkunabhängige Anwendungsfälle ergänzen. Danach strukturierte Audit-Events
-für Start, Ende, Ablehnung und erzwungenen Abbruch anbinden.
+Strukturierte Audit-Events für Start, Ende, Ablehnung und erzwungenen Abbruch
+über eine frameworkunabhängige Event-Schnittstelle anbinden.
 
 ## Validierung
 
