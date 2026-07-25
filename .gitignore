@@ -34,6 +34,9 @@ coverage/
 .env.*
 !.env.example
 
+# Local LiveKit server distribution
+/livekit_1.13.4_windows_amd64/
+
 # Operating system and editor files
 .DS_Store
 Thumbs.db
