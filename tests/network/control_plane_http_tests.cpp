@@ -177,6 +177,22 @@ class ModerationAuthorizer final : public application::ITransmissionModerationAu
     }
 };
 
+class MembershipAdministrator final : public application::IAdministrativeMembershipAuthorizer
+{
+  public:
+    [[nodiscard]] auto canRead(const domain::PlayerId& actor, const domain::PlayerId&) const
+        -> bool override
+    {
+        return actor == domain::PlayerId{"sender"};
+    }
+
+    [[nodiscard]] auto canRemove(const domain::PlayerId& actor, const domain::PlayerId&) const
+        -> bool override
+    {
+        return actor == domain::PlayerId{"sender"};
+    }
+};
+
 struct Fixture final
 {
     Fixture()
@@ -188,7 +204,7 @@ struct Fixture final
                   rate_limiter,
                   moderation,
                   application::TransmissionLifecyclePolicy{std::chrono::seconds{30}}},
-          adapter{authenticator, sessions, runtime, service}
+          adapter{authenticator, sessions, runtime, service, &runtime, &membership_administrator}
     {
     }
 
@@ -212,6 +228,7 @@ struct Fixture final
     TransmissionIds ids;
     RateLimiter rate_limiter;
     ModerationAuthorizer moderation;
+    MembershipAdministrator membership_administrator;
     application::TransmissionApplicationService service;
     network::ControlPlaneHttpAdapter adapter;
 };
@@ -330,6 +347,24 @@ struct Fixture final
            malformed.body.find("invalid_json") != std::string::npos && unknown.status_code == 404 &&
            unknown.body.find("route_not_found") != std::string::npos;
 }
+
+[[nodiscard]] auto separatelyAuthorizesAdministrativeMembershipRoutes() -> bool
+{
+    Fixture fixture;
+    static_cast<void>(fixture.adapter.handle(
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
+    const auto read = fixture.adapter.handle(
+        Fixture::request("GET", "/api/v1/admin/memberships/sender", "Session session-1"),
+        fixture.now);
+    const auto removed = fixture.adapter.handle(
+        Fixture::request("DELETE", "/api/v1/admin/memberships/sender", "Session session-1"),
+        fixture.now);
+
+    return read.status_code == 200 &&
+           read.body.find("\"player_id\":\"sender\"") != std::string::npos &&
+           removed.status_code == 200 &&
+           removed.body.find("\"status\":\"removed\"") != std::string::npos;
+}
 } // namespace
 
 auto main() noexcept -> int
@@ -344,6 +379,8 @@ auto main() noexcept -> int
             Check{"readiness", &reportsReadinessWithoutAuthentication},
             Check{"membership privacy", &exposesOnlyTheAuthenticatedPlayersMembership},
             Check{"transmission lifecycle", &startsAndEndsWithoutExposingRecipientIds},
+            Check{"administrative membership authorization",
+                  &separatelyAuthorizesAdministrativeMembershipRoutes},
             Check{"invalid input", &rejectsUnknownAndMalformedInputDeterministically}};
         for (const auto& [name, check] : checks)
         {

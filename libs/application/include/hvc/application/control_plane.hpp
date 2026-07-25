@@ -141,6 +141,72 @@ class IMutableAuthoritativeMembershipRepository : public IAuthoritativeMembershi
     [[nodiscard]] virtual auto erase(const domain::PlayerId& player_id) -> bool = 0;
 };
 
+class IAdministrativeMembershipAuthorizer
+{
+  public:
+    virtual ~IAdministrativeMembershipAuthorizer() = default;
+
+    [[nodiscard]] virtual auto canRead(const domain::PlayerId& actor,
+                                       const domain::PlayerId& subject) const -> bool = 0;
+    [[nodiscard]] virtual auto canRemove(const domain::PlayerId& actor,
+                                         const domain::PlayerId& subject) const -> bool = 0;
+};
+
+struct VoiceGrantPolicy final
+{
+    explicit VoiceGrantPolicy(std::chrono::milliseconds maximum_lifetime);
+
+    std::chrono::milliseconds lifetime;
+};
+
+struct VoiceGrantClaims final
+{
+    domain::PlayerId player_id;
+    domain::DeviceId device_id;
+    std::uint64_t membership_version;
+    std::vector<domain::VoiceScope> transmit_scopes;
+    std::vector<domain::VoiceScope> receive_scopes;
+    TimePoint expires_at;
+};
+
+enum class VoiceGrantError : std::uint8_t
+{
+    session_not_found,
+    session_device_mismatch,
+    session_expired,
+    membership_unavailable,
+    player_not_in_membership,
+    voice_not_connected
+};
+
+struct VoiceGrantResult final
+{
+    [[nodiscard]] auto successful() const noexcept -> bool
+    {
+        return claims.has_value();
+    }
+
+    std::optional<VoiceGrantClaims> claims;
+    std::optional<VoiceGrantError> error;
+};
+
+class VoiceGrantAuthorizationService final
+{
+  public:
+    VoiceGrantAuthorizationService(const ISessionRepository& sessions,
+                                   const IAuthoritativeMembershipProvider& memberships,
+                                   VoiceGrantPolicy policy);
+
+    [[nodiscard]] auto derive(const domain::SessionId& session_id,
+                              const domain::DeviceId& device_id, TimePoint now) const
+        -> VoiceGrantResult;
+
+  private:
+    const ISessionRepository& sessions_;
+    const IAuthoritativeMembershipProvider& memberships_;
+    VoiceGrantPolicy policy_;
+};
+
 struct StartTransmissionCommand final
 {
     StartTransmissionCommand(domain::SessionId session, domain::DeviceId device,
@@ -318,6 +384,16 @@ struct EndedTransmission final
     domain::TransmissionStopReason stop_reason;
     TimePoint ended_at;
     domain::CorrelationId correlation_id;
+};
+
+class IAdministrativeMembershipService : public IAuthoritativeMembershipProvider
+{
+  public:
+    ~IAdministrativeMembershipService() override = default;
+
+    [[nodiscard]] virtual auto removeMembership(const domain::PlayerId& player_id, TimePoint now,
+                                                const domain::CorrelationId& correlation_id)
+        -> std::vector<EndedTransmission> = 0;
 };
 
 enum class TransmissionEndRepositoryError : std::uint8_t

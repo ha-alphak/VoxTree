@@ -37,7 +37,7 @@ struct MembershipUpdateResult final
 };
 
 class InMemoryControlPlaneStore final : public ISessionRepository,
-                                        public IAuthoritativeMembershipProvider,
+                                        public IAdministrativeMembershipService,
                                         public IActiveTransmissionRepository
 {
   public:
@@ -65,7 +65,7 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
         -> MembershipUpdateResult;
     [[nodiscard]] auto removeMembership(const domain::PlayerId& player_id, TimePoint now,
                                         const domain::CorrelationId& correlation_id)
-        -> std::vector<EndedTransmission>;
+        -> std::vector<EndedTransmission> override;
 
     [[nodiscard]] auto currentFor(const domain::PlayerId& player_id) const
         -> std::optional<AuthoritativeMembershipContext> override;

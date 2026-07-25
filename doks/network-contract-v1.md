@@ -152,6 +152,32 @@ späteren, gesondert autorisierten Verwaltungsvertrag nach außen freigegeben;
 die bestehende interne Compare-and-Replace-Schnittstelle bleibt davon
 unverändert.
 
+## Administrative Memberships
+
+### `GET /api/v1/admin/memberships/{player-id}`
+
+Liest die Membership eines angegebenen Spielers. Der Endpunkt verwendet zwar
+eine gültige, gerätegebundene Session, verlangt aber zusätzlich eine positive
+Entscheidung von `IAdministrativeMembershipAuthorizer`. Eine normale Session
+erhält dadurch keine impliziten Verwaltungsrechte.
+
+### `DELETE /api/v1/admin/memberships/{player-id}`
+
+Entfernt den autoritativen Membership-Kontext und beendet aktive
+Transmissionen des Spielers atomar. Auch dieser Endpunkt wird separat über
+`canRemove` autorisiert. Der Linux-Bootstrap-Start verweigert beide
+administrativen Operationen standardmäßig, bis ein Deployment einen
+autoritativen Admin-/Rollenadapter bereitstellt.
+
+## Voice-Grant-Vorbereitung
+
+`VoiceGrantAuthorizationService` erzeugt noch kein transportspezifisches Token.
+Er leitet kurzlebige Claims ausschließlich aus der aktiven, gerätegebundenen
+Session, der aktuellen Membership-Version und der serverseitigen Rollenrichtlinie
+ab. Die Laufzeit ist konfigurierbar und wird zusätzlich durch das Session-Ende
+begrenzt. Ein späterer LiveKit-Adapter signiert diese Claims und bildet die
+abgeleiteten Sende-/Empfangs-Scopes auf Räume und Berechtigungen ab.
+
 ## Transmission starten
 
 ### `POST /api/v1/transmissions`

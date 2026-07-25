@@ -211,6 +211,22 @@ class DenyModeration final : public application::ITransmissionModerationAuthoriz
         return false;
     }
 };
+
+class DenyMembershipAdministration final : public application::IAdministrativeMembershipAuthorizer
+{
+  public:
+    [[nodiscard]] auto canRead(const domain::PlayerId&, const domain::PlayerId&) const
+        -> bool override
+    {
+        return false;
+    }
+
+    [[nodiscard]] auto canRemove(const domain::PlayerId&, const domain::PlayerId&) const
+        -> bool override
+    {
+        return false;
+    }
+};
 } // namespace
 
 auto main(int argument_count, char** arguments) -> int
@@ -253,6 +269,7 @@ auto main(int argument_count, char** arguments) -> int
             application::TransmissionRateLimit{10, std::chrono::seconds{1}},
             application::TransmissionRateLimit{20, std::chrono::seconds{1}}};
         DenyModeration moderation;
+        DenyMembershipAdministration membership_administration;
         application::TransmissionApplicationService transmissions{
             runtime_store,
             runtime_store,
@@ -262,8 +279,9 @@ auto main(int argument_count, char** arguments) -> int
             moderation,
             application::TransmissionLifecyclePolicy{std::chrono::seconds{30}},
             &repository};
-        network::ControlPlaneHttpAdapter api{authenticator, repository, runtime_store,
-                                             transmissions};
+        network::ControlPlaneHttpAdapter api{authenticator,  repository,
+                                             runtime_store,  transmissions,
+                                             &runtime_store, &membership_administration};
         return hvc::control_plane::runLinuxHttpServer(options.listen_address, options.port, api);
 #else
         throw std::invalid_argument{"--listen is supported only by the Linux build."};

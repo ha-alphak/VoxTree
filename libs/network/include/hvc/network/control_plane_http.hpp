@@ -42,7 +42,10 @@ class ControlPlaneHttpAdapter final : public IHttpRequestHandler
     ControlPlaneHttpAdapter(application::ISessionAuthenticator& authenticator,
                             application::IMutableSessionRepository& sessions,
                             const application::IAuthoritativeMembershipProvider& memberships,
-                            application::TransmissionApplicationService& transmissions) noexcept;
+                            application::TransmissionApplicationService& transmissions,
+                            application::IAdministrativeMembershipService* administration = nullptr,
+                            const application::IAdministrativeMembershipAuthorizer*
+                                administration_authorizer = nullptr) noexcept;
 
     [[nodiscard]] auto handle(const HttpRequest& request, application::TimePoint now)
         -> HttpResponse override;
@@ -52,5 +55,7 @@ class ControlPlaneHttpAdapter final : public IHttpRequestHandler
     application::IMutableSessionRepository& sessions_;
     const application::IAuthoritativeMembershipProvider& memberships_;
     application::TransmissionApplicationService& transmissions_;
+    application::IAdministrativeMembershipService* administration_;
+    const application::IAdministrativeMembershipAuthorizer* administration_authorizer_;
 };
 } // namespace hvc::network

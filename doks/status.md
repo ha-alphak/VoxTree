@@ -139,6 +139,10 @@
   Control-Plane-Richtlinie begrenzt; Provider-Ablehnungen bleiben typisiert.
 - Den dateibasierten Bootstrap-Login als austauschbaren Identity-Provider hinter
   die neue Grenze verschoben und die Session-Erstellung separat getestet.
+- Separat autorisierte administrative Lese- und Löschendpunkte für Memberships
+  ergänzt; normale Sessions erhalten keine impliziten Verwaltungsrechte.
+- Kurzlebige Voice-Grant-Claims werden serverseitig aus gerätegebundener Session,
+  aktueller Membership-Version und Rollenrichtlinie abgeleitet.
 
 ## Aktueller Stand
 
@@ -161,9 +165,8 @@
 
 ## Nächster Schritt
 
-Getrennt autorisierte administrative Membership-Endpunkte implementieren und
-die Ausstellung kurzlebiger, serverseitig aus der Membership abgeleiteter
-Voice-Grants vorbereiten.
+Administrative Compare-and-Replace-Updates über den Netzwerkvertrag ergänzen
+und die abgeleiteten Voice-Grant-Claims in einem LiveKit-Adapter signieren.
 
 ## Validierung
 

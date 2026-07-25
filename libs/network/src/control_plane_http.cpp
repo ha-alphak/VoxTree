@@ -711,9 +711,12 @@ ControlPlaneHttpAdapter::ControlPlaneHttpAdapter(
     application::ISessionAuthenticator& authenticator,
     application::IMutableSessionRepository& sessions,
     const application::IAuthoritativeMembershipProvider& memberships,
-    application::TransmissionApplicationService& transmissions) noexcept
+    application::TransmissionApplicationService& transmissions,
+    application::IAdministrativeMembershipService* administration,
+    const application::IAdministrativeMembershipAuthorizer* administration_authorizer) noexcept
     : authenticator_(authenticator), sessions_(sessions), memberships_(memberships),
-      transmissions_(transmissions)
+      transmissions_(transmissions), administration_(administration),
+      administration_authorizer_(administration_authorizer)
 {
 }
 
@@ -778,6 +781,56 @@ auto ControlPlaneHttpAdapter::handle(const HttpRequest& request, application::Ti
             return std::get<HttpResponse>(std::move(authenticated));
         }
         const auto& session = std::get<RequestSession>(authenticated);
+
+        constexpr std::string_view membership_admin_prefix{"/api/v1/admin/memberships/"};
+        if (request.target.starts_with(membership_admin_prefix))
+        {
+            const auto subject_value =
+                std::string_view{request.target}.substr(membership_admin_prefix.size());
+            if (subject_value.empty() || subject_value.find('/') != std::string_view::npos)
+            {
+                return errorResponse(400, "invalid_membership_path",
+                                     "The administrative membership path is invalid.");
+            }
+            if (administration_ == nullptr || administration_authorizer_ == nullptr)
+            {
+                return errorResponse(403, "administration_unavailable",
+                                     "Membership administration is not enabled.");
+            }
+            const domain::PlayerId subject{std::string{subject_value}};
+            if (request.method == "GET" && request.body.empty())
+            {
+                if (!administration_authorizer_->canRead(session.session.player_id, subject))
+                {
+                    return errorResponse(403, "not_authorized",
+                                         "The session cannot read administrative memberships.");
+                }
+                const application::AuthenticatedSession subject_session{session.session.session_id,
+                                                                        subject, session.device_id,
+                                                                        session.session.expires_at};
+                return membershipResponse(subject_session, *administration_);
+            }
+            if (request.method == "DELETE" && request.body.empty())
+            {
+                if (!administration_authorizer_->canRemove(session.session.player_id, subject))
+                {
+                    return errorResponse(403, "not_authorized",
+                                         "The session cannot remove administrative memberships.");
+                }
+                if (!administration_->currentFor(subject))
+                {
+                    return errorResponse(404, "membership_unavailable",
+                                         "No authoritative membership is available.");
+                }
+                const auto interrupted =
+                    administration_->removeMembership(subject, now, session.correlation_id);
+                return jsonResponse(
+                    200, "{\"api_version\":\"v1\",\"player_id\":" + escapeJson(subject.value()) +
+                             ",\"status\":\"removed\",\"interrupted_transmission_count\":" +
+                             std::to_string(interrupted.size()) + '}');
+            }
+            return errorResponse(404, "route_not_found", "No v1 route matches the request.");
+        }
 
         if (request.target == "/api/v1/membership" && request.method == "GET")
         {

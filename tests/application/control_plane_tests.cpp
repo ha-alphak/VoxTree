@@ -180,6 +180,22 @@ auto rejectsStaleAndUnauthorizedRequests() -> bool
            unauthorized.error ==
                application::TransmissionAuthorizationError::voice_scope_not_authorized;
 }
+
+auto derivesShortLivedVoiceGrantClaimsFromAuthoritativeState() -> bool
+{
+    Fixture fixture;
+    application::VoiceGrantAuthorizationService grants{
+        fixture.session_repository, fixture.membership_provider,
+        application::VoiceGrantPolicy{std::chrono::seconds{30}}};
+
+    const auto result =
+        grants.derive(domain::SessionId{"session-1"}, domain::DeviceId{"device-1"}, fixture.now);
+    return result.successful() && result.claims && result.claims->membership_version == 42 &&
+           result.claims->player_id == domain::PlayerId{"sender"} &&
+           result.claims->transmit_scopes.size() == 3 &&
+           result.claims->receive_scopes.size() == 3 &&
+           result.claims->expires_at == fixture.now + std::chrono::seconds{30};
+}
 } // namespace
 
 auto main() noexcept -> int
@@ -187,7 +203,9 @@ auto main() noexcept -> int
     try
     {
         const bool passed = authorizesFromServerSideIdentityAndMembership() &&
-                            rejectsInvalidSessionContext() && rejectsStaleAndUnauthorizedRequests();
+                            rejectsInvalidSessionContext() &&
+                            rejectsStaleAndUnauthorizedRequests() &&
+                            derivesShortLivedVoiceGrantClaimsFromAuthoritativeState();
         if (!passed)
         {
             std::fputs("application control-plane tests failed\n", stderr);
