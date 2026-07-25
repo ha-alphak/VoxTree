@@ -157,6 +157,12 @@
 - Zwei gleichzeitig laufende native Windows-Clients erfolgreich gegen einen
   lokalen LiveKit-Server verbunden; beide Verbindungen und der gemeinsame
   Raum wurden durch den Quality-Gate-Client bestätigt.
+- Quality-Gate-Client um Windows-Audiogeräteauflistung und -auswahl,
+  Mikrofonaufnahme mit WebRTC-Audioverarbeitung, Opus-Publikation sowie
+  verifiziertes Remote-Opus-Abonnement mit Plattform-Playout erweitert.
+- Mikrofonaufnahme und direkte Opus-Publikation/-Subscription lokal mit zwei
+  nativen Clientprozessen gegen LiveKit Server 1.13.4 nachgewiesen; Sender und
+  Empfänger meldeten jeweils `PASS`.
 
 ## Aktueller Stand
 
@@ -177,13 +183,18 @@
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
   und die Verbindung zweier nativer Clientprozesse sind reproduzierbar. Der
-  reale Zwei-Rechner-Nachweis mit Mikrofonen steht noch aus.
+  Quality-Gate-Client kann Windows-Audiogeräte auflisten und auswählen,
+  Mikrofon-Audio mit Echo Cancellation, Noise Suppression und Automatic Gain
+  Control als Opus veröffentlichen sowie einen empfangenen `audio/opus`-Track
+  über den nativen Plattform-Audiopfad wiedergeben. Der lokale Zwei-Prozess-
+  Nachweis ist bestanden; der reale Zwei-Rechner-Nachweis mit Mikrofonen steht
+  noch aus.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Mikrofonaufnahme sowie Opus-Publikation/-Empfang ergänzen und zunächst lokal
-mit zwei Clientprozessen, danach auf zwei Windows-Rechnern nachweisen.
+Mikrofonaufnahme sowie Opus-Publikation/-Empfang auf zwei Windows-Rechnern
+nachweisen.
 
 ## Validierung
 
@@ -194,6 +205,8 @@ mit zwei Clientprozessen, danach auf zwei Windows-Rechnern nachweisen.
 | CTest Debug | 9 von 9 Tests bestanden |
 | CTest Release | 9 von 9 Tests bestanden |
 | Lokale native LiveKit-Zwei-Client-Verbindung | Bestanden |
+| Native Windows-Audiogeräteerkennung | Bestanden |
+| Lokaler Mikrofon-/Opus-Zwei-Prozess-Nachweis | Bestanden |
 | Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
