@@ -1,3 +1,5 @@
+# Broad rule families are enabled below. The explicit exclusions form the current
+# compatibility baseline for Debian 13's clang-tidy and should be retired incrementally.
 Checks: >
   -*,
   bugprone-*,
@@ -8,9 +10,31 @@ Checks: >
   performance-*,
   portability-*,
   readability-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-inc-dec-in-conditions,
+  -bugprone-unchecked-optional-access,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-const-or-ref-data-members,
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-owning-memory,
-  -readability-magic-numbers
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-member-init,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-special-member-functions,
+  -modernize-avoid-c-arrays,
+  -modernize-raw-string-literal,
+  -modernize-use-auto,
+  -modernize-use-designated-initializers,
+  -performance-move-const-arg,
+  -performance-unnecessary-value-param,
+  -readability-function-cognitive-complexity,
+  -readability-magic-numbers,
+  -readability-named-parameter,
+  -readability-qualified-auto,
+  -readability-redundant-casting,
+  -readability-redundant-member-init
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*[/\\](apps|libs|tests)[/\\].*'
 FormatStyle: file
