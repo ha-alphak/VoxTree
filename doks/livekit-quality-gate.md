@@ -147,8 +147,30 @@ Der ursprünglich vorgesehene Mikrofon-/Opus-Nachweis auf zwei getrennten
 Windows-Rechnern wird gemäß Projektentscheidung übersprungen. Die lokalen
 Zwei-Prozess-, Drei-Scope- und PTT-Nachweise bleiben verbindlich.
 
+## Reconnect ohne automatische Transmission
+
+Die Reconnect-Probe beginnt mit einer kurzen PTT-Publikation und beendet diese
+vollständig, bevor die Verbindungsunterbrechung ausgelöst wird:
+
+```powershell
+.\out\build\windows-msvc-livekit-quality-gate\apps\livekit-quality-gate\Release\hvc-livekit-quality-gate.exe `
+  --url 'ws://127.0.0.1:7880' --token 'TOKEN_SENDER' `
+  --ptt 3 --expect-reconnect --wait-for-peer 60
+```
+
+Sobald die Probe `Waiting ... for a disconnect and successful reconnect`
+ausgibt, wird der Testserver hart beendet und innerhalb des Zeitlimits mit
+derselben Adresse und denselben Entwicklungsschlüsseln neu gestartet.
+Verbindungsfehler und Wiederholungsversuche im SDK-Log sind während dieses
+absichtlichen Ausfalls erwartet.
+
+Die Probe verlangt ein vollständiges `onReconnecting`-/`onReconnected`-
+Ereignispaar, den Zustand `Connected` nach der Wiederherstellung und eine
+weiterhin leere lokale Track-Publikationsliste. Sie meldet nur dann `PASS`,
+wenn die vor dem Ausfall beendete PTT-Transmission nicht automatisch
+fortgesetzt wurde.
+
 ## Noch offene Quality-Gate-Nachweise
 
-- Reconnect ohne automatische Transmission
 - Audiogerätewechsel
 - serverseitiger Rechteentzug und Subscription-Isolation

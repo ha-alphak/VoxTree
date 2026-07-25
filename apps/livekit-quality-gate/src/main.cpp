@@ -36,6 +36,7 @@ struct Arguments
     bool publish_audio{false};
     bool expect_audio{false};
     bool expect_ptt{false};
+    bool expect_reconnect{false};
 };
 
 void print_usage()
@@ -45,6 +46,7 @@ void print_usage()
               << "  hvc-livekit-quality-gate --url <ws-url> --token <jwt>\n"
               << "    [--publish-audio | --ptt <seconds>]\n"
               << "    [--expect-audio | --expect-ptt]\n"
+              << "    [--expect-reconnect]\n"
               << "    [--recording-device <id>] [--playout-device <id>]\n"
               << "    (--wait-for-peer <seconds> | --hold <seconds>)\n"
               << "  hvc-livekit-quality-gate --url <ws-url>\n"
@@ -128,6 +130,10 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         {
             arguments.expect_ptt = true;
         }
+        else if (option == "--expect-reconnect")
+        {
+            arguments.expect_reconnect = true;
+        }
         else
         {
             throw std::invalid_argument{"unknown or incomplete option: " + option};
@@ -181,6 +187,10 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     if (arguments.ptt_duration.has_value() && arguments.hold_connection)
     {
         throw std::invalid_argument{"--ptt cannot be combined with --hold"};
+    }
+    if (arguments.expect_reconnect && !arguments.ptt_duration.has_value())
+    {
+        throw std::invalid_argument{"--expect-reconnect requires --ptt"};
     }
     if (arguments.recording_device_id.has_value() && !arguments.publish_audio &&
         !arguments.ptt_duration.has_value())
@@ -251,6 +261,19 @@ class ProbeObserver final : public livekit::RoomDelegate
         observe_audio_stop(event.publication);
     }
 
+    void onReconnecting(livekit::Room&, const livekit::ReconnectingEvent&) override
+    {
+        reconnecting_.store(true);
+    }
+
+    void onReconnected(livekit::Room&, const livekit::ReconnectedEvent&) override
+    {
+        if (reconnecting_.load())
+        {
+            reconnected_.store(true);
+        }
+    }
+
     [[nodiscard]] auto peerConnected() const -> bool
     {
         return peer_connected_.load();
@@ -266,6 +289,11 @@ class ProbeObserver final : public livekit::RoomDelegate
     {
         const std::scoped_lock lock{audio_mutex_};
         return received_opus_microphone_ && remote_audio_stopped_;
+    }
+
+    [[nodiscard]] auto completedReconnect() const -> bool
+    {
+        return reconnecting_.load() && reconnected_.load();
     }
 
     [[nodiscard]] auto subscribedAudioDescription() const -> std::string
@@ -295,6 +323,8 @@ class ProbeObserver final : public livekit::RoomDelegate
     }
 
     std::atomic<bool> peer_connected_{false};
+    std::atomic<bool> reconnecting_{false};
+    std::atomic<bool> reconnected_{false};
     mutable std::mutex audio_mutex_;
     std::optional<std::string> subscribed_audio_mime_;
     std::optional<livekit::TrackSource> subscribed_audio_source_;
@@ -577,6 +607,41 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
         stop_microphone(room, *published_audio);
         published_audio.reset();
         std::cout << "PTT released. Microphone track unpublished; room remains connected.\n";
+
+        if (arguments.expect_reconnect)
+        {
+            std::cout << "Waiting up to " << arguments.wait_for_peer.count()
+                      << " seconds for a disconnect and successful reconnect...\n"
+                      << std::flush;
+            const auto deadline = std::chrono::steady_clock::now() + arguments.wait_for_peer;
+            while (std::chrono::steady_clock::now() < deadline && !observer.completedReconnect())
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds{100});
+            }
+            if (!observer.completedReconnect())
+            {
+                std::cerr << "FAIL: no complete LiveKit reconnect cycle occurred after PTT.\n";
+                return EXIT_FAILURE;
+            }
+
+            std::this_thread::sleep_for(std::chrono::seconds{2});
+            const auto reconnected_participant = room.localParticipant().lock();
+            if (room.connectionState() != livekit::ConnectionState::Connected ||
+                reconnected_participant == nullptr)
+            {
+                std::cerr << "FAIL: room is not connected after the reconnect cycle.\n";
+                return EXIT_FAILURE;
+            }
+            if (!reconnected_participant->trackPublications().empty())
+            {
+                std::cerr << "FAIL: PTT microphone publication resumed after reconnect.\n";
+                return EXIT_FAILURE;
+            }
+            std::cout << "PASS: room reconnected without automatically resuming the ended PTT "
+                         "transmission.\n";
+            return EXIT_SUCCESS;
+        }
+
         std::this_thread::sleep_for(std::chrono::seconds{2});
         if (room.connectionState() != livekit::ConnectionState::Connected)
         {
@@ -633,7 +698,8 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
     while (std::chrono::steady_clock::now() < deadline)
     {
         if (probe_succeeded(arguments, observer) ||
-            (!arguments.expect_audio && !room.remoteParticipants().empty()))
+            (!arguments.expect_audio && !arguments.expect_ptt &&
+             !room.remoteParticipants().empty()))
         {
             if (arguments.expect_ptt)
             {

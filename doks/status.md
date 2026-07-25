@@ -171,6 +171,10 @@
   vorgegebene PTT-Dauer, unpubliziert den Track beim Loslassen und hält die
   Raumverbindung aufrecht. Der Empfänger bestätigte Opus-Start und
   Track-Entfernung Ende-zu-Ende mit `PASS`.
+- Nativen Reconnect nach einem harten LiveKit-Serverausfall und -neustart
+  nachgewiesen. Die zuvor beendete PTT-Publikation blieb nach dem vollständigen
+  Reconnect beendet; Raumzustand und leere Track-Publikationsliste wurden mit
+  `PASS` bestätigt.
 
 ## Aktueller Stand
 
@@ -198,14 +202,13 @@
   Specialization- und Group-Räume parallel verbinden und den gleichzeitigen
   Opus-Empfang in allen drei Scopes prüfen. PTT-Publikation und sauberer
   Track-Abbruch ohne Raum-Disconnect sind ebenfalls nachgewiesen. Der lokale
-  Zwei-Prozess-, Drei-Scope- und PTT-Nachweis ist bestanden. Der reale
-  Zwei-Rechner-Nachweis mit Mikrofonen wird übersprungen.
+  Zwei-Prozess-, Drei-Scope-, PTT- und Serverneustart-/Reconnect-Nachweis ist
+  bestanden. Der reale Zwei-Rechner-Nachweis mit Mikrofonen wird übersprungen.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Nativen LiveKit-Reconnect nach einer Verbindungsunterbrechung nachweisen, ohne
-eine zuvor beendete Transmission automatisch fortzusetzen.
+Audiogerätewechsel während einer laufenden nativen LiveKit-Sitzung nachweisen.
 
 ## Validierung
 
@@ -221,6 +224,7 @@ eine zuvor beendete Transmission automatisch fortzusetzen.
 | Mikrofon-/Opus-Nachweis auf zwei Windows-Rechnern | Übersprungen |
 | Lokaler paralleler Drei-Scope-Opus-Empfang | Bestanden |
 | Nativer PTT-Start und sauberer Track-Abbruch | Bestanden |
+| Nativer LiveKit-Reconnect ohne automatische Transmission | Bestanden |
 | Domänen-Zustandsautomat: Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
