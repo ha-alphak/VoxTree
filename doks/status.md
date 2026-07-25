@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Planung abgeschlossen  
+**Phase:** Projektfundament abgeschlossen
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -17,18 +17,43 @@
 - Initiale Sprecherlimits definiert.
 - Integrationsfähigkeit als Architekturziel aufgenommen.
 - Versionierter Dokumentationsordner angelegt.
+- CMake-Projekt mit Windows-, Debian-, Debug-, Release- und Analyse-Presets
+  angelegt.
+- MSVC-Warnprofil, Sanitizer-Konfiguration, clang-format und clang-tidy
+  eingerichtet.
+- Minimale C++20-Foundation-Bibliothek mit installierbarem CMake-Paket
+  angelegt.
+- CTest-Testfundament eingerichtet.
+- GitHub-CI für Windows Server 2022 und Debian 13.6 eingerichtet.
+- Lokale MSVC-Debug- und Release-Builds erfolgreich ausgeführt.
+- Lokale Tests, Formatprüfung, statische Analyse und Paketinstallation
+  erfolgreich validiert.
 
 ## Aktueller Stand
 
-- Es existiert noch kein Anwendungs- oder Servercode.
-- Es wurden noch keine externen Abhängigkeiten installiert.
+- Das technische Projektfundament ist vorhanden und lokal validiert.
+- Es existiert noch kein fachlicher Anwendungs- oder Servercode.
+- Das Projektfundament benötigt keine externen C++-Abhängigkeiten.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Projektfundament mit CMake, Visual Studio 2022, Windows-/Linux-Presets,
-Test-Framework und statischer Analyse anlegen.
+Transportunabhängigen Domänenkern mit starken ID-Typen, Hierarchie,
+Membership-Snapshots, Rollenrechten und deterministischer Empfängerermittlung
+anlegen.
+
+## Validierung
+
+| Prüfung | Ergebnis |
+|---|---|
+| Windows MSVC Debug | Bestanden |
+| Windows MSVC Release | Bestanden |
+| CTest Debug und Release | 1 von 1 Tests bestanden |
+| clang-format | Bestanden |
+| clang-tidy | Bestanden |
+| CMake-Installation und Paketexport | Bestanden |
+| Debian-CI | Konfiguriert, Ausführung nach Push |
 
 ## Risiken
 

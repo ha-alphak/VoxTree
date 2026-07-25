@@ -1,0 +1,81 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows / MSVC / ${{ matrix.configuration }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration:
+          - debug
+          - release
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configure, build, and test
+        shell: pwsh
+        run: ./scripts/Invoke-Build.ps1 -Preset windows-msvc-${{ matrix.configuration }}
+
+  debian:
+    name: Debian 13 / GCC / ${{ matrix.configuration }}
+    runs-on: ubuntu-24.04
+    container: debian:13.6-slim
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration:
+          - debug
+          - release
+    steps:
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            cmake \
+            ninja-build
+
+      - name: Check out sources
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configure, build, and test
+        run: ./scripts/build.sh linux-gcc-${{ matrix.configuration }}
+
+  analysis:
+    name: Debian 13 / Clang analysis
+    runs-on: ubuntu-24.04
+    container: debian:13.6-slim
+    steps:
+      - name: Install analysis tools
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends \
+            ca-certificates \
+            clang \
+            clang-format \
+            clang-tidy \
+            cmake \
+            ninja-build
+
+      - name: Check out sources
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check formatting
+        run: |
+          find libs tests -type f \
+            \( -name '*.cpp' -o -name '*.hpp' -o -name '*.hpp.in' -o -name '*.h' \) \
+            -print0 |
+            xargs --null clang-format --dry-run --Werror
+
+      - name: Configure, analyze, build, and test
+        run: ./scripts/build.sh linux-clang-analysis

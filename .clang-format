@@ -1,0 +1,12 @@
+BasedOnStyle: Microsoft
+Standard: c++20
+Language: Cpp
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+DerivePointerAlignment: false
+PointerAlignment: Left
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+InsertNewlineAtEOF: true

@@ -1,0 +1,41 @@
+# CMake and build outputs
+/out/
+/build/
+/cmake-build-*/
+/CMakeUserPresets.json
+
+# Visual Studio
+/.vs/
+*.VC.db
+*.VC.opendb
+*.sln
+*.suo
+*.user
+
+# Compilers and analysis
+compile_commands.json
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.a
+
+# Test and coverage output
+Testing/
+coverage/
+*.profraw
+*.profdata
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*~

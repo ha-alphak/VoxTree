@@ -1,0 +1,10 @@
+#pragma once
+
+#include <string_view>
+
+namespace hvc::foundation::build
+{
+
+inline constexpr std::string_view version{"@PROJECT_VERSION@"};
+
+} // namespace hvc::foundation::build
