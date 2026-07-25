@@ -1,3 +1,7 @@
+# Important Note
+> [!IMPORTANT]
+> All of the Code is __AI__ generated. This is a test!
+
 # Hierarchical Voice Communication
 
 Hierarchical Voice Communication is a standalone, real-time voice application
