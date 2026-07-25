@@ -1,6 +1,10 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('windows-msvc-debug', 'windows-msvc-release')]
+    [ValidateSet(
+        'windows-msvc-debug',
+        'windows-msvc-release',
+        'windows-msvc-livekit-quality-gate'
+    )]
     [string] $Preset = 'windows-msvc-debug'
 )
 

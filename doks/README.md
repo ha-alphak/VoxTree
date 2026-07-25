@@ -13,6 +13,7 @@ Communication**.
 | [state-machines.md](state-machines.md) | Verbindungs- und Transmission-Zustandsautomaten |
 | [control-plane.md](control-plane.md) | Anwendungsschicht und Control-Plane-Schnittstellen |
 | [network-contract-v1.md](network-contract-v1.md) | Versionierter HTTP-Vertrag der Control-Plane |
+| [livekit-quality-gate.md](livekit-quality-gate.md) | Native SDK-Anbindung und Zwei-Client-Probe |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |
 | [status.md](status.md) | Laufender Projektstatus |
 

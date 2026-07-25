@@ -36,6 +36,15 @@
       }
     },
     {
+      "name": "windows-msvc-livekit-quality-gate",
+      "displayName": "Windows x64 - LiveKit quality gate",
+      "description": "Native LiveKit SDK integration and two-client probe",
+      "inherits": "windows-msvc",
+      "cacheVariables": {
+        "HVC_BUILD_LIVEKIT_QUALITY_GATE": "ON"
+      }
+    },
+    {
       "name": "linux-gcc-debug",
       "displayName": "Debian/Linux GCC - Debug",
       "inherits": "base",
@@ -94,6 +103,15 @@
       "name": "windows-msvc-release",
       "configurePreset": "windows-msvc",
       "configuration": "Release",
+      "jobs": 0
+    },
+    {
+      "name": "windows-msvc-livekit-quality-gate",
+      "configurePreset": "windows-msvc-livekit-quality-gate",
+      "configuration": "Release",
+      "targets": [
+        "hvc_livekit_quality_gate"
+      ],
       "jobs": 0
     },
     {
@@ -183,6 +201,19 @@
         {
           "type": "test",
           "name": "windows-msvc-release"
+        }
+      ]
+    },
+    {
+      "name": "windows-msvc-livekit-quality-gate",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "windows-msvc-livekit-quality-gate"
+        },
+        {
+          "type": "build",
+          "name": "windows-msvc-livekit-quality-gate"
         }
       ]
     },

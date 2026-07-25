@@ -149,6 +149,14 @@
   bleiben auch über den Netzwerkvertrag erhalten.
 - Eigenständigen LiveKit-Tokenadapter mit HS256-Signatur, getrennten
   Scope-Räumen und unabhängigen Publish-/Subscribe-Rechten implementiert.
+- Offizielles natives LiveKit-C++-SDK 1.4.0 für Windows x64 mit fest
+  hinterlegtem SHA-256 reproduzierbar und opt-in an CMake angebunden.
+- Nativen Quality-Gate-Client ergänzt, der sich per URL und serverseitig
+  ausgestelltem Token verbindet und die Anwesenheit eines zweiten
+  Windows-Clients prüft.
+- Zwei gleichzeitig laufende native Windows-Clients erfolgreich gegen einen
+  lokalen LiveKit-Server verbunden; beide Verbindungen und der gemeinsame
+  Raum wurden durch den Quality-Gate-Client bestätigt.
 
 ## Aktueller Stand
 
@@ -167,13 +175,15 @@
   wurde noch nicht begonnen.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
-- Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
+- Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
+  und die Verbindung zweier nativer Clientprozesse sind reproduzierbar. Der
+  reale Zwei-Rechner-Nachweis mit Mikrofonen steht noch aus.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Das LiveKit-C++-Quality-Gate beginnen und zunächst die reproduzierbare native
-SDK-Anbindung sowie die Verbindung zweier Windows-Testclients nachweisen.
+Mikrofonaufnahme sowie Opus-Publikation/-Empfang ergänzen und zunächst lokal
+mit zwei Clientprozessen, danach auf zwei Windows-Rechnern nachweisen.
 
 ## Validierung
 
@@ -183,6 +193,7 @@ SDK-Anbindung sowie die Verbindung zweier Windows-Testclients nachweisen.
 | Windows MSVC Release | Bestanden |
 | CTest Debug | 9 von 9 Tests bestanden |
 | CTest Release | 9 von 9 Tests bestanden |
+| Lokale native LiveKit-Zwei-Client-Verbindung | Bestanden |
 | Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
