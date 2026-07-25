@@ -91,9 +91,11 @@ Implemented foundations include:
   handling;
 - typed control-plane client for sessions, membership, grants, and
   transmissions;
-- Windows WinHTTP transport plus authorization-before-audio PTT coordination.
+- Windows WinHTTP transport plus authorization-before-audio PTT coordination;
+- separate Team, Specialization, and Group PTT bindings; and
+- focus-independent Windows keyboard and mouse capture through Win32 Raw Input.
 
-The global Windows input system and graphical client are not yet complete. See
+Generic HID controllers and the graphical client are not yet complete. See
 [the project status](doks/status.md) for the detailed implementation progress.
 
 ## Requirements

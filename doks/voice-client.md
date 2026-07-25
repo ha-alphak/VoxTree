@@ -78,6 +78,11 @@ beendet der Client die Servertransmission sofort als Rollback. Bei einem
 Transportabbruch kann `endInterruptedTransmission()` die bereits lokal
 beendete Transmission serverseitig aufräumen.
 
+Die abstrakte Grenze `IPushToTalkTarget` macht diesen autorisierten
+PTT-Lebenszyklus für das Eingabesystem testbar. Die konkreten
+Team-, Specialization- und Group-Aktionen sowie der Windows-Raw-Input-Adapter
+sind in [input-system.md](input-system.md) beschrieben.
+
 ## Fehlergrenze
 
 SDK-Ausnahmen aus Transportoperationen verlassen den Adapter nicht. Diese
@@ -102,9 +107,10 @@ gebaut:
 .\scripts\build-windows.cmd -Preset windows-msvc-livekit-quality-gate
 ```
 
-Die Client-Tests verwenden Fake-HTTP- und Fake-Voice-Transporte. Sie prüfen
+Die Client-Tests verwenden Fake-HTTP-, Fake-Voice- und Fake-PTT-Ziele. Sie prüfen
 Scope-Grant-Validierung, den exklusiven PTT-Lebenszyklus, die Reihenfolge
 „Autorisierung vor Mikrofon“, Ablehnungen ohne Publikation, den Rollback bei
 Audiofehlern und den Abbruch ohne automatische Wiederaufnahme nach einem
-Reconnect. Das native Quality-Gate bleibt zusätzlich als unabhängiger
+Reconnect. Zusätzlich prüfen sie Bindings, Kombinationen und die drei separaten
+Eingabeaktionen. Das native Quality-Gate bleibt als unabhängiger
 Ende-zu-Ende-Nachweis der verwendeten SDK-Operationen erhalten.

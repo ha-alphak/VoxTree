@@ -220,6 +220,16 @@
   explizite Bereinigung nach einem Transportabbruch ergänzt.
 - Clienttests für die vollständige Session-/Membership-/Grant-Kette,
   Autorisierung vor Publikation, Ablehnung ohne Audio und Rollback ergänzt.
+- Separate Team-, Specialization- und Group-PTT-Aktionen mit mehreren
+  alternativen Einzel- oder Kombinationsbindings implementiert.
+- Geräteübergreifende und gerätespezifische Tastatur-/Mausbindings,
+  Konfliktvalidierung, Autorepeat-Unterdrückung sowie Hot-Unplug-Freigabe im
+  UI-unabhängigen Eingabekern ergänzt.
+- Win32-Raw-Input-Adapter mit eigenem Message-only-Fenster,
+  `RIDEV_INPUTSINK`, Geräteidentität und `RIDEV_DEVNOTIFY` umgesetzt.
+- Eingabeaktionen über eine testbare PTT-Zielgrenze mit dem
+  autorisierten Voice-Client-Lebenszyklus verbunden.
+- Eingabekern- und Windows-Lifecycle-Tests ergänzt.
 
 ## Aktueller Stand
 
@@ -237,8 +247,9 @@
 - Die LiveKit-Tokenausstellung sowie die native Client- und Audioanbindung sind
   vorhanden.
 - Der UI-unabhängige Windows-Client-Core, die Control-Plane-Clientanbindung, der
-  WinHTTP-Adapter und der native LiveKit-Transportadapter sind vorhanden. Die
-  WinUI-Oberfläche und das globale Eingabesystem sind noch nicht verdrahtet.
+  WinHTTP-Adapter, das globale Tastatur-/Maus-Eingabesystem und der native
+  LiveKit-Transportadapter sind vorhanden. Die WinUI-Oberfläche und generische
+  HID-Controller sind noch nicht verdrahtet.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
@@ -262,9 +273,10 @@
 
 ## Nächster Schritt
 
-Ein Windows-Eingabesystem mit getrennten Team-, Specialization- und Group-PTT-
-Aktionen anlegen und Tastatur sowie Maus zunächst über Win32 Raw Input
-fokusunabhängig anbinden.
+Das Windows-Eingabesystem um Gamepads, Joysticks und HOTAS über generische
+HID-Berichte erweitern, Geräteprofile vervollständigen und den
+Hintergrund-PTT-Pfad mit realer Hardware bei fremdem Vordergrundfenster
+nachweisen.
 
 ## Validierung
 
@@ -272,8 +284,8 @@ fokusunabhängig anbinden.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug | 11 von 11 Tests bestanden |
-| CTest Release | 11 von 11 Tests bestanden |
+| CTest Debug | 13 von 13 Tests bestanden |
+| CTest Release | 13 von 13 Tests bestanden |
 | Lokale native LiveKit-Zwei-Client-Verbindung | Bestanden |
 | Native Windows-Audiogeräteerkennung | Bestanden |
 | Lokaler Mikrofon-/Opus-Zwei-Prozess-Nachweis | Bestanden |
@@ -289,6 +301,9 @@ fokusunabhängig anbinden.
 | Windows-Client-Core und Fake-Transport-Tests | Bestanden |
 | Control-Plane-Client und autorisierte PTT-Koordination | Bestanden |
 | Windows-WinHTTP-Transport Debug/Release | Bestanden |
+| PTT-Bindings und separate Team-/Specialization-/Group-Aktionen | Bestanden |
+| Win32-Raw-Input-Registrierung und Lifecycle | Bestanden |
+| Hintergrund-PTT mit realer Tastatur/Maus bei Fremdfokus | Ausstehend |
 | Nativer LiveKit-Transportadapter Release-Build | Bestanden |
 | Domänen-Zustandsautomat: Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
@@ -304,6 +319,6 @@ fokusunabhängig anbinden.
 |---|---|---|
 | Reife und Integration des LiveKit-C++-SDK | Beobachten | Quality Gate bestanden; bekannte Geräte- und Publication-Handle-Einschränkungen im Adapter kapseln |
 | Autoritative Isolation im Shared-Room-Modell | Zurückgestellt | Getrennte, erfolgreich isolierte Räume verwenden |
-| Hintergrund-PTT für unterschiedliche HID-Geräte | Offen | Früher Hardware-Prototyp mit Raw Input |
+| Hintergrund-PTT für unterschiedliche HID-Geräte | In Arbeit | Tastatur/Maus über Raw Input umgesetzt; generische HID-Geräte und manueller Fremdfokus-Nachweis folgen |
 | Windows 10 außerhalb des regulären Supports | Akzeptiert | Build 19045 unterstützen und Windows 11 mittesten |
 | 200-Spieler-Skalierung | Offen | Früher Lasttest vor UI-Vollausbau |

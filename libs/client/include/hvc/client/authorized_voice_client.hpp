@@ -35,15 +35,29 @@ struct VoiceSessionResult final
     std::optional<VoiceSessionError> error;
 };
 
-class AuthorizedVoiceClient final
+class IPushToTalkTarget
+{
+  public:
+    IPushToTalkTarget() = default;
+    IPushToTalkTarget(const IPushToTalkTarget&) = delete;
+    auto operator=(const IPushToTalkTarget&) -> IPushToTalkTarget& = delete;
+    IPushToTalkTarget(IPushToTalkTarget&&) = delete;
+    auto operator=(IPushToTalkTarget&&) -> IPushToTalkTarget& = delete;
+    virtual ~IPushToTalkTarget() = default;
+
+    [[nodiscard]] virtual auto pressPushToTalk(domain::VoiceScope scope) -> VoiceSessionResult = 0;
+    [[nodiscard]] virtual auto releasePushToTalk() -> VoiceSessionResult = 0;
+};
+
+class AuthorizedVoiceClient final : public IPushToTalkTarget
 {
   public:
     AuthorizedVoiceClient(ControlPlaneClient& control_plane, VoiceClient& voice_client);
 
     [[nodiscard]] auto connect(std::string_view external_credential) -> VoiceSessionResult;
     [[nodiscard]] auto disconnect() -> VoiceSessionResult;
-    [[nodiscard]] auto pressPushToTalk(domain::VoiceScope scope) -> VoiceSessionResult;
-    [[nodiscard]] auto releasePushToTalk() -> VoiceSessionResult;
+    [[nodiscard]] auto pressPushToTalk(domain::VoiceScope scope) -> VoiceSessionResult override;
+    [[nodiscard]] auto releasePushToTalk() -> VoiceSessionResult override;
     [[nodiscard]] auto endInterruptedTransmission() -> VoiceSessionResult;
 
     [[nodiscard]] auto membership() const -> std::optional<MembershipView>;

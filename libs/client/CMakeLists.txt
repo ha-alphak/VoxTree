@@ -6,6 +6,7 @@ target_sources(
   PRIVATE
     src/authorized_voice_client.cpp
     src/control_plane_client.cpp
+    src/ptt_input.cpp
     src/voice_client.cpp
   PUBLIC
     FILE_SET public_headers
@@ -14,6 +15,7 @@ target_sources(
     FILES
       include/hvc/client/authorized_voice_client.hpp
       include/hvc/client/control_plane_client.hpp
+      include/hvc/client/ptt_input.hpp
       include/hvc/client/voice_client.hpp
       include/hvc/client/voice_transport.hpp
 )
@@ -53,6 +55,43 @@ install(
 )
 
 if(WIN32)
+  add_library(hvc_client_win_raw_input STATIC)
+  add_library(hvc::client_win_raw_input ALIAS hvc_client_win_raw_input)
+
+  target_sources(
+    hvc_client_win_raw_input
+    PRIVATE src/win_raw_input.cpp
+    PUBLIC
+      FILE_SET public_headers
+      TYPE HEADERS
+      BASE_DIRS include
+      FILES include/hvc/client/win_raw_input.hpp
+  )
+  target_compile_features(hvc_client_win_raw_input PUBLIC cxx_std_20)
+  target_link_libraries(
+    hvc_client_win_raw_input
+    PUBLIC hvc::client
+    PRIVATE
+      user32
+      "$<BUILD_INTERFACE:hvc_project_options>"
+  )
+  set_target_properties(
+    hvc_client_win_raw_input
+    PROPERTIES
+      CXX_EXTENSIONS OFF
+      EXPORT_NAME client_win_raw_input
+      OUTPUT_NAME hvc-client-win-raw-input
+  )
+
+  install(
+    TARGETS hvc_client_win_raw_input
+    EXPORT HvcFoundationTargets
+    FILE_SET public_headers
+      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    ARCHIVE
+      DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  )
+
   add_library(hvc_client_winhttp STATIC)
   add_library(hvc::client_winhttp ALIAS hvc_client_winhttp)
 

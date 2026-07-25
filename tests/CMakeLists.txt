@@ -66,6 +66,34 @@ set_target_properties(hvc_client_control_plane_tests PROPERTIES CXX_EXTENSIONS O
 
 add_test(NAME client.control_plane COMMAND hvc_client_control_plane_tests)
 
+add_executable(hvc_client_ptt_input_tests client/ptt_input_tests.cpp)
+
+target_link_libraries(
+  hvc_client_ptt_input_tests
+  PRIVATE
+    hvc::client
+    hvc::project_options
+)
+
+set_target_properties(hvc_client_ptt_input_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME client.ptt_input COMMAND hvc_client_ptt_input_tests)
+
+if(WIN32)
+  add_executable(hvc_client_win_raw_input_tests client/win_raw_input_tests.cpp)
+
+  target_link_libraries(
+    hvc_client_win_raw_input_tests
+    PRIVATE
+      hvc::client_win_raw_input
+      hvc::project_options
+  )
+
+  set_target_properties(hvc_client_win_raw_input_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+  add_test(NAME client.win_raw_input COMMAND hvc_client_win_raw_input_tests)
+endif()
+
 add_executable(hvc_application_tests application/control_plane_tests.cpp)
 
 target_link_libraries(
