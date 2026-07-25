@@ -71,6 +71,213 @@ auto mapActivationError(TransmissionActivationError error) -> StartTransmissionE
 
     throw std::logic_error{"Unhandled transmission activation error."};
 }
+
+auto mapAuditRejection(StartTransmissionError error) -> TransmissionAuditRejectionReason
+{
+    switch (error)
+    {
+    case StartTransmissionError::session_not_found:
+        return TransmissionAuditRejectionReason::session_not_found;
+    case StartTransmissionError::session_device_mismatch:
+        return TransmissionAuditRejectionReason::session_device_mismatch;
+    case StartTransmissionError::session_expired:
+        return TransmissionAuditRejectionReason::session_expired;
+    case StartTransmissionError::membership_unavailable:
+        return TransmissionAuditRejectionReason::membership_unavailable;
+    case StartTransmissionError::voice_not_connected:
+        return TransmissionAuditRejectionReason::voice_not_connected;
+    case StartTransmissionError::voice_no_active_membership:
+        return TransmissionAuditRejectionReason::voice_no_active_membership;
+    case StartTransmissionError::voice_scope_not_found:
+        return TransmissionAuditRejectionReason::voice_scope_not_found;
+    case StartTransmissionError::voice_scope_not_authorized:
+        return TransmissionAuditRejectionReason::voice_scope_not_authorized;
+    case StartTransmissionError::voice_transmit_muted:
+        return TransmissionAuditRejectionReason::voice_transmit_muted;
+    case StartTransmissionError::voice_membership_stale:
+        return TransmissionAuditRejectionReason::voice_membership_stale;
+    case StartTransmissionError::session_changed_during_start:
+        return TransmissionAuditRejectionReason::session_changed_during_start;
+    case StartTransmissionError::membership_changed_during_start:
+        return TransmissionAuditRejectionReason::membership_changed_during_start;
+    case StartTransmissionError::sender_already_transmitting:
+        return TransmissionAuditRejectionReason::sender_already_transmitting;
+    case StartTransmissionError::transmission_id_conflict:
+        return TransmissionAuditRejectionReason::transmission_id_conflict;
+    case StartTransmissionError::rate_limited:
+        return TransmissionAuditRejectionReason::rate_limited;
+    }
+
+    throw std::logic_error{"Unhandled start transmission error."};
+}
+
+auto mapAuditRejection(EndTransmissionError error) -> TransmissionAuditRejectionReason
+{
+    switch (error)
+    {
+    case EndTransmissionError::session_not_found:
+        return TransmissionAuditRejectionReason::session_not_found;
+    case EndTransmissionError::session_device_mismatch:
+        return TransmissionAuditRejectionReason::session_device_mismatch;
+    case EndTransmissionError::session_expired:
+        return TransmissionAuditRejectionReason::session_expired;
+    case EndTransmissionError::transmission_not_found:
+        return TransmissionAuditRejectionReason::transmission_not_found;
+    case EndTransmissionError::transmission_not_owned:
+        return TransmissionAuditRejectionReason::transmission_not_owned;
+    case EndTransmissionError::rate_limited:
+        return TransmissionAuditRejectionReason::rate_limited;
+    }
+
+    throw std::logic_error{"Unhandled end transmission error."};
+}
+
+auto mapAuditRejection(ModerateTransmissionError error) -> TransmissionAuditRejectionReason
+{
+    switch (error)
+    {
+    case ModerateTransmissionError::session_not_found:
+        return TransmissionAuditRejectionReason::session_not_found;
+    case ModerateTransmissionError::session_device_mismatch:
+        return TransmissionAuditRejectionReason::session_device_mismatch;
+    case ModerateTransmissionError::session_expired:
+        return TransmissionAuditRejectionReason::session_expired;
+    case ModerateTransmissionError::not_authorized:
+        return TransmissionAuditRejectionReason::not_authorized;
+    case ModerateTransmissionError::transmission_not_found:
+        return TransmissionAuditRejectionReason::transmission_not_found;
+    }
+
+    throw std::logic_error{"Unhandled moderation transmission error."};
+}
+
+void addActiveTransmissionDetails(TransmissionAuditEvent& event,
+                                  const ActiveTransmission& transmission)
+{
+    event.session_id = transmission.session_id;
+    event.device_id = transmission.device_id;
+    event.client_transmission_id = transmission.authorization.client_transmission_id;
+    event.transmission_id = transmission.authorization.transmission_id;
+    event.sender_player_id = transmission.authorization.sender_player_id;
+    event.scope = transmission.authorization.scope;
+    event.membership_version = transmission.authorization.membership_version;
+    event.recipient_count = transmission.authorization.recipients.size();
+}
+
+void recordStartRejected(ITransmissionAuditEventSink* audit_events,
+                         const StartTransmissionCommand& command, TimePoint now,
+                         StartTransmissionError error,
+                         const std::optional<domain::PlayerId>& sender_player_id) noexcept
+{
+    if (audit_events == nullptr)
+    {
+        return;
+    }
+
+    TransmissionAuditEvent event{TransmissionAuditEventType::rejected,
+                                 TransmissionAuditOperation::start, now, command.correlation_id};
+    event.session_id = command.session_id;
+    event.device_id = command.device_id;
+    event.client_transmission_id = command.client_transmission_id;
+    event.actor_player_id = sender_player_id;
+    event.sender_player_id = sender_player_id;
+    event.scope = command.scope;
+    event.membership_version = command.membership_version;
+    event.rejection_reason = mapAuditRejection(error);
+    audit_events->record(event);
+}
+
+void recordEndRejected(ITransmissionAuditEventSink* audit_events,
+                       const EndTransmissionCommand& command, TimePoint now,
+                       EndTransmissionError error,
+                       const std::optional<domain::PlayerId>& sender_player_id) noexcept
+{
+    if (audit_events == nullptr)
+    {
+        return;
+    }
+
+    TransmissionAuditEvent event{TransmissionAuditEventType::rejected,
+                                 TransmissionAuditOperation::end, now, command.correlation_id};
+    event.session_id = command.session_id;
+    event.device_id = command.device_id;
+    event.transmission_id = command.transmission_id;
+    event.actor_player_id = sender_player_id;
+    event.sender_player_id = sender_player_id;
+    event.rejection_reason = mapAuditRejection(error);
+    audit_events->record(event);
+}
+
+void recordModerationRejected(ITransmissionAuditEventSink* audit_events,
+                              const ModerateTransmissionCommand& command, TimePoint now,
+                              ModerateTransmissionError error,
+                              const std::optional<domain::PlayerId>& moderator_player_id) noexcept
+{
+    if (audit_events == nullptr)
+    {
+        return;
+    }
+
+    TransmissionAuditEvent event{TransmissionAuditEventType::rejected,
+                                 TransmissionAuditOperation::moderation, now,
+                                 command.correlation_id};
+    event.session_id = command.session_id;
+    event.device_id = command.device_id;
+    event.transmission_id = command.transmission_id;
+    event.actor_player_id = moderator_player_id;
+    event.rejection_reason = mapAuditRejection(error);
+    audit_events->record(event);
+}
+
+void recordStarted(ITransmissionAuditEventSink* audit_events,
+                   const ActiveTransmission& transmission) noexcept
+{
+    if (audit_events == nullptr)
+    {
+        return;
+    }
+
+    TransmissionAuditEvent event{TransmissionAuditEventType::started,
+                                 TransmissionAuditOperation::start, transmission.started_at,
+                                 transmission.authorization.correlation_id};
+    addActiveTransmissionDetails(event, transmission);
+    event.actor_player_id = transmission.authorization.sender_player_id;
+    audit_events->record(event);
+}
+
+void recordEnded(ITransmissionAuditEventSink* audit_events,
+                 const EndedTransmission& transmission) noexcept
+{
+    if (audit_events == nullptr)
+    {
+        return;
+    }
+
+    TransmissionAuditEvent event{TransmissionAuditEventType::ended, TransmissionAuditOperation::end,
+                                 transmission.ended_at, transmission.correlation_id};
+    addActiveTransmissionDetails(event, transmission.transmission);
+    event.actor_player_id = transmission.transmission.authorization.sender_player_id;
+    event.stop_reason = transmission.stop_reason;
+    audit_events->record(event);
+}
+
+void recordForcedInterruption(
+    ITransmissionAuditEventSink* audit_events, const EndedTransmission& transmission,
+    TransmissionAuditOperation operation,
+    const std::optional<domain::PlayerId>& actor_player_id = std::nullopt) noexcept
+{
+    if (audit_events == nullptr)
+    {
+        return;
+    }
+
+    TransmissionAuditEvent event{TransmissionAuditEventType::forcibly_interrupted, operation,
+                                 transmission.ended_at, transmission.correlation_id};
+    addActiveTransmissionDetails(event, transmission.transmission);
+    event.actor_player_id = actor_player_id;
+    event.stop_reason = transmission.stop_reason;
+    audit_events->record(event);
+}
 } // namespace
 
 SessionAuthenticationResult::SessionAuthenticationResult(
@@ -313,69 +520,85 @@ TransmissionApplicationService::TransmissionApplicationService(
     ITransmissionIdGenerator& transmission_ids, IActiveTransmissionRepository& active_transmissions,
     ITransmissionRateLimiter& rate_limiter,
     const ITransmissionModerationAuthorizer& moderation_authorizer,
-    TransmissionLifecyclePolicy lifecycle_policy)
+    TransmissionLifecyclePolicy lifecycle_policy, ITransmissionAuditEventSink* audit_events)
     : sessions_(sessions), authorization_(sessions, memberships, transmission_ids),
       active_transmissions_(active_transmissions), rate_limiter_(rate_limiter),
-      moderation_authorizer_(moderation_authorizer), lifecycle_policy_(std::move(lifecycle_policy))
+      moderation_authorizer_(moderation_authorizer), lifecycle_policy_(std::move(lifecycle_policy)),
+      audit_events_(audit_events)
 {
 }
 
 auto TransmissionApplicationService::start(const StartTransmissionCommand& command, TimePoint now)
     -> StartTransmissionResult
 {
+    std::optional<domain::PlayerId> sender_player_id;
+    const auto reject = [&](StartTransmissionError error) {
+        recordStartRejected(audit_events_, command, now, error, sender_player_id);
+        return StartTransmissionResult::rejected(error);
+    };
+
     const auto session = sessions_.find(command.session_id);
     if (!session)
     {
-        return StartTransmissionResult::rejected(StartTransmissionError::session_not_found);
+        return reject(StartTransmissionError::session_not_found);
     }
+    sender_player_id = session->player_id;
     if (session->device_id != command.device_id)
     {
-        return StartTransmissionResult::rejected(StartTransmissionError::session_device_mismatch);
+        return reject(StartTransmissionError::session_device_mismatch);
     }
     if (!session->activeAt(now))
     {
-        return StartTransmissionResult::rejected(StartTransmissionError::session_expired);
+        return reject(StartTransmissionError::session_expired);
     }
     if (!rate_limiter_.allow(session->player_id, TransmissionRateLimitAction::start, now))
     {
-        return StartTransmissionResult::rejected(StartTransmissionError::rate_limited);
+        return reject(StartTransmissionError::rate_limited);
     }
 
     auto authorization = authorization_.authorizeStart(command, now);
     if (!authorization.authorized())
     {
-        return StartTransmissionResult::rejected(mapAuthorizationError(*authorization.error));
+        return reject(mapAuthorizationError(*authorization.error));
     }
 
     auto activation = active_transmissions_.activate(std::move(*authorization.transmission),
                                                      command.session_id, command.device_id, now);
     if (!activation.active())
     {
-        return StartTransmissionResult::rejected(mapActivationError(*activation.error));
+        return reject(mapActivationError(*activation.error));
     }
 
+    recordStarted(audit_events_, *activation.transmission);
     return StartTransmissionResult::started(std::move(*activation.transmission));
 }
 
 auto TransmissionApplicationService::end(const EndTransmissionCommand& command, TimePoint now)
     -> EndTransmissionResult
 {
+    std::optional<domain::PlayerId> sender_player_id;
+    const auto reject = [&](EndTransmissionError error) {
+        recordEndRejected(audit_events_, command, now, error, sender_player_id);
+        return EndTransmissionResult::rejected(error);
+    };
+
     const auto session = sessions_.find(command.session_id);
     if (!session)
     {
-        return EndTransmissionResult::rejected(EndTransmissionError::session_not_found);
+        return reject(EndTransmissionError::session_not_found);
     }
+    sender_player_id = session->player_id;
     if (session->device_id != command.device_id)
     {
-        return EndTransmissionResult::rejected(EndTransmissionError::session_device_mismatch);
+        return reject(EndTransmissionError::session_device_mismatch);
     }
     if (!session->activeAt(now))
     {
-        return EndTransmissionResult::rejected(EndTransmissionError::session_expired);
+        return reject(EndTransmissionError::session_expired);
     }
     if (!rate_limiter_.allow(session->player_id, TransmissionRateLimitAction::end, now))
     {
-        return EndTransmissionResult::rejected(EndTransmissionError::rate_limited);
+        return reject(EndTransmissionError::rate_limited);
     }
 
     auto ended = active_transmissions_.end(
@@ -386,32 +609,39 @@ auto TransmissionApplicationService::end(const EndTransmissionCommand& command, 
         const auto error = *ended.error == TransmissionEndRepositoryError::transmission_not_found
                                ? EndTransmissionError::transmission_not_found
                                : EndTransmissionError::transmission_not_owned;
-        return EndTransmissionResult::rejected(error);
+        return reject(error);
     }
 
+    recordEnded(audit_events_, *ended.transmission);
     return EndTransmissionResult::ended(std::move(*ended.transmission));
 }
 
 auto TransmissionApplicationService::interruptForModeration(
     const ModerateTransmissionCommand& command, TimePoint now) -> ModerateTransmissionResult
 {
+    std::optional<domain::PlayerId> moderator_player_id;
+    const auto reject = [&](ModerateTransmissionError error) {
+        recordModerationRejected(audit_events_, command, now, error, moderator_player_id);
+        return ModerateTransmissionResult::rejected(error);
+    };
+
     const auto session = sessions_.find(command.session_id);
     if (!session)
     {
-        return ModerateTransmissionResult::rejected(ModerateTransmissionError::session_not_found);
+        return reject(ModerateTransmissionError::session_not_found);
     }
+    moderator_player_id = session->player_id;
     if (session->device_id != command.device_id)
     {
-        return ModerateTransmissionResult::rejected(
-            ModerateTransmissionError::session_device_mismatch);
+        return reject(ModerateTransmissionError::session_device_mismatch);
     }
     if (!session->activeAt(now))
     {
-        return ModerateTransmissionResult::rejected(ModerateTransmissionError::session_expired);
+        return reject(ModerateTransmissionError::session_expired);
     }
     if (!moderation_authorizer_.canInterrupt(session->player_id, command.transmission_id))
     {
-        return ModerateTransmissionResult::rejected(ModerateTransmissionError::not_authorized);
+        return reject(ModerateTransmissionError::not_authorized);
     }
 
     auto interrupted = active_transmissions_.interrupt(
@@ -419,10 +649,11 @@ auto TransmissionApplicationService::interruptForModeration(
         command.correlation_id);
     if (!interrupted.successful())
     {
-        return ModerateTransmissionResult::rejected(
-            ModerateTransmissionError::transmission_not_found);
+        return reject(ModerateTransmissionError::transmission_not_found);
     }
 
+    recordForcedInterruption(audit_events_, *interrupted.transmission,
+                             TransmissionAuditOperation::moderation, moderator_player_id);
     return ModerateTransmissionResult::interrupted(std::move(*interrupted.transmission));
 }
 
@@ -430,7 +661,12 @@ auto TransmissionApplicationService::expireTimedOut(TimePoint now,
                                                     const domain::CorrelationId& correlation_id)
     -> std::vector<EndedTransmission>
 {
-    return active_transmissions_.expireTimedOut(lifecycle_policy_.maximum_transmission_duration,
-                                                now, correlation_id);
+    auto expired = active_transmissions_.expireTimedOut(
+        lifecycle_policy_.maximum_transmission_duration, now, correlation_id);
+    for (const auto& transmission : expired)
+    {
+        recordForcedInterruption(audit_events_, transmission, TransmissionAuditOperation::timeout);
+    }
+    return expired;
 }
 } // namespace hvc::application

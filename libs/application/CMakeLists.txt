@@ -13,6 +13,7 @@ target_sources(
     FILES
       include/hvc/application/control_plane.hpp
       include/hvc/application/in_memory_control_plane.hpp
+      include/hvc/application/transmission_audit.hpp
 )
 
 target_include_directories(

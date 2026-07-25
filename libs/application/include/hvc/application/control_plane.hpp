@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <hvc/application/transmission_audit.hpp>
 #include <hvc/domain/routing.hpp>
 #include <hvc/domain/state_machine.hpp>
 #include <memory>
@@ -499,7 +500,8 @@ class TransmissionApplicationService final
                                    IActiveTransmissionRepository& active_transmissions,
                                    ITransmissionRateLimiter& rate_limiter,
                                    const ITransmissionModerationAuthorizer& moderation_authorizer,
-                                   TransmissionLifecyclePolicy lifecycle_policy);
+                                   TransmissionLifecyclePolicy lifecycle_policy,
+                                   ITransmissionAuditEventSink* audit_events = nullptr);
 
     [[nodiscard]] auto start(const StartTransmissionCommand& command, TimePoint now)
         -> StartTransmissionResult;
@@ -517,5 +519,6 @@ class TransmissionApplicationService final
     ITransmissionRateLimiter& rate_limiter_;
     const ITransmissionModerationAuthorizer& moderation_authorizer_;
     TransmissionLifecyclePolicy lifecycle_policy_;
+    ITransmissionAuditEventSink* audit_events_;
 };
 } // namespace hvc::application

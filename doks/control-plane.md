@@ -101,6 +101,29 @@ Alle drei Anwendungsfälle übernehmen einen serverseitigen Zeitpunkt und
 Korrelations-IDs. Ein späterer Scheduler sowie die dauerhafte Rate-Limit- und
 Moderationsrichtlinie bleiben Adapteraufgaben.
 
+## Audit-Events
+
+`ITransmissionAuditEventSink` bindet Audit-Adapter synchron und ohne Abhängigkeit
+von Logging-Framework, Netzwerkprotokoll oder Persistenztechnologie an. Der
+Anwendungskern erzeugt typisierte Events für:
+
+- erfolgreiche Starts,
+- reguläre Enden,
+- abgelehnte Start-, End- und Moderationsanforderungen,
+- erzwungene Abbrüche durch Moderation oder Timeout.
+
+Der `InMemoryControlPlaneStore` ergänzt erzwungene Abbrüche, die atomar durch
+Session-Entfernung sowie Membership- oder Rechteänderungen entstehen. Für eine
+vollständige Audit-Spur wird derselbe Sink an Anwendungskern und Store
+übergeben.
+
+Ein Event enthält je nach Vorgang Session-, Geräte-, Client-Transmission-,
+Transmission-, Akteur- und Sender-ID, Scope, Membership-Version,
+Empfängeranzahl, Zeitpunkt, Korrelations-ID sowie einen typisierten Ablehnungs-
+oder Abbruchgrund. Die interne Empfängerliste ist ausdrücklich kein Bestandteil
+des Events. Ein späterer Adapter übernimmt Serialisierung, dauerhafte Ablage,
+Zugriffsschutz und Aufbewahrungsregeln.
+
 Die Schnittstelle ist der Anwendungskern. Ein späterer HTTP-Adapter darf nach
 außen nur geeignete Metadaten wie Transmission-ID, Scope, Status und
 Empfängeranzahl ausgeben, nicht die interne Empfängerliste.
@@ -112,5 +135,5 @@ Empfängeranzahl ausgeben, nicht die interne Empfängerliste.
 - kryptografische Tokenprüfung und kurzlebige Voice-Grants
 - dauerhafte Rate-Limit- und Moderationsrichtlinien
 - Scheduler für die regelmäßige Timeout-Prüfung
-- strukturierte Audit-Events und Audit-Log-Adapter
+- dauerhafter Audit-Log-Adapter
 - LiveKit-Anbindung

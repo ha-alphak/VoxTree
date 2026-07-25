@@ -39,6 +39,12 @@ auto MembershipUpdateResult::rejected(MembershipUpdateError update_error) -> Mem
     return MembershipUpdateResult{{}, update_error};
 }
 
+InMemoryControlPlaneStore::InMemoryControlPlaneStore(
+    ITransmissionAuditEventSink* audit_events) noexcept
+    : audit_events_(audit_events)
+{
+}
+
 void InMemoryControlPlaneStore::upsertSession(AuthenticatedSession session)
 {
     std::scoped_lock lock{mutex_};
@@ -50,16 +56,21 @@ auto InMemoryControlPlaneStore::removeSession(const domain::SessionId& session_i
                                               const domain::CorrelationId& correlation_id)
     -> std::vector<EndedTransmission>
 {
-    std::scoped_lock lock{mutex_};
-    const auto session = sessions_.find(session_id);
-    if (session == sessions_.end())
+    std::vector<EndedTransmission> interrupted;
     {
-        return {};
-    }
+        std::scoped_lock lock{mutex_};
+        const auto session = sessions_.find(session_id);
+        if (session == sessions_.end())
+        {
+            return {};
+        }
 
-    sessions_.erase(session);
-    return interruptForSessionLocked(session_id, domain::TransmissionStopReason::disconnected, now,
-                                     correlation_id);
+        sessions_.erase(session);
+        interrupted = interruptForSessionLocked(
+            session_id, domain::TransmissionStopReason::disconnected, now, correlation_id);
+    }
+    recordForcedInterruptions(interrupted, TransmissionAuditOperation::session_lifecycle);
+    return interrupted;
 }
 
 auto InMemoryControlPlaneStore::find(const domain::SessionId& session_id) const
@@ -81,24 +92,28 @@ auto InMemoryControlPlaneStore::updateMembership(const domain::PlayerId& player_
                                                  AuthoritativeContextChange change)
     -> MembershipUpdateResult
 {
-    std::scoped_lock lock{mutex_};
-    if (context.snapshot->find(player_id) == nullptr)
+    std::vector<EndedTransmission> interrupted;
     {
-        return MembershipUpdateResult::rejected(MembershipUpdateError::player_not_in_snapshot);
-    }
+        std::scoped_lock lock{mutex_};
+        if (context.snapshot->find(player_id) == nullptr)
+        {
+            return MembershipUpdateResult::rejected(MembershipUpdateError::player_not_in_snapshot);
+        }
 
-    const auto existing = memberships_.find(player_id);
-    if (existing != memberships_.end() &&
-        context.snapshot->version() <= existing->second.snapshot->version())
-    {
-        return MembershipUpdateResult::rejected(MembershipUpdateError::version_not_newer);
-    }
+        const auto existing = memberships_.find(player_id);
+        if (existing != memberships_.end() &&
+            context.snapshot->version() <= existing->second.snapshot->version())
+        {
+            return MembershipUpdateResult::rejected(MembershipUpdateError::version_not_newer);
+        }
 
-    const auto reason = change == AuthoritativeContextChange::permissions_changed
-                            ? domain::TransmissionStopReason::permission_revoked
-                            : domain::TransmissionStopReason::membership_changed;
-    auto interrupted = interruptForPlayerLocked(player_id, reason, now, correlation_id);
-    memberships_.insert_or_assign(player_id, std::move(context));
+        const auto reason = change == AuthoritativeContextChange::permissions_changed
+                                ? domain::TransmissionStopReason::permission_revoked
+                                : domain::TransmissionStopReason::membership_changed;
+        interrupted = interruptForPlayerLocked(player_id, reason, now, correlation_id);
+        memberships_.insert_or_assign(player_id, std::move(context));
+    }
+    recordForcedInterruptions(interrupted, TransmissionAuditOperation::membership_change);
     return MembershipUpdateResult::updated(std::move(interrupted));
 }
 
@@ -106,10 +121,15 @@ auto InMemoryControlPlaneStore::removeMembership(const domain::PlayerId& player_
                                                  const domain::CorrelationId& correlation_id)
     -> std::vector<EndedTransmission>
 {
-    std::scoped_lock lock{mutex_};
-    memberships_.erase(player_id);
-    return interruptForPlayerLocked(player_id, domain::TransmissionStopReason::membership_changed,
-                                    now, correlation_id);
+    std::vector<EndedTransmission> interrupted;
+    {
+        std::scoped_lock lock{mutex_};
+        memberships_.erase(player_id);
+        interrupted = interruptForPlayerLocked(
+            player_id, domain::TransmissionStopReason::membership_changed, now, correlation_id);
+    }
+    recordForcedInterruptions(interrupted, TransmissionAuditOperation::membership_change);
+    return interrupted;
 }
 
 auto InMemoryControlPlaneStore::currentFor(const domain::PlayerId& player_id) const
@@ -297,6 +317,33 @@ auto InMemoryControlPlaneStore::interruptForSessionLocked(
         transmission = active_transmissions_.erase(transmission);
     }
     return interrupted;
+}
+
+void InMemoryControlPlaneStore::recordForcedInterruptions(
+    const std::vector<EndedTransmission>& interrupted_transmissions,
+    TransmissionAuditOperation operation) const noexcept
+{
+    if (audit_events_ == nullptr)
+    {
+        return;
+    }
+
+    for (const auto& ended : interrupted_transmissions)
+    {
+        TransmissionAuditEvent event{TransmissionAuditEventType::forcibly_interrupted, operation,
+                                     ended.ended_at, ended.correlation_id};
+        const auto& active = ended.transmission;
+        event.session_id = active.session_id;
+        event.device_id = active.device_id;
+        event.client_transmission_id = active.authorization.client_transmission_id;
+        event.transmission_id = active.authorization.transmission_id;
+        event.sender_player_id = active.authorization.sender_player_id;
+        event.scope = active.authorization.scope;
+        event.membership_version = active.authorization.membership_version;
+        event.recipient_count = active.authorization.recipients.size();
+        event.stop_reason = ended.stop_reason;
+        audit_events_->record(event);
+    }
 }
 
 TransmissionRateLimit::TransmissionRateLimit(std::size_t maximum_request_count,

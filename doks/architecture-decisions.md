@@ -50,6 +50,10 @@
   Repository atomar auf aktive Transmissionen angewendet.
 - Die Moderationsberechtigung wird über eine eigenständige
   Anwendungsschnittstelle bezogen.
+- Start, Ende, Ablehnung und erzwungener Abbruch erzeugen typisierte,
+  korrelierte Audit-Events über eine frameworkunabhängige Sink-Schnittstelle.
+- Audit-Events enthalten nur die Empfängeranzahl, niemals die interne
+  Empfängerliste.
 - HTTP, Persistenz, Tokenprüfung, Audit-Logging und Voice-Transport werden über
   Adapter angebunden.
 

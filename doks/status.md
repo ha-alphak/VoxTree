@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Linux-Control-Plane – Audit-Events<br>
+**Phase:** Linux-Control-Plane – Persistenz und Schema-Migrationen<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -80,12 +80,19 @@
   Beendigung implementiert.
 - Anwendungstests für Rate-Limit-Grenzen und -Fehler, Timeout-Grenzzeitpunkte
   sowie autorisierte und nicht autorisierte Moderationsabbrüche ergänzt.
+- Frameworkunabhängige, typisierte Audit-Event-Schnittstelle für erfolgreiche
+  Starts, reguläre Enden, Ablehnungen und erzwungene Abbrüche ergänzt.
+- Audit-Events für Moderation, Timeout, Session-Entfernung sowie Membership- und
+  Rechteänderungen angebunden; interne Empfängerlisten bleiben ausgeschlossen.
+- Anwendungstests für Eventtyp, Operation, Akteur, Korrelation, Ablehnungs- und
+  Abbruchgründe ergänzt.
 
 ## Aktueller Stand
 
 - Das technische Projektfundament, der transportunabhängige Domänenkern sowie
   der In-Memory-Transmissionslebenszyklus einschließlich Rate Limits, Timeouts
-  und Moderationsabbrüchen sind vorhanden und lokal validiert.
+  Moderationsabbrüchen und strukturierter Audit-Events sind vorhanden und lokal
+  validiert.
 - Es existieren noch keine Netzwerk-, dauerhaften Persistenz- oder
   Voice-Transportadapter.
 - Das Projektfundament benötigt keine externen C++-Abhängigkeiten.
@@ -94,8 +101,8 @@
 
 ## Nächster Schritt
 
-Strukturierte Audit-Events für Start, Ende, Ablehnung und erzwungenen Abbruch
-über eine frameworkunabhängige Event-Schnittstelle anbinden.
+Persistenzschnittstellen festlegen und eine erste dauerhafte Speicherung mit
+versionierten Schema-Migrationen für Control-Plane-Daten anbinden.
 
 ## Validierung
 

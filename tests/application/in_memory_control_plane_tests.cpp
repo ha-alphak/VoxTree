@@ -80,6 +80,17 @@ class ModerationAuthorizer final : public application::ITransmissionModerationAu
     }
 };
 
+class RecordingAuditEventSink final : public application::ITransmissionAuditEventSink
+{
+  public:
+    void record(const application::TransmissionAuditEvent& event) noexcept override
+    {
+        events.push_back(event);
+    }
+
+    std::vector<application::TransmissionAuditEvent> events;
+};
+
 struct Fixture final
 {
     Fixture()
@@ -119,7 +130,8 @@ struct Fixture final
     }
 
     application::TimePoint now{application::Clock::time_point{std::chrono::seconds{1000}}};
-    application::InMemoryControlPlaneStore store;
+    RecordingAuditEventSink audit_events;
+    application::InMemoryControlPlaneStore store{&audit_events};
     application::InMemoryTransmissionRateLimiter rate_limiter{{100, std::chrono::seconds{10}},
                                                               {100, std::chrono::seconds{10}}};
     ModerationAuthorizer moderation_authorizer;
@@ -413,6 +425,147 @@ auto authorizedModerationInterruptsTransmission() -> bool
            interrupted.transmission->correlation_id == domain::CorrelationId{"moderation"} &&
            fixture.store.activeCount() == 0;
 }
+
+auto emitsStructuredAuditEventsForTheTransmissionLifecycle() -> bool
+{
+    Fixture fixture;
+    application::TransmissionApplicationService service{fixture.store,
+                                                        fixture.store,
+                                                        fixture.ids,
+                                                        fixture.store,
+                                                        fixture.rate_limiter,
+                                                        fixture.moderation_authorizer,
+                                                        fixture.lifecycle_policy,
+                                                        &fixture.audit_events};
+
+    const auto started = service.start(fixture.startCommand(), fixture.now);
+    if (!started.successful() || fixture.audit_events.events.size() != 1)
+    {
+        return false;
+    }
+
+    const auto transmission_id = started.transmission->authorization.transmission_id;
+    const auto& start_event = fixture.audit_events.events[0];
+    if (start_event.type != application::TransmissionAuditEventType::started ||
+        start_event.operation != application::TransmissionAuditOperation::start ||
+        start_event.transmission_id != transmission_id ||
+        start_event.sender_player_id != domain::PlayerId{"sender"} ||
+        start_event.actor_player_id != domain::PlayerId{"sender"} ||
+        start_event.scope != domain::VoiceScope::group || start_event.membership_version != 42 ||
+        start_event.recipient_count != 3 || start_event.rejection_reason || start_event.stop_reason)
+    {
+        return false;
+    }
+
+    const auto duplicate = service.start(fixture.startCommand(), fixture.now);
+    if (duplicate.error != application::StartTransmissionError::sender_already_transmitting ||
+        fixture.audit_events.events.size() != 2 ||
+        fixture.audit_events.events[1].type != application::TransmissionAuditEventType::rejected ||
+        fixture.audit_events.events[1].rejection_reason !=
+            application::TransmissionAuditRejectionReason::sender_already_transmitting)
+    {
+        return false;
+    }
+
+    application::EndTransmissionCommand foreign_end{
+        domain::SessionId{"session-other"}, domain::DeviceId{"device-other"}, transmission_id,
+        domain::CorrelationId{"foreign-end"}};
+    const auto foreign = service.end(foreign_end, fixture.now);
+    if (foreign.error != application::EndTransmissionError::transmission_not_owned ||
+        fixture.audit_events.events.size() != 3 ||
+        fixture.audit_events.events[2].operation != application::TransmissionAuditOperation::end ||
+        fixture.audit_events.events[2].rejection_reason !=
+            application::TransmissionAuditRejectionReason::transmission_not_owned)
+    {
+        return false;
+    }
+
+    const auto ended = service.end(fixture.endCommand(transmission_id), fixture.now);
+    if (!ended.successful() || fixture.audit_events.events.size() != 4 ||
+        fixture.audit_events.events[3].type != application::TransmissionAuditEventType::ended ||
+        fixture.audit_events.events[3].stop_reason !=
+            domain::TransmissionStopReason::push_to_talk_released)
+    {
+        return false;
+    }
+
+    const auto restarted = service.start(fixture.startCommand(), fixture.now);
+    if (!restarted.successful() || fixture.audit_events.events.size() != 5)
+    {
+        return false;
+    }
+    const auto update =
+        fixture.store.updateMembership(domain::PlayerId{"sender"}, makeContext(43), fixture.now,
+                                       domain::CorrelationId{"membership-change"},
+                                       application::AuthoritativeContextChange::membership_changed);
+    if (!update.successful() || update.interrupted.size() != 1 ||
+        fixture.audit_events.events.size() != 6 ||
+        fixture.audit_events.events[5].type !=
+            application::TransmissionAuditEventType::forcibly_interrupted ||
+        fixture.audit_events.events[5].operation !=
+            application::TransmissionAuditOperation::membership_change ||
+        fixture.audit_events.events[5].stop_reason !=
+            domain::TransmissionStopReason::membership_changed ||
+        fixture.audit_events.events[5].correlation_id != domain::CorrelationId{"membership-change"})
+    {
+        return false;
+    }
+
+    const auto moderated_start = service.start(fixture.startCommand(43), fixture.now);
+    if (!moderated_start.successful())
+    {
+        return false;
+    }
+    const auto moderated_id = moderated_start.transmission->authorization.transmission_id;
+    const application::ModerateTransmissionCommand unauthorized{
+        domain::SessionId{"session-other"}, domain::DeviceId{"device-other"}, moderated_id,
+        domain::CorrelationId{"moderation-rejected"}};
+    const application::ModerateTransmissionCommand authorized{
+        domain::SessionId{"session-moderator"}, domain::DeviceId{"device-moderator"}, moderated_id,
+        domain::CorrelationId{"moderation-accepted"}};
+    if (service.interruptForModeration(unauthorized, fixture.now).error !=
+            application::ModerateTransmissionError::not_authorized ||
+        !service.interruptForModeration(authorized, fixture.now).successful() ||
+        fixture.audit_events.events.size() != 9 ||
+        fixture.audit_events.events[7].rejection_reason !=
+            application::TransmissionAuditRejectionReason::not_authorized ||
+        fixture.audit_events.events[7].actor_player_id != domain::PlayerId{"other"} ||
+        fixture.audit_events.events[8].type !=
+            application::TransmissionAuditEventType::forcibly_interrupted ||
+        fixture.audit_events.events[8].operation !=
+            application::TransmissionAuditOperation::moderation ||
+        fixture.audit_events.events[8].actor_player_id != domain::PlayerId{"moderator"} ||
+        fixture.audit_events.events[8].sender_player_id != domain::PlayerId{"sender"})
+    {
+        return false;
+    }
+
+    const auto timeout_start = service.start(fixture.startCommand(43), fixture.now);
+    const auto expired = service.expireTimedOut(fixture.now + std::chrono::seconds{30},
+                                                domain::CorrelationId{"timeout"});
+    if (!timeout_start.successful() || expired.size() != 1 ||
+        fixture.audit_events.events.size() != 11 ||
+        fixture.audit_events.events[10].type !=
+            application::TransmissionAuditEventType::forcibly_interrupted ||
+        fixture.audit_events.events[10].operation !=
+            application::TransmissionAuditOperation::timeout ||
+        fixture.audit_events.events[10].stop_reason != domain::TransmissionStopReason::timed_out)
+    {
+        return false;
+    }
+
+    const auto disconnect_start = service.start(fixture.startCommand(43), fixture.now);
+    const auto disconnected = fixture.store.removeSession(
+        domain::SessionId{"session-sender"}, fixture.now, domain::CorrelationId{"disconnect"});
+    return disconnect_start.successful() && disconnected.size() == 1 &&
+           fixture.audit_events.events.size() == 13 &&
+           fixture.audit_events.events[12].type ==
+               application::TransmissionAuditEventType::forcibly_interrupted &&
+           fixture.audit_events.events[12].operation ==
+               application::TransmissionAuditOperation::session_lifecycle &&
+           fixture.audit_events.events[12].stop_reason ==
+               domain::TransmissionStopReason::disconnected;
+}
 } // namespace
 
 auto main() noexcept -> int
@@ -428,7 +581,8 @@ auto main() noexcept -> int
                             rateLimitsStartAndEndRequestsPerPlayer() &&
                             applicationServiceReportsRateLimitedRequests() &&
                             timeoutExpiresOnlyOverdueTransmissions() &&
-                            authorizedModerationInterruptsTransmission();
+                            authorizedModerationInterruptsTransmission() &&
+                            emitsStructuredAuditEventsForTheTransmissionLifecycle();
         if (!passed)
         {
             std::fputs("in-memory control-plane tests failed\n", stderr);

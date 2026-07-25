@@ -45,6 +45,9 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
                                         public IActiveTransmissionRepository
 {
   public:
+    explicit InMemoryControlPlaneStore(
+        ITransmissionAuditEventSink* audit_events = nullptr) noexcept;
+
     void upsertSession(AuthenticatedSession session);
     [[nodiscard]] auto removeSession(const domain::SessionId& session_id, TimePoint now,
                                      const domain::CorrelationId& correlation_id)
@@ -97,8 +100,11 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
                                                  TimePoint ended_at,
                                                  const domain::CorrelationId& correlation_id)
         -> std::vector<EndedTransmission>;
+    void recordForcedInterruptions(const std::vector<EndedTransmission>& interrupted_transmissions,
+                                   TransmissionAuditOperation operation) const noexcept;
 
     mutable std::mutex mutex_;
+    ITransmissionAuditEventSink* audit_events_;
     std::map<domain::SessionId, AuthenticatedSession> sessions_;
     std::map<domain::PlayerId, AuthoritativeMembershipContext> memberships_;
     std::map<domain::TransmissionId, ActiveTransmission> active_transmissions_;
