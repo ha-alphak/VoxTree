@@ -15,6 +15,7 @@ include(HvcProjectOptions)
 hvc_initialize_project_options()
 
 add_subdirectory(libs/foundation)
+add_subdirectory(libs/domain)
 
 if(HVC_BUILD_TESTS)
   include(CTest)

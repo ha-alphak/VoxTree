@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Projektfundament abgeschlossen
+**Phase:** Domänenkern – Routing abgeschlossen  
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -28,20 +28,34 @@
 - Lokale MSVC-Debug- und Release-Builds erfolgreich ausgeführt.
 - Lokale Tests, Formatprüfung, statische Analyse und Paketinstallation
   erfolgreich validiert.
+- Transportunabhängige `hvc-domain`-Bibliothek mit starken Typen für Spieler-,
+  Gruppen-, Spezialisierungs-, Team-, Hierarchie-, Rollen- und
+  Transmission-IDs angelegt.
+- Datengetriebene und validierte Gruppen-, Spezialisierungs- und
+  Team-Hierarchie implementiert.
+- Immutable, versionierte Membership-Snapshots mit konsistenter
+  Hierarchiepfadprüfung implementiert.
+- Rollenrechte für Senden und Empfangen unabhängig voneinander modelliert.
+- Deterministische Empfängerermittlung für Team, Specialization und Group
+  einschließlich Isolation, Verbindungsstatus, Voice-Ban sowie lokaler
+  Mute-/Block-Restriktionen implementiert.
+- Routing- und Validierungstests einschließlich eines deterministischen
+  200-Spieler-Szenarios ergänzt.
 
 ## Aktueller Stand
 
-- Das technische Projektfundament ist vorhanden und lokal validiert.
-- Es existiert noch kein fachlicher Anwendungs- oder Servercode.
+- Das technische Projektfundament und der erste fachliche Domänenkern sind
+  vorhanden und lokal validiert.
+- Es existiert noch kein Anwendungs-, Control-Plane- oder Transportcode.
 - Das Projektfundament benötigt keine externen C++-Abhängigkeiten.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
 - Die Spezifikation liegt unverändert im Projekt vor.
 
 ## Nächster Schritt
 
-Transportunabhängigen Domänenkern mit starken ID-Typen, Hierarchie,
-Membership-Snapshots, Rollenrechten und deterministischer Empfängerermittlung
-anlegen.
+Transportunabhängige Zustandsautomaten für Verbindung, Reconnect und
+Transmission anlegen. Insbesondere darf eine vor dem Verbindungsabbruch aktive
+Transmission nach dem Reconnect nicht automatisch fortgesetzt werden.
 
 ## Validierung
 
@@ -49,10 +63,10 @@ anlegen.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug und Release | 1 von 1 Tests bestanden |
+| CTest Debug und Release | 2 von 2 Tests bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden |
-| CMake-Installation und Paketexport | Bestanden |
+| CMake-Installation und Paketexport inklusive `hvc::domain` | Bestanden |
 | Debian-CI | Konfiguriert, Ausführung nach Push |
 
 ## Risiken
@@ -64,4 +78,3 @@ anlegen.
 | Hintergrund-PTT für unterschiedliche HID-Geräte | Offen | Früher Hardware-Prototyp mit Raw Input |
 | Windows 10 außerhalb des regulären Supports | Akzeptiert | Build 19045 unterstützen und Windows 11 mittesten |
 | 200-Spieler-Skalierung | Offen | Früher Lasttest vor UI-Vollausbau |
-
