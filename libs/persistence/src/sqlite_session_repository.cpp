@@ -1,4 +1,5 @@
 #include <array>
+#include <atomic>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -128,6 +129,38 @@ void bindInteger(sqlite3* database, sqlite3_stmt* statement, int index, std::int
     }
 }
 
+void bindNull(sqlite3* database, sqlite3_stmt* statement, int index)
+{
+    if (sqlite3_bind_null(statement, index) != SQLITE_OK)
+    {
+        throwDatabaseError(database, "Could not bind SQLite null value");
+    }
+}
+
+template <typename Identifier>
+void bindOptionalIdentifier(sqlite3* database, sqlite3_stmt* statement, int index,
+                            const std::optional<Identifier>& identifier)
+{
+    if (identifier)
+    {
+        bindText(database, statement, index, identifier->value());
+    }
+    else
+    {
+        bindNull(database, statement, index);
+    }
+}
+
+template <typename Identifier>
+auto readOptionalIdentifier(sqlite3_stmt* statement, int column) -> std::optional<Identifier>
+{
+    if (sqlite3_column_type(statement, column) == SQLITE_NULL)
+    {
+        return std::nullopt;
+    }
+    return Identifier{readText(statement, column)};
+}
+
 auto readBoolean(sqlite3_stmt* statement, int column) -> bool
 {
     const auto value = sqlite3_column_int64(statement, column);
@@ -151,6 +184,50 @@ auto scopeFromInteger(sqlite3_int64 value) -> domain::VoiceScope
         throw PersistenceError{"The membership database contains an invalid voice scope."};
     }
     return static_cast<domain::VoiceScope>(value);
+}
+
+auto auditEventTypeFromInteger(sqlite3_int64 value) -> application::TransmissionAuditEventType
+{
+    if (value < static_cast<sqlite3_int64>(application::TransmissionAuditEventType::started) ||
+        value > static_cast<sqlite3_int64>(
+                    application::TransmissionAuditEventType::forcibly_interrupted))
+    {
+        throw PersistenceError{"The audit database contains an invalid event type."};
+    }
+    return static_cast<application::TransmissionAuditEventType>(value);
+}
+
+auto auditOperationFromInteger(sqlite3_int64 value) -> application::TransmissionAuditOperation
+{
+    if (value < static_cast<sqlite3_int64>(application::TransmissionAuditOperation::start) ||
+        value >
+            static_cast<sqlite3_int64>(application::TransmissionAuditOperation::membership_change))
+    {
+        throw PersistenceError{"The audit database contains an invalid operation."};
+    }
+    return static_cast<application::TransmissionAuditOperation>(value);
+}
+
+auto stopReasonFromInteger(sqlite3_int64 value) -> domain::TransmissionStopReason
+{
+    if (value < static_cast<sqlite3_int64>(domain::TransmissionStopReason::none) ||
+        value > static_cast<sqlite3_int64>(domain::TransmissionStopReason::disconnected))
+    {
+        throw PersistenceError{"The audit database contains an invalid stop reason."};
+    }
+    return static_cast<domain::TransmissionStopReason>(value);
+}
+
+auto auditRejectionFromInteger(sqlite3_int64 value) -> application::TransmissionAuditRejectionReason
+{
+    if (value < static_cast<sqlite3_int64>(
+                    application::TransmissionAuditRejectionReason::session_not_found) ||
+        value >
+            static_cast<sqlite3_int64>(application::TransmissionAuditRejectionReason::rate_limited))
+    {
+        throw PersistenceError{"The audit database contains an invalid rejection reason."};
+    }
+    return static_cast<application::TransmissionAuditRejectionReason>(value);
 }
 
 auto voiceBanFromInteger(sqlite3_int64 value) -> domain::VoiceBanStatus
@@ -185,6 +262,33 @@ auto versionFromText(std::string_view text) -> std::uint64_t
     return version;
 }
 
+auto unsignedFromText(std::string_view text, std::string_view field) -> std::uint64_t
+{
+    std::uint64_t value{};
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (error != std::errc{} || end != text.data() + text.size())
+    {
+        throw PersistenceError{"The audit database contains an invalid " + std::string{field} +
+                               '.'};
+    }
+    return value;
+}
+
+auto countToText(std::size_t count) -> std::string
+{
+    return versionToText(static_cast<std::uint64_t>(count));
+}
+
+auto countFromText(std::string_view text) -> std::size_t
+{
+    const auto count = unsignedFromText(text, "recipient count");
+    if (count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
+    {
+        throw PersistenceError{"The audit database contains an invalid recipient count."};
+    }
+    return static_cast<std::size_t>(count);
+}
+
 auto toUnixMilliseconds(application::TimePoint time_point) -> std::int64_t
 {
     return std::chrono::duration_cast<std::chrono::milliseconds>(time_point.time_since_epoch())
@@ -194,6 +298,15 @@ auto toUnixMilliseconds(application::TimePoint time_point) -> std::int64_t
 auto fromUnixMilliseconds(std::int64_t milliseconds) -> application::TimePoint
 {
     return application::TimePoint{std::chrono::milliseconds{milliseconds}};
+}
+
+auto limitToInteger(std::size_t limit) -> sqlite3_int64
+{
+    if (limit > static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()))
+    {
+        throw PersistenceError{"The requested SQLite result limit is too large."};
+    }
+    return static_cast<sqlite3_int64>(limit);
 }
 
 struct Migration final
@@ -315,6 +428,40 @@ CREATE TABLE role_receive_scopes (
     FOREIGN KEY(owner_player_id, role_id)
         REFERENCES role_permissions(owner_player_id, role_id) ON DELETE CASCADE
 ) WITHOUT ROWID;
+)sql",
+    },
+    Migration{
+        3,
+        "create_transmission_audit_events",
+        R"sql(
+CREATE TABLE transmission_audit_events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type INTEGER NOT NULL CHECK(event_type BETWEEN 0 AND 3),
+    operation INTEGER NOT NULL CHECK(operation BETWEEN 0 AND 5),
+    occurred_at_unix_ms INTEGER NOT NULL,
+    correlation_id TEXT NOT NULL CHECK(length(correlation_id) > 0),
+    session_id TEXT,
+    device_id TEXT,
+    client_transmission_id TEXT,
+    transmission_id TEXT,
+    actor_player_id TEXT,
+    sender_player_id TEXT,
+    scope INTEGER CHECK(scope BETWEEN 0 AND 2),
+    membership_version TEXT,
+    recipient_count TEXT,
+    stop_reason INTEGER CHECK(stop_reason BETWEEN 0 AND 9),
+    rejection_reason INTEGER CHECK(rejection_reason BETWEEN 0 AND 17),
+    CHECK(session_id IS NULL OR length(session_id) > 0),
+    CHECK(device_id IS NULL OR length(device_id) > 0),
+    CHECK(client_transmission_id IS NULL OR length(client_transmission_id) > 0),
+    CHECK(transmission_id IS NULL OR length(transmission_id) > 0),
+    CHECK(actor_player_id IS NULL OR length(actor_player_id) > 0),
+    CHECK(sender_player_id IS NULL OR length(sender_player_id) > 0),
+    CHECK(membership_version IS NULL OR length(membership_version) > 0),
+    CHECK(recipient_count IS NULL OR length(recipient_count) > 0)
+);
+CREATE INDEX transmission_audit_events_by_time
+    ON transmission_audit_events(occurred_at_unix_ms, sequence);
 )sql",
     },
 };
@@ -441,6 +588,75 @@ void requireDone(sqlite3* database, sqlite3_stmt* statement, std::string_view op
     {
         throwDatabaseError(database, operation);
     }
+}
+
+template <typename Enum>
+void bindOptionalEnum(sqlite3* database, sqlite3_stmt* statement, int index,
+                      const std::optional<Enum>& value)
+{
+    if (value)
+    {
+        bindInteger(database, statement, index, static_cast<std::int64_t>(*value));
+    }
+    else
+    {
+        bindNull(database, statement, index);
+    }
+}
+
+template <typename Enum, typename Converter>
+auto readOptionalEnum(sqlite3_stmt* statement, int column, Converter converter)
+    -> std::optional<Enum>
+{
+    if (sqlite3_column_type(statement, column) == SQLITE_NULL)
+    {
+        return std::nullopt;
+    }
+    return converter(sqlite3_column_int64(statement, column));
+}
+
+void bindOptionalUnsigned(sqlite3* database, sqlite3_stmt* statement, int index,
+                          const std::optional<std::uint64_t>& value)
+{
+    if (value)
+    {
+        bindText(database, statement, index, versionToText(*value));
+    }
+    else
+    {
+        bindNull(database, statement, index);
+    }
+}
+
+auto readOptionalVersion(sqlite3_stmt* statement, int column) -> std::optional<std::uint64_t>
+{
+    if (sqlite3_column_type(statement, column) == SQLITE_NULL)
+    {
+        return std::nullopt;
+    }
+    return unsignedFromText(readText(statement, column), "membership version");
+}
+
+void bindOptionalCount(sqlite3* database, sqlite3_stmt* statement, int index,
+                       const std::optional<std::size_t>& value)
+{
+    if (value)
+    {
+        bindText(database, statement, index, countToText(*value));
+    }
+    else
+    {
+        bindNull(database, statement, index);
+    }
+}
+
+auto readOptionalCount(sqlite3_stmt* statement, int column) -> std::optional<std::size_t>
+{
+    if (sqlite3_column_type(statement, column) == SQLITE_NULL)
+    {
+        return std::nullopt;
+    }
+    return countFromText(readText(statement, column));
 }
 
 auto readAssignedRoles(sqlite3* database, const domain::PlayerId& owner_player_id,
@@ -815,6 +1031,7 @@ class SqliteControlPlaneRepository::Implementation final
 
     mutable std::mutex mutex;
     Database database;
+    std::atomic<std::uint64_t> dropped_audit_events{};
 };
 
 SqliteControlPlaneRepository::SqliteControlPlaneRepository(std::filesystem::path database_path)
@@ -949,6 +1166,131 @@ auto SqliteControlPlaneRepository::erase(const domain::PlayerId& player_id) -> b
     requireDone(implementation_->database.get(), statement.get(),
                 "Could not erase the membership context");
     return sqlite3_changes(implementation_->database.get()) != 0;
+}
+
+void SqliteControlPlaneRepository::record(const application::TransmissionAuditEvent& event) noexcept
+{
+    try
+    {
+        std::scoped_lock lock{implementation_->mutex};
+        auto* database = implementation_->database.get();
+        auto statement = prepare(
+            database,
+            "INSERT INTO transmission_audit_events("
+            "event_type, operation, occurred_at_unix_ms, correlation_id, session_id, device_id, "
+            "client_transmission_id, transmission_id, actor_player_id, sender_player_id, scope, "
+            "membership_version, recipient_count, stop_reason, rejection_reason) "
+            "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15);");
+
+        bindInteger(database, statement.get(), 1, static_cast<std::int64_t>(event.type));
+        bindInteger(database, statement.get(), 2, static_cast<std::int64_t>(event.operation));
+        bindInteger(database, statement.get(), 3, toUnixMilliseconds(event.occurred_at));
+        bindText(database, statement.get(), 4, event.correlation_id.value());
+        bindOptionalIdentifier(database, statement.get(), 5, event.session_id);
+        bindOptionalIdentifier(database, statement.get(), 6, event.device_id);
+        bindOptionalIdentifier(database, statement.get(), 7, event.client_transmission_id);
+        bindOptionalIdentifier(database, statement.get(), 8, event.transmission_id);
+        bindOptionalIdentifier(database, statement.get(), 9, event.actor_player_id);
+        bindOptionalIdentifier(database, statement.get(), 10, event.sender_player_id);
+        bindOptionalEnum(database, statement.get(), 11, event.scope);
+        bindOptionalUnsigned(database, statement.get(), 12, event.membership_version);
+        bindOptionalCount(database, statement.get(), 13, event.recipient_count);
+        bindOptionalEnum(database, statement.get(), 14, event.stop_reason);
+        bindOptionalEnum(database, statement.get(), 15, event.rejection_reason);
+        requireDone(database, statement.get(), "Could not persist the transmission audit event");
+    }
+    catch (...)
+    {
+        implementation_->dropped_audit_events.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+auto SqliteControlPlaneRepository::auditEventsAfter(std::uint64_t sequence, std::size_t limit) const
+    -> std::vector<StoredTransmissionAuditEvent>
+{
+    if (limit == 0 ||
+        sequence > static_cast<std::uint64_t>(std::numeric_limits<sqlite3_int64>::max()))
+    {
+        return {};
+    }
+
+    std::scoped_lock lock{implementation_->mutex};
+    auto* database = implementation_->database.get();
+    auto statement = prepare(
+        database,
+        "SELECT sequence, event_type, operation, occurred_at_unix_ms, correlation_id, session_id, "
+        "device_id, client_transmission_id, transmission_id, actor_player_id, sender_player_id, "
+        "scope, membership_version, recipient_count, stop_reason, rejection_reason "
+        "FROM transmission_audit_events WHERE sequence > ?1 ORDER BY sequence LIMIT ?2;");
+    bindInteger(database, statement.get(), 1, static_cast<sqlite3_int64>(sequence));
+    bindInteger(database, statement.get(), 2, limitToInteger(limit));
+
+    std::vector<StoredTransmissionAuditEvent> events;
+    while (true)
+    {
+        const auto result = sqlite3_step(statement.get());
+        if (result == SQLITE_DONE)
+        {
+            return events;
+        }
+        if (result != SQLITE_ROW)
+        {
+            throwDatabaseError(database, "Could not load transmission audit events");
+        }
+
+        const auto stored_sequence = sqlite3_column_int64(statement.get(), 0);
+        if (stored_sequence <= 0)
+        {
+            throw PersistenceError{"The audit database contains an invalid event sequence."};
+        }
+
+        application::TransmissionAuditEvent event{
+            auditEventTypeFromInteger(sqlite3_column_int64(statement.get(), 1)),
+            auditOperationFromInteger(sqlite3_column_int64(statement.get(), 2)),
+            fromUnixMilliseconds(sqlite3_column_int64(statement.get(), 3)),
+            domain::CorrelationId{readText(statement.get(), 4)}};
+        event.session_id = readOptionalIdentifier<domain::SessionId>(statement.get(), 5);
+        event.device_id = readOptionalIdentifier<domain::DeviceId>(statement.get(), 6);
+        event.client_transmission_id =
+            readOptionalIdentifier<domain::ClientTransmissionId>(statement.get(), 7);
+        event.transmission_id = readOptionalIdentifier<domain::TransmissionId>(statement.get(), 8);
+        event.actor_player_id = readOptionalIdentifier<domain::PlayerId>(statement.get(), 9);
+        event.sender_player_id = readOptionalIdentifier<domain::PlayerId>(statement.get(), 10);
+        event.scope = readOptionalEnum<domain::VoiceScope>(statement.get(), 11, scopeFromInteger);
+        event.membership_version = readOptionalVersion(statement.get(), 12);
+        event.recipient_count = readOptionalCount(statement.get(), 13);
+        event.stop_reason = readOptionalEnum<domain::TransmissionStopReason>(statement.get(), 14,
+                                                                             stopReasonFromInteger);
+        event.rejection_reason = readOptionalEnum<application::TransmissionAuditRejectionReason>(
+            statement.get(), 15, auditRejectionFromInteger);
+
+        events.push_back({static_cast<std::uint64_t>(stored_sequence), std::move(event)});
+    }
+}
+
+auto SqliteControlPlaneRepository::eraseAuditEventsBefore(application::TimePoint exclusive_cutoff,
+                                                          std::size_t limit) -> std::size_t
+{
+    if (limit == 0)
+    {
+        return 0;
+    }
+
+    std::scoped_lock lock{implementation_->mutex};
+    auto* database = implementation_->database.get();
+    auto statement = prepare(
+        database, "DELETE FROM transmission_audit_events WHERE sequence IN ("
+                  "SELECT sequence FROM transmission_audit_events WHERE occurred_at_unix_ms < ?1 "
+                  "ORDER BY sequence LIMIT ?2);");
+    bindInteger(database, statement.get(), 1, toUnixMilliseconds(exclusive_cutoff));
+    bindInteger(database, statement.get(), 2, limitToInteger(limit));
+    requireDone(database, statement.get(), "Could not erase expired transmission audit events");
+    return static_cast<std::size_t>(sqlite3_changes(database));
+}
+
+auto SqliteControlPlaneRepository::droppedAuditEventCount() const noexcept -> std::uint64_t
+{
+    return implementation_->dropped_audit_events.load(std::memory_order_relaxed);
 }
 
 auto SqliteControlPlaneRepository::schemaVersion() const -> std::uint32_t

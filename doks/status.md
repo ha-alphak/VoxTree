@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 25. Juli 2026  
-**Phase:** Linux-Control-Plane – autoritative Membership-Persistenz<br>
+**Phase:** Linux-Control-Plane – persistente Audit-Spur<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -106,14 +106,21 @@
   bestehenden atomaren Transmissionsabbruch verbunden.
 - Persistenztests für Kontext-Neustart, Versionsschutz, Löschung sowie
   gekoppelten Rechtewechsel und Transmissionsabbruch ergänzt.
+- Strukturierte Transmission-Audit-Events mit monotoner Sequenz vollständig in
+  SQLite persistierbar gemacht.
+- Sequenzbasierte, begrenzte Abfrage in stabiler Einfügereihenfolge und
+  zeitbasierte Löschung in begrenzten Batches ergänzt.
+- Audit-Schema auf Empfängeranzahl beschränkt; interne Empfänger-IDs werden
+  weder gespeichert noch über die Persistenz-API angenommen.
+- Persistenztests für vollständigen Event-Round-trip, Prozessneustart,
+  Einfügereihenfolge, Sequenz-Paginierung und Aufbewahrungsgrenzen ergänzt.
 
 ## Aktueller Stand
 
 - Das technische Projektfundament, der transportunabhängige Domänenkern, der
-  In-Memory-Transmissionslebenszyklus sowie die dauerhafte Session- und
-  Membership-Ablage sind vorhanden und lokal validiert.
-- Es existieren noch keine Netzwerk-, Audit-Persistenz- oder
-  Voice-Transportadapter.
+  In-Memory-Transmissionslebenszyklus sowie die dauerhafte Session-,
+  Membership- und Audit-Ablage sind vorhanden und lokal validiert.
+- Es existieren noch keine Netzwerk- oder Voice-Transportadapter.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde noch nicht begonnen.
@@ -121,8 +128,9 @@
 
 ## Nächster Schritt
 
-Strukturierte Audit-Events in SQLite dauerhaft und geordnet ablegen, ohne
-interne Empfängerlisten zu persistieren, und Aufbewahrungsgrenzen vorbereiten.
+Einen versionierten Netzwerkvertrag für Session-, Membership- und
+Transmission-Anwendungsfälle definieren und den ersten Linux-Netzwerkadapter
+mit klarer Authentifizierungsgrenze anbinden.
 
 ## Validierung
 

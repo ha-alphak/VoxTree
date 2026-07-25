@@ -226,6 +226,120 @@ auto persistedUpdateInterruptsTransmissionAtomically() -> bool
            store.activeCount() == 0 && persisted && persisted->snapshot->version() == 43;
 }
 
+auto auditEventsSurviveRestartInInsertionOrder() -> bool
+{
+    TemporaryDatabase database;
+    {
+        persistence::SqliteControlPlaneRepository repository{database.path()};
+        application::TransmissionAuditEvent started{
+            application::TransmissionAuditEventType::started,
+            application::TransmissionAuditOperation::start,
+            application::TimePoint{std::chrono::milliseconds{300}},
+            domain::CorrelationId{"correlation-start"}};
+        started.session_id = domain::SessionId{"session-1"};
+        started.device_id = domain::DeviceId{"device-1"};
+        started.client_transmission_id = domain::ClientTransmissionId{"client-transmission-1"};
+        started.transmission_id = domain::TransmissionId{"transmission-1"};
+        started.actor_player_id = domain::PlayerId{"player-1"};
+        started.sender_player_id = domain::PlayerId{"player-1"};
+        started.scope = domain::VoiceScope::group;
+        started.membership_version = 42;
+        started.recipient_count = 2;
+        repository.record(started);
+
+        application::TransmissionAuditEvent rejected{
+            application::TransmissionAuditEventType::rejected,
+            application::TransmissionAuditOperation::end,
+            application::TimePoint{std::chrono::milliseconds{100}},
+            domain::CorrelationId{"correlation-rejected"}};
+        rejected.session_id = domain::SessionId{"session-2"};
+        rejected.membership_version = 0;
+        rejected.rejection_reason = application::TransmissionAuditRejectionReason::rate_limited;
+        repository.record(rejected);
+
+        application::TransmissionAuditEvent interrupted{
+            application::TransmissionAuditEventType::forcibly_interrupted,
+            application::TransmissionAuditOperation::membership_change,
+            application::TimePoint{std::chrono::milliseconds{200}},
+            domain::CorrelationId{"correlation-interrupted"}};
+        interrupted.transmission_id = domain::TransmissionId{"transmission-2"};
+        interrupted.sender_player_id = domain::PlayerId{"player-2"};
+        interrupted.stop_reason = domain::TransmissionStopReason::permission_revoked;
+        repository.record(interrupted);
+
+        if (repository.droppedAuditEventCount() != 0)
+        {
+            return false;
+        }
+    }
+
+    persistence::SqliteControlPlaneRepository reopened{database.path()};
+    const auto events = reopened.auditEventsAfter(0, 10);
+    if (events.size() != 3 || events[0].sequence != 1 || events[1].sequence != 2 ||
+        events[2].sequence != 3)
+    {
+        return false;
+    }
+
+    const auto& started = events[0].event;
+    if (started.type != application::TransmissionAuditEventType::started ||
+        started.operation != application::TransmissionAuditOperation::start ||
+        started.occurred_at != application::TimePoint{std::chrono::milliseconds{300}} ||
+        started.correlation_id != domain::CorrelationId{"correlation-start"} ||
+        started.session_id != domain::SessionId{"session-1"} ||
+        started.device_id != domain::DeviceId{"device-1"} ||
+        started.client_transmission_id != domain::ClientTransmissionId{"client-transmission-1"} ||
+        started.transmission_id != domain::TransmissionId{"transmission-1"} ||
+        started.actor_player_id != domain::PlayerId{"player-1"} ||
+        started.sender_player_id != domain::PlayerId{"player-1"} ||
+        started.scope != domain::VoiceScope::group || started.membership_version != 42 ||
+        started.recipient_count != 2 || started.stop_reason || started.rejection_reason)
+    {
+        return false;
+    }
+
+    const auto& rejected = events[1].event;
+    const auto& interrupted = events[2].event;
+    const auto second_page = reopened.auditEventsAfter(1, 1);
+    return rejected.membership_version == 0 &&
+           rejected.rejection_reason ==
+               application::TransmissionAuditRejectionReason::rate_limited &&
+           !rejected.recipient_count &&
+           interrupted.stop_reason == domain::TransmissionStopReason::permission_revoked &&
+           interrupted.transmission_id == domain::TransmissionId{"transmission-2"} &&
+           second_page.size() == 1 && second_page.front().sequence == 2;
+}
+
+auto auditRetentionDeletesBoundedBatches() -> bool
+{
+    TemporaryDatabase database;
+    persistence::SqliteControlPlaneRepository repository{database.path()};
+    for (const auto milliseconds : {300, 100, 200})
+    {
+        repository.record({application::TransmissionAuditEventType::rejected,
+                           application::TransmissionAuditOperation::start,
+                           application::TimePoint{std::chrono::milliseconds{milliseconds}},
+                           domain::CorrelationId{"retention-" + std::to_string(milliseconds)}});
+    }
+
+    const auto cutoff = application::TimePoint{std::chrono::milliseconds{250}};
+    if (repository.eraseAuditEventsBefore(cutoff, 1) != 1)
+    {
+        return false;
+    }
+    const auto after_first_batch = repository.auditEventsAfter(0, 10);
+    if (after_first_batch.size() != 2 || after_first_batch[0].sequence != 1 ||
+        after_first_batch[1].sequence != 3)
+    {
+        return false;
+    }
+
+    return repository.eraseAuditEventsBefore(cutoff, 10) == 1 &&
+           repository.eraseAuditEventsBefore(cutoff, 10) == 0 &&
+           repository.eraseAuditEventsBefore(cutoff, 0) == 0 &&
+           repository.auditEventsAfter(0, 10).size() == 1;
+}
+
 auto newerSchemaIsRejected() -> bool
 {
     TemporaryDatabase database;
@@ -235,7 +349,7 @@ auto newerSchemaIsRejected() -> bool
 
     // SQLite stores PRAGMA user_version as a four-byte big-endian value at header offset 60.
     std::fstream file{database.path(), std::ios::binary | std::ios::in | std::ios::out};
-    const char unsupported_version[]{0, 0, 0, 3};
+    const char unsupported_version[]{0, 0, 0, 4};
     file.seekp(60);
     file.write(unsupported_version, sizeof(unsupported_version));
     file.close();
@@ -260,7 +374,9 @@ auto main() -> int
                        sessionCanBeReplacedAndErased() &&
                        membershipContextSurvivesRepositoryRestart() &&
                        membershipVersionsOnlyMoveForward() &&
-                       persistedUpdateInterruptsTransmissionAtomically() && newerSchemaIsRejected()
+                       persistedUpdateInterruptsTransmissionAtomically() &&
+                       auditEventsSurviveRestartInInsertionOrder() &&
+                       auditRetentionDeletesBoundedBatches() && newerSchemaIsRejected()
                    ? 0
                    : 1;
     }

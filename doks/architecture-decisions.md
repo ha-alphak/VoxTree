@@ -74,6 +74,12 @@
 - Autoritative Membership-Kontexte werden vollständig mit Hierarchie,
   Memberships, Rollenzuweisungen und getrennten Sende-/Empfangsrechten
   gespeichert. Ein Kontext wird nur durch eine strikt höhere Version ersetzt.
+- Strukturierte Transmission-Audit-Events werden synchron mit einer
+  monotonen Einfügesequenz gespeichert. Das Schema enthält nur die
+  Empfängeranzahl und keine Empfänger-IDs.
+- Audit-Events können sequenzbasiert in stabiler Einfügereihenfolge gelesen
+  werden. Eine zeitbasierte, mengenbegrenzte Löschoperation bildet die
+  Grundlage für spätere Aufbewahrungsjobs.
 - Der `InMemoryControlPlaneStore` kann SQLite als autoritative
   Membership-Quelle verwenden. Persistentes Versionsupdate und Abbruch einer
   betroffenen aktiven Transmission sind dann gegenüber allen

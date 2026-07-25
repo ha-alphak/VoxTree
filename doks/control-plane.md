@@ -19,8 +19,9 @@ oder einer Datenbank ab.
 
 `hvc-persistence` ist ein Adaptermodul. Es hängt von `hvc-application` ab und
 stellt mit `SqliteControlPlaneRepository` die dauerhafte Implementierung für
-Sessions und autoritative Membership-Kontexte bereit. Der bisherige Name
-`SqliteSessionRepository` bleibt als Quellcode-Kompatibilitätsalias erhalten.
+Sessions, autoritative Membership-Kontexte und Transmission-Audit-Events
+bereit. Der bisherige Name `SqliteSessionRepository` bleibt als
+Quellcode-Kompatibilitätsalias erhalten.
 
 ## Authentifizierte Sessions
 
@@ -67,6 +68,12 @@ Ein vollständiger Kontext wird mit allen abhängigen Datensätzen in einer
 SQLite-Transaktion ersetzt. Der Adapter vergleicht die als vorzeichenlosen
 64-Bit-Wert gespeicherte Version innerhalb derselben Transaktion und lehnt
 gleiche oder ältere Versionen ab.
+
+Die dritte Migration ergänzt `transmission_audit_events`. Eine automatisch
+vergebene, niemals wiederverwendete Sequenz bildet die verbindliche
+Einfügereihenfolge. Ein Zeitindex unterstützt spätere Aufbewahrungsjobs. Das
+Schema enthält alle typisierten Audit-Felder einschließlich Empfängeranzahl,
+aber keine Spalte für interne Empfänger-IDs.
 
 Die ausführbare Control-Plane öffnet die Datenbank beim Start und führt damit
 die Migrationen vor allen späteren Netzwerkdiensten aus. Standardmäßig wird
@@ -166,8 +173,15 @@ Ein Event enthält je nach Vorgang Session-, Geräte-, Client-Transmission-,
 Transmission-, Akteur- und Sender-ID, Scope, Membership-Version,
 Empfängeranzahl, Zeitpunkt, Korrelations-ID sowie einen typisierten Ablehnungs-
 oder Abbruchgrund. Die interne Empfängerliste ist ausdrücklich kein Bestandteil
-des Events. Ein späterer Adapter übernimmt Serialisierung, dauerhafte Ablage,
-Zugriffsschutz und Aufbewahrungsregeln.
+des Events.
+
+`SqliteControlPlaneRepository` implementiert den Audit-Sink synchron. Persistierte
+Events können ab einer exklusiven Sequenz in stabiler Einfügereihenfolge und mit
+einem Ergebnislimit gelesen werden. `eraseAuditEventsBefore` entfernt ältere
+Events in begrenzten Batches; die konkrete Frist und der Scheduler bleiben
+Betriebskonfiguration. Da die Anwendungsschnittstelle `record` bewusst
+`noexcept` ist, zählt `droppedAuditEventCount` fehlgeschlagene Schreibvorgänge
+für die spätere Betriebsüberwachung.
 
 Die Schnittstelle ist der Anwendungskern. Ein späterer HTTP-Adapter darf nach
 außen nur geeignete Metadaten wie Transmission-ID, Scope, Status und
@@ -180,5 +194,4 @@ Empfängeranzahl ausgeben, nicht die interne Empfängerliste.
 - kryptografische Tokenprüfung und kurzlebige Voice-Grants
 - dauerhafte Rate-Limit- und Moderationsrichtlinien
 - Scheduler für die regelmäßige Timeout-Prüfung
-- dauerhafter Audit-Log-Adapter
 - LiveKit-Anbindung
