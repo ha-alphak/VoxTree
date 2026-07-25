@@ -1,6 +1,6 @@
 # Projektstatus
 
-**Berichtsdatum:** 25. Juli 2026  
+**Berichtsdatum:** 26. Juli 2026
 **Phase:** Voice-Routing – LiveKit-Transportintegration<br>
 **Gesamtstatus:** Grün
 
@@ -225,11 +225,23 @@
 - Geräteübergreifende und gerätespezifische Tastatur-/Mausbindings,
   Konfliktvalidierung, Autorepeat-Unterdrückung sowie Hot-Unplug-Freigabe im
   UI-unabhängigen Eingabekern ergänzt.
-- Win32-Raw-Input-Adapter mit eigenem Message-only-Fenster,
+- Win32-Raw-Input-Adapter mit eigenem unsichtbarem, nicht aktivierbarem Fenster,
   `RIDEV_INPUTSINK`, Geräteidentität und `RIDEV_DEVNOTIFY` umgesetzt.
 - Eingabeaktionen über eine testbare PTT-Zielgrenze mit dem
   autorisierten Voice-Client-Lebenszyklus verbunden.
 - Eingabekern- und Windows-Lifecycle-Tests ergänzt.
+- Generic-Desktop-Usages für Gamepads, Joysticks und Multi-Axis-/HOTAS-Geräte
+  im fokusunabhängigen Raw-Input-Pfad registriert.
+- HID-Preparsed-Data und Button-Capabilities über die Windows-HID-Parser-API
+  ausgewertet; mehrere Report-IDs und Press-/Release-Differenzen unterstützt.
+- Geräteprofile um Geräteklasse, VID/PID, Top-Level-Usage und verfügbare
+  HID-Buttons vervollständigt sowie Startinventar und Hot-Plugging verdrahtet.
+- Reproduzierbare `hvc-input-quality-gate`-Probe für Geräteinventar,
+  physische Ereignisse und Fremdfokusprüfung ergänzt.
+- Auf der Entwicklungsmaschine drei Joystick/HOTAS-Collections erkannt; zwei
+  melden 32 beziehungsweise 72 Buttons.
+- Reale HOTAS-/Joysticktaste bei fremdem Vordergrundfenster empfangen und über
+  Windows' `RIM_INPUTSINK`-Kennzeichnung als Hintergrundereignis bestätigt.
 
 ## Aktueller Stand
 
@@ -248,8 +260,10 @@
   vorhanden.
 - Der UI-unabhängige Windows-Client-Core, die Control-Plane-Clientanbindung, der
   WinHTTP-Adapter, das globale Tastatur-/Maus-Eingabesystem und der native
-  LiveKit-Transportadapter sind vorhanden. Die WinUI-Oberfläche und generische
-  HID-Controller sind noch nicht verdrahtet.
+  LiveKit-Transportadapter sind vorhanden. Generische HID-Controller sind für
+  Buttons und Geräteprofile verdrahtet. Der physische
+  HOTAS-Fremdfokus-Ereignisnachweis ist bestanden. Die WinUI-Oberfläche fehlt
+  noch.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
@@ -273,10 +287,9 @@
 
 ## Nächster Schritt
 
-Das Windows-Eingabesystem um Gamepads, Joysticks und HOTAS über generische
-HID-Berichte erweitern, Geräteprofile vervollständigen und den
-Hintergrund-PTT-Pfad mit realer Hardware bei fremdem Vordergrundfenster
-nachweisen.
+Eine Windows-App-SDK-/WinUI-Clientschale mit Server- und Anmeldeansicht
+anlegen und die vorhandenen Control-Plane-, Voice- und Eingabekomponenten
+zunächst bis zum verbundenen Bereitschaftszustand verdrahten.
 
 ## Validierung
 
@@ -303,7 +316,9 @@ nachweisen.
 | Windows-WinHTTP-Transport Debug/Release | Bestanden |
 | PTT-Bindings und separate Team-/Specialization-/Group-Aktionen | Bestanden |
 | Win32-Raw-Input-Registrierung und Lifecycle | Bestanden |
-| Hintergrund-PTT mit realer Tastatur/Maus bei Fremdfokus | Ausstehend |
+| Joystick-/HOTAS-Geräteinventar und HID-Button-Capabilities | Bestanden |
+| HID-Geräteprofile und Hot-Plug-Bereinigung | Bestanden |
+| Hintergrund-PTT mit realem HOTAS-Button bei Fremdfokus | Bestanden |
 | Nativer LiveKit-Transportadapter Release-Build | Bestanden |
 | Domänen-Zustandsautomat: Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
@@ -319,6 +334,6 @@ nachweisen.
 |---|---|---|
 | Reife und Integration des LiveKit-C++-SDK | Beobachten | Quality Gate bestanden; bekannte Geräte- und Publication-Handle-Einschränkungen im Adapter kapseln |
 | Autoritative Isolation im Shared-Room-Modell | Zurückgestellt | Getrennte, erfolgreich isolierte Räume verwenden |
-| Hintergrund-PTT für unterschiedliche HID-Geräte | In Arbeit | Tastatur/Maus über Raw Input umgesetzt; generische HID-Geräte und manueller Fremdfokus-Nachweis folgen |
+| Hintergrund-PTT für unterschiedliche HID-Geräte | Abgeschlossen | Tastatur/Maus und generische HID-Buttons umgesetzt; realer HOTAS-Button bei Fremdfokus über `RIM_INPUTSINK` bestätigt |
 | Windows 10 außerhalb des regulären Supports | Akzeptiert | Build 19045 unterstützen und Windows 11 mittesten |
 | 200-Spieler-Skalierung | Offen | Früher Lasttest vor UI-Vollausbau |

@@ -72,6 +72,7 @@ if(WIN32)
     hvc_client_win_raw_input
     PUBLIC hvc::client
     PRIVATE
+      hid
       user32
       "$<BUILD_INTERFACE:hvc_project_options>"
   )

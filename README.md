@@ -93,9 +93,10 @@ Implemented foundations include:
   transmissions;
 - Windows WinHTTP transport plus authorization-before-audio PTT coordination;
 - separate Team, Specialization, and Group PTT bindings; and
-- focus-independent Windows keyboard and mouse capture through Win32 Raw Input.
+- focus-independent Windows keyboard, mouse, gamepad, joystick, and HOTAS
+  button capture through Win32 Raw Input and generic HID reports.
 
-Generic HID controllers and the graphical client are not yet complete. See
+The graphical client is not yet complete. See
 [the project status](doks/status.md) for the detailed implementation progress.
 
 ## Requirements

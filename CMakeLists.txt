@@ -34,6 +34,10 @@ add_subdirectory(libs/network)
 add_subdirectory(libs/livekit)
 add_subdirectory(apps/control-plane)
 
+if(WIN32)
+  add_subdirectory(apps/input-quality-gate)
+endif()
+
 if(HVC_BUILD_LIVEKIT_QUALITY_GATE)
   add_subdirectory(apps/livekit-quality-gate)
 endif()

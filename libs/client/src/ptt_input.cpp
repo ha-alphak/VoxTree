@@ -16,8 +16,9 @@ constexpr auto action_count = std::size_t{3};
 
 [[nodiscard]] auto controlLess(const InputControl& left, const InputControl& right) -> bool
 {
-    return std::tie(left.device_kind, left.code, left.extended, left.device_id) <
-           std::tie(right.device_kind, right.code, right.extended, right.device_id);
+    return std::tie(left.device_kind, left.usage_page, left.code, left.extended, left.device_id) <
+           std::tie(right.device_kind, right.usage_page, right.code, right.extended,
+                    right.device_id);
 }
 
 [[nodiscard]] auto normalizedChord(const InputBinding& binding) -> std::vector<InputControl>
@@ -30,8 +31,8 @@ constexpr auto action_count = std::size_t{3};
 [[nodiscard]] auto controlsOverlap(const InputControl& left, const InputControl& right) noexcept
     -> bool
 {
-    return left.device_kind == right.device_kind && left.code == right.code &&
-           left.extended == right.extended &&
+    return left.device_kind == right.device_kind && left.usage_page == right.usage_page &&
+           left.code == right.code && left.extended == right.extended &&
            (left.device_id.empty() || right.device_id.empty() || left.device_id == right.device_id);
 }
 
@@ -47,19 +48,24 @@ constexpr auto action_count = std::size_t{3};
     {
         return false;
     }
-    if (control.device_kind == InputDeviceKind::mouse)
+    switch (control.device_kind)
     {
+    case InputDeviceKind::keyboard:
+        return control.usage_page == 0;
+    case InputDeviceKind::mouse:
         return control.code <= static_cast<std::uint16_t>(MouseButton::button_5) &&
-               !control.extended;
+               control.usage_page == 0 && !control.extended;
+    case InputDeviceKind::game_controller:
+        return control.usage_page != 0 && !control.extended;
     }
-    return true;
+    return false;
 }
 
 [[nodiscard]] auto heldControlMatches(const InputControl& expected,
                                       const InputControl& held) noexcept -> bool
 {
-    return expected.device_kind == held.device_kind && expected.code == held.code &&
-           expected.extended == held.extended &&
+    return expected.device_kind == held.device_kind && expected.usage_page == held.usage_page &&
+           expected.code == held.code && expected.extended == held.extended &&
            (expected.device_id.empty() || expected.device_id == held.device_id);
 }
 
@@ -134,6 +140,12 @@ auto PushToTalkBindingEngine::bindings() const -> std::vector<InputBinding>
     return bindings_;
 }
 
+auto PushToTalkBindingEngine::devices() const -> std::vector<InputDeviceProfile>
+{
+    std::scoped_lock lock{mutex_};
+    return devices_;
+}
+
 auto PushToTalkBindingEngine::actionPressed(PushToTalkAction action) const noexcept -> bool
 {
     std::scoped_lock lock{mutex_};
@@ -152,6 +164,25 @@ void PushToTalkBindingEngine::releaseAll()
         current_observer = observer_;
     }
     notify(changes, current_observer);
+}
+
+void PushToTalkBindingEngine::onInputDeviceConnected(const InputDeviceProfile& profile)
+{
+    if (profile.device_id.empty())
+    {
+        return;
+    }
+    std::scoped_lock lock{mutex_};
+    const auto existing =
+        std::ranges::find(devices_, profile.device_id, &InputDeviceProfile::device_id);
+    if (existing == devices_.end())
+    {
+        devices_.push_back(profile);
+    }
+    else
+    {
+        *existing = profile;
+    }
 }
 
 void PushToTalkBindingEngine::onInputEvent(const InputEvent& event)
@@ -197,6 +228,9 @@ void PushToTalkBindingEngine::onInputDeviceRemoved(const std::string& device_id)
         std::scoped_lock lock{mutex_};
         std::erase_if(pressed_controls_,
                       [&](const InputControl& control) { return control.device_id == device_id; });
+        std::erase_if(devices_, [&](const InputDeviceProfile& profile) {
+            return profile.device_id == device_id;
+        });
         changes = recalculateLocked();
         current_observer = observer_;
     }

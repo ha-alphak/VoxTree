@@ -70,12 +70,18 @@ class InputResultObserver final : public IPushToTalkInputObserver
 
 [[nodiscard]] auto key(std::uint16_t code, std::string device = {}) -> InputControl
 {
-    return {InputDeviceKind::keyboard, code, false, std::move(device)};
+    return {InputDeviceKind::keyboard, 0, code, false, std::move(device)};
 }
 
 [[nodiscard]] auto mouse(MouseButton button, std::string device = {}) -> InputControl
 {
-    return {InputDeviceKind::mouse, static_cast<std::uint16_t>(button), false, std::move(device)};
+    return {InputDeviceKind::mouse, 0, static_cast<std::uint16_t>(button), false,
+            std::move(device)};
+}
+
+[[nodiscard]] auto hidButton(std::uint16_t usage, std::string device = {}) -> InputControl
+{
+    return {InputDeviceKind::game_controller, 0x09, usage, false, std::move(device)};
 }
 
 void emit(PushToTalkBindingEngine& engine, InputControl control, bool pressed)
@@ -159,6 +165,36 @@ auto testDeviceSpecificBinding() -> bool
     return observer.changes == expected;
 }
 
+auto testHidProfileBindingAndRemoval() -> bool
+{
+    PushToTalkBindingEngine engine;
+    ActionObserver observer;
+    engine.setObserver(&observer);
+    const InputDeviceProfile profile{"hid-gamepad-a",
+                                     "Gamepad 1118:654",
+                                     InputDeviceKind::game_controller,
+                                     1118,
+                                     654,
+                                     0x01,
+                                     0x05,
+                                     {{0x09, 1}, {0x09, 2}}};
+    engine.onInputDeviceConnected(profile);
+    const std::vector<InputBinding> bindings{
+        {PushToTalkAction::group, {hidButton(2, profile.device_id)}}};
+    if (!engine.setBindings(bindings) || engine.devices() != std::vector{profile})
+    {
+        return false;
+    }
+
+    emit(engine, hidButton(1, profile.device_id), true);
+    emit(engine, hidButton(2, profile.device_id), true);
+    engine.onInputDeviceRemoved(profile.device_id);
+    const std::vector<ActionChange> expected{{PushToTalkAction::group, true},
+                                             {PushToTalkAction::group, false}};
+    return observer.changes == expected && engine.devices().empty() &&
+           !engine.actionPressed(PushToTalkAction::group);
+}
+
 auto testRejectsInvalidAndConflictingBindings() -> bool
 {
     PushToTalkBindingEngine engine;
@@ -211,8 +247,8 @@ auto main() noexcept -> int
     try
     {
         if (!testSeparateActionsAndChord() || !testAlternativeBindingsAndDeviceRemoval() ||
-            !testDeviceSpecificBinding() || !testRejectsInvalidAndConflictingBindings() ||
-            !testAuthorizedInputCoordination())
+            !testDeviceSpecificBinding() || !testHidProfileBindingAndRemoval() ||
+            !testRejectsInvalidAndConflictingBindings() || !testAuthorizedInputCoordination())
         {
             std::fputs("A push-to-talk input assertion failed.\n", stderr);
             return 1;

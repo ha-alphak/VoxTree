@@ -19,6 +19,12 @@ struct RawInputResult final
     std::string message;
 };
 
+struct RawInputStatistics final
+{
+    std::uint64_t input_messages{0};
+    std::uint64_t delivered_events{0};
+};
+
 class WinRawInputSource final
 {
   public:
@@ -33,6 +39,7 @@ class WinRawInputSource final
     [[nodiscard]] auto start() -> RawInputResult;
     void stop() noexcept;
     [[nodiscard]] auto running() const noexcept -> bool;
+    [[nodiscard]] auto statistics() const noexcept -> RawInputStatistics;
 
   private:
     class Impl;

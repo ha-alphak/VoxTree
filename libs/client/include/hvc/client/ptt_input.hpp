@@ -24,7 +24,8 @@ enum class PushToTalkAction : std::uint8_t
 enum class InputDeviceKind : std::uint8_t
 {
     keyboard,
-    mouse
+    mouse,
+    game_controller
 };
 
 enum class MouseButton : std::uint8_t
@@ -39,11 +40,34 @@ enum class MouseButton : std::uint8_t
 struct InputControl final
 {
     InputDeviceKind device_kind{InputDeviceKind::keyboard};
+    std::uint16_t usage_page{0};
     std::uint16_t code{0};
     bool extended{false};
     std::string device_id;
 
     [[nodiscard]] auto operator==(const InputControl&) const -> bool = default;
+};
+
+struct HidButtonDescriptor final
+{
+    std::uint16_t usage_page{0};
+    std::uint16_t usage{0};
+
+    [[nodiscard]] auto operator==(const HidButtonDescriptor&) const -> bool = default;
+};
+
+struct InputDeviceProfile final
+{
+    std::string device_id;
+    std::string display_name;
+    InputDeviceKind device_kind{InputDeviceKind::keyboard};
+    std::uint16_t vendor_id{0};
+    std::uint16_t product_id{0};
+    std::uint16_t usage_page{0};
+    std::uint16_t usage{0};
+    std::vector<HidButtonDescriptor> buttons;
+
+    [[nodiscard]] auto operator==(const InputDeviceProfile&) const -> bool = default;
 };
 
 struct InputBinding final
@@ -56,6 +80,7 @@ struct InputEvent final
 {
     InputControl control;
     bool pressed{false};
+    bool received_in_background{false};
 };
 
 enum class InputBindingErrorCode : std::uint8_t
@@ -91,6 +116,7 @@ class IInputEventSink
     auto operator=(IInputEventSink&&) -> IInputEventSink& = delete;
     virtual ~IInputEventSink() = default;
 
+    virtual void onInputDeviceConnected(const InputDeviceProfile& profile) = 0;
     virtual void onInputEvent(const InputEvent& event) = 0;
     virtual void onInputDeviceRemoved(const std::string& device_id) = 0;
 };
@@ -114,9 +140,11 @@ class PushToTalkBindingEngine final : public IInputEventSink
     void setObserver(IPushToTalkActionObserver* observer) noexcept;
     [[nodiscard]] auto setBindings(std::span<const InputBinding> bindings) -> InputBindingResult;
     [[nodiscard]] auto bindings() const -> std::vector<InputBinding>;
+    [[nodiscard]] auto devices() const -> std::vector<InputDeviceProfile>;
     [[nodiscard]] auto actionPressed(PushToTalkAction action) const noexcept -> bool;
     void releaseAll();
 
+    void onInputDeviceConnected(const InputDeviceProfile& profile) override;
     void onInputEvent(const InputEvent& event) override;
     void onInputDeviceRemoved(const std::string& device_id) override;
 
@@ -135,6 +163,7 @@ class PushToTalkBindingEngine final : public IInputEventSink
     mutable std::mutex mutex_;
     IPushToTalkActionObserver* observer_{nullptr};
     std::vector<InputBinding> bindings_;
+    std::vector<InputDeviceProfile> devices_;
     std::vector<InputControl> pressed_controls_;
     std::array<bool, 3> pressed_actions_{};
 };
