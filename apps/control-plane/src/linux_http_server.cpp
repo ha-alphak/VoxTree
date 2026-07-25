@@ -20,8 +20,8 @@ namespace hvc::control_plane
 {
 namespace
 {
-constexpr std::size_t maximum_header_bytes{16U * 1024U};
-constexpr std::size_t maximum_body_bytes{64U * 1024U};
+constexpr std::size_t maximum_header_bytes{std::size_t{16U} * 1024U};
+constexpr std::size_t maximum_body_bytes{std::size_t{64U} * 1024U};
 
 class Socket final
 {
@@ -191,7 +191,10 @@ void sendResponse(int descriptor, const network::HttpResponse& response)
                        std::string{statusReason(response.status_code)} + "\r\n"};
     for (const auto& [name, value] : response.headers)
     {
-        header += name + ": " + value + "\r\n";
+        header.append(name);
+        header.append(": ");
+        header.append(value);
+        header.append("\r\n");
     }
     header +=
         "content-length: " + std::to_string(response.body.size()) + "\r\nconnection: close\r\n\r\n";
@@ -276,7 +279,7 @@ void sendResponse(int descriptor, const network::HttpResponse& response)
         line_start = line_end + 2;
     }
 
-    if (request.header("transfer-encoding").size() != 0)
+    if (!request.header("transfer-encoding").empty())
     {
         return protocolError(400, "transfer_encoding_not_supported");
     }

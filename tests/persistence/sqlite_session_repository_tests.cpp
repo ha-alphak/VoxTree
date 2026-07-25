@@ -1,3 +1,4 @@
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -349,9 +350,10 @@ auto newerSchemaIsRejected() -> bool
 
     // SQLite stores PRAGMA user_version as a four-byte big-endian value at header offset 60.
     std::fstream file{database.path(), std::ios::binary | std::ios::in | std::ios::out};
-    const char unsupported_version[]{0, 0, 0, 4};
+    const std::array<char, 4> unsupported_version{0, 0, 0, 4};
     file.seekp(60);
-    file.write(unsupported_version, sizeof(unsupported_version));
+    file.write(unsupported_version.data(),
+               static_cast<std::streamsize>(unsupported_version.size()));
     file.close();
 
     try

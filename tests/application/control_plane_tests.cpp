@@ -104,7 +104,7 @@ struct Fixture final
         membership_provider.context.emplace(std::move(snapshot), std::move(policy));
     }
 
-    [[nodiscard]] auto command(std::uint64_t membership_version = 42) const
+    [[nodiscard]] static auto command(std::uint64_t membership_version = 42)
         -> application::StartTransmissionCommand
     {
         return {domain::SessionId{"session-1"},
@@ -127,7 +127,7 @@ auto authorizesFromServerSideIdentityAndMembership() -> bool
     application::TransmissionAuthorizationService service{
         fixture.session_repository, fixture.membership_provider, fixture.id_generator};
 
-    const auto result = service.authorizeStart(fixture.command(), fixture.now);
+    const auto result = service.authorizeStart(Fixture::command(), fixture.now);
 
     return result.authorized() && !result.error && result.transmission &&
            result.transmission->transmission_id == domain::TransmissionId{"tx-server-1"} &&
@@ -143,16 +143,16 @@ auto rejectsInvalidSessionContext() -> bool
     application::TransmissionAuthorizationService service{
         fixture.session_repository, fixture.membership_provider, fixture.id_generator};
 
-    auto unknown_session = fixture.command();
+    auto unknown_session = Fixture::command();
     unknown_session.session_id = domain::SessionId{"unknown"};
     const auto missing = service.authorizeStart(unknown_session, fixture.now);
 
-    auto wrong_device = fixture.command();
+    auto wrong_device = Fixture::command();
     wrong_device.device_id = domain::DeviceId{"other-device"};
     const auto mismatched = service.authorizeStart(wrong_device, fixture.now);
 
     const auto expired =
-        service.authorizeStart(fixture.command(), fixture.now + std::chrono::minutes{10});
+        service.authorizeStart(Fixture::command(), fixture.now + std::chrono::minutes{10});
 
     return missing.error == application::TransmissionAuthorizationError::session_not_found &&
            mismatched.error ==
@@ -166,7 +166,7 @@ auto rejectsStaleAndUnauthorizedRequests() -> bool
     application::TransmissionAuthorizationService service{
         fixture.session_repository, fixture.membership_provider, fixture.id_generator};
 
-    const auto stale = service.authorizeStart(fixture.command(41), fixture.now);
+    const auto stale = service.authorizeStart(Fixture::command(41), fixture.now);
 
     fixture.membership_provider.context->snapshot =
         std::make_shared<const domain::MembershipSnapshot>(43, makeHierarchy(),
@@ -174,7 +174,7 @@ auto rejectsStaleAndUnauthorizedRequests() -> bool
                                                                makeMember("sender", "listener"),
                                                                makeMember("recipient", "listener"),
                                                            });
-    const auto unauthorized = service.authorizeStart(fixture.command(43), fixture.now);
+    const auto unauthorized = service.authorizeStart(Fixture::command(43), fixture.now);
 
     return stale.error == application::TransmissionAuthorizationError::voice_membership_stale &&
            unauthorized.error ==

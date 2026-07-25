@@ -85,10 +85,18 @@ class RecordingAuditEventSink final : public application::ITransmissionAuditEven
   public:
     void record(const application::TransmissionAuditEvent& event) noexcept override
     {
-        events.push_back(event);
+        try
+        {
+            events.push_back(event);
+        }
+        catch (...)
+        {
+            recording_failed = true;
+        }
     }
 
     std::vector<application::TransmissionAuditEvent> events;
+    bool recording_failed{};
 };
 
 struct Fixture final
@@ -111,7 +119,7 @@ struct Fixture final
         }
     }
 
-    [[nodiscard]] auto startCommand(std::uint64_t version = 42) const
+    [[nodiscard]] static auto startCommand(std::uint64_t version = 42)
         -> application::StartTransmissionCommand
     {
         return {domain::SessionId{"session-sender"},
@@ -122,7 +130,7 @@ struct Fixture final
                 domain::CorrelationId{"start"}};
     }
 
-    [[nodiscard]] auto endCommand(const domain::TransmissionId& transmission_id) const
+    [[nodiscard]] static auto endCommand(const domain::TransmissionId& transmission_id)
         -> application::EndTransmissionCommand
     {
         return {domain::SessionId{"session-sender"}, domain::DeviceId{"device-sender"},
@@ -147,14 +155,14 @@ auto startsAndEndsAnActiveTransmission() -> bool
         fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
         fixture.lifecycle_policy};
 
-    const auto started = service.start(fixture.startCommand(), fixture.now);
+    const auto started = service.start(Fixture::startCommand(), fixture.now);
     if (!started.successful() || fixture.store.activeCount() != 1)
     {
         return false;
     }
 
     const auto transmission_id = started.transmission->authorization.transmission_id;
-    const auto duplicate = service.start(fixture.startCommand(), fixture.now);
+    const auto duplicate = service.start(Fixture::startCommand(), fixture.now);
     if (duplicate.error != application::StartTransmissionError::sender_already_transmitting)
     {
         return false;
@@ -170,7 +178,7 @@ auto startsAndEndsAnActiveTransmission() -> bool
         return false;
     }
 
-    const auto ended = service.end(fixture.endCommand(transmission_id), fixture.now);
+    const auto ended = service.end(Fixture::endCommand(transmission_id), fixture.now);
     return ended.successful() && ended.transmission &&
            ended.transmission->stop_reason ==
                domain::TransmissionStopReason::push_to_talk_released &&
@@ -184,7 +192,7 @@ auto membershipChangeAtomicallyInterruptsTransmission() -> bool
         fixture.store,           fixture.store,        fixture.ids,
         fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
         fixture.lifecycle_policy};
-    const auto started = service.start(fixture.startCommand(), fixture.now);
+    const auto started = service.start(Fixture::startCommand(), fixture.now);
     if (!started.successful())
     {
         return false;
@@ -209,7 +217,7 @@ auto permissionChangeAtomicallyInterruptsAndRevokes() -> bool
         fixture.store,           fixture.store,        fixture.ids,
         fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
         fixture.lifecycle_policy};
-    const auto started = service.start(fixture.startCommand(), fixture.now);
+    const auto started = service.start(Fixture::startCommand(), fixture.now);
     if (!started.successful())
     {
         return false;
@@ -219,7 +227,7 @@ auto permissionChangeAtomicallyInterruptsAndRevokes() -> bool
         domain::PlayerId{"sender"}, makeContext(43, "listener"), fixture.now,
         domain::CorrelationId{"permission-change"},
         application::AuthoritativeContextChange::permissions_changed);
-    const auto rejected = service.start(fixture.startCommand(43), fixture.now);
+    const auto rejected = service.start(Fixture::startCommand(43), fixture.now);
 
     return update.successful() && update.interrupted.size() == 1 &&
            update.interrupted.front().stop_reason ==
@@ -233,7 +241,7 @@ auto staleChangesCannotReplaceStateOrLeaveAStaleTransmission() -> bool
     Fixture fixture;
     application::TransmissionAuthorizationService authorization{fixture.store, fixture.store,
                                                                 fixture.ids};
-    auto authorized = authorization.authorizeStart(fixture.startCommand(), fixture.now);
+    auto authorized = authorization.authorizeStart(Fixture::startCommand(), fixture.now);
     if (!authorized.authorized())
     {
         return false;
@@ -265,7 +273,7 @@ auto disconnectAtomicallyInterruptsTransmission() -> bool
         fixture.store,           fixture.store,        fixture.ids,
         fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
         fixture.lifecycle_policy};
-    const auto started = service.start(fixture.startCommand(), fixture.now);
+    const auto started = service.start(Fixture::startCommand(), fixture.now);
     if (!started.successful())
     {
         return false;
@@ -284,7 +292,7 @@ auto sessionChangeDuringStartCannotActivateTransmission() -> bool
     Fixture fixture;
     application::TransmissionAuthorizationService authorization{fixture.store, fixture.store,
                                                                 fixture.ids};
-    auto authorized = authorization.authorizeStart(fixture.startCommand(), fixture.now);
+    auto authorized = authorization.authorizeStart(Fixture::startCommand(), fixture.now);
     if (!authorized.authorized())
     {
         return false;
@@ -331,9 +339,9 @@ auto applicationServiceReportsRateLimitedRequests() -> bool
         start_fixture.store,           start_fixture.store, start_fixture.ids,
         start_fixture.store,           start_limiter,       start_fixture.moderation_authorizer,
         start_fixture.lifecycle_policy};
-    if (start_service.start(start_fixture.startCommand(41), start_fixture.now).error !=
+    if (start_service.start(Fixture::startCommand(41), start_fixture.now).error !=
             application::StartTransmissionError::voice_membership_stale ||
-        start_service.start(start_fixture.startCommand(), start_fixture.now).error !=
+        start_service.start(Fixture::startCommand(), start_fixture.now).error !=
             application::StartTransmissionError::rate_limited ||
         start_fixture.store.activeCount() != 0)
     {
@@ -347,7 +355,7 @@ auto applicationServiceReportsRateLimitedRequests() -> bool
         end_fixture.store,           end_fixture.store, end_fixture.ids,
         end_fixture.store,           end_limiter,       end_fixture.moderation_authorizer,
         end_fixture.lifecycle_policy};
-    const auto started = end_service.start(end_fixture.startCommand(), end_fixture.now);
+    const auto started = end_service.start(Fixture::startCommand(), end_fixture.now);
     if (!started.successful())
     {
         return false;
@@ -357,9 +365,8 @@ auto applicationServiceReportsRateLimitedRequests() -> bool
         domain::SessionId{"session-sender"}, domain::DeviceId{"device-sender"},
         domain::TransmissionId{"missing"}, domain::CorrelationId{"missing-end"}};
     const auto missing_result = end_service.end(missing, end_fixture.now);
-    const auto limited_result =
-        end_service.end(end_fixture.endCommand(started.transmission->authorization.transmission_id),
-                        end_fixture.now);
+    const auto limited_result = end_service.end(
+        Fixture::endCommand(started.transmission->authorization.transmission_id), end_fixture.now);
 
     return missing_result.error == application::EndTransmissionError::transmission_not_found &&
            limited_result.error == application::EndTransmissionError::rate_limited &&
@@ -373,7 +380,7 @@ auto timeoutExpiresOnlyOverdueTransmissions() -> bool
         fixture.store,           fixture.store,        fixture.ids,
         fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
         fixture.lifecycle_policy};
-    const auto started = service.start(fixture.startCommand(), fixture.now);
+    const auto started = service.start(Fixture::startCommand(), fixture.now);
     if (!started.successful())
     {
         return false;
@@ -397,7 +404,7 @@ auto authorizedModerationInterruptsTransmission() -> bool
         fixture.store,           fixture.store,        fixture.ids,
         fixture.store,           fixture.rate_limiter, fixture.moderation_authorizer,
         fixture.lifecycle_policy};
-    const auto started = service.start(fixture.startCommand(), fixture.now);
+    const auto started = service.start(Fixture::startCommand(), fixture.now);
     if (!started.successful())
     {
         return false;
@@ -438,7 +445,7 @@ auto emitsStructuredAuditEventsForTheTransmissionLifecycle() -> bool
                                                         fixture.lifecycle_policy,
                                                         &fixture.audit_events};
 
-    const auto started = service.start(fixture.startCommand(), fixture.now);
+    const auto started = service.start(Fixture::startCommand(), fixture.now);
     if (!started.successful() || fixture.audit_events.events.size() != 1)
     {
         return false;
@@ -457,7 +464,7 @@ auto emitsStructuredAuditEventsForTheTransmissionLifecycle() -> bool
         return false;
     }
 
-    const auto duplicate = service.start(fixture.startCommand(), fixture.now);
+    const auto duplicate = service.start(Fixture::startCommand(), fixture.now);
     if (duplicate.error != application::StartTransmissionError::sender_already_transmitting ||
         fixture.audit_events.events.size() != 2 ||
         fixture.audit_events.events[1].type != application::TransmissionAuditEventType::rejected ||
@@ -480,7 +487,7 @@ auto emitsStructuredAuditEventsForTheTransmissionLifecycle() -> bool
         return false;
     }
 
-    const auto ended = service.end(fixture.endCommand(transmission_id), fixture.now);
+    const auto ended = service.end(Fixture::endCommand(transmission_id), fixture.now);
     if (!ended.successful() || fixture.audit_events.events.size() != 4 ||
         fixture.audit_events.events[3].type != application::TransmissionAuditEventType::ended ||
         fixture.audit_events.events[3].stop_reason !=
@@ -489,7 +496,7 @@ auto emitsStructuredAuditEventsForTheTransmissionLifecycle() -> bool
         return false;
     }
 
-    const auto restarted = service.start(fixture.startCommand(), fixture.now);
+    const auto restarted = service.start(Fixture::startCommand(), fixture.now);
     if (!restarted.successful() || fixture.audit_events.events.size() != 5)
     {
         return false;
@@ -511,7 +518,7 @@ auto emitsStructuredAuditEventsForTheTransmissionLifecycle() -> bool
         return false;
     }
 
-    const auto moderated_start = service.start(fixture.startCommand(43), fixture.now);
+    const auto moderated_start = service.start(Fixture::startCommand(43), fixture.now);
     if (!moderated_start.successful())
     {
         return false;
@@ -540,7 +547,7 @@ auto emitsStructuredAuditEventsForTheTransmissionLifecycle() -> bool
         return false;
     }
 
-    const auto timeout_start = service.start(fixture.startCommand(43), fixture.now);
+    const auto timeout_start = service.start(Fixture::startCommand(43), fixture.now);
     const auto expired = service.expireTimedOut(fixture.now + std::chrono::seconds{30},
                                                 domain::CorrelationId{"timeout"});
     if (!timeout_start.successful() || expired.size() != 1 ||
@@ -554,11 +561,11 @@ auto emitsStructuredAuditEventsForTheTransmissionLifecycle() -> bool
         return false;
     }
 
-    const auto disconnect_start = service.start(fixture.startCommand(43), fixture.now);
+    const auto disconnect_start = service.start(Fixture::startCommand(43), fixture.now);
     const auto disconnected = fixture.store.removeSession(
         domain::SessionId{"session-sender"}, fixture.now, domain::CorrelationId{"disconnect"});
-    return disconnect_start.successful() && disconnected.size() == 1 &&
-           fixture.audit_events.events.size() == 13 &&
+    return !fixture.audit_events.recording_failed && disconnect_start.successful() &&
+           disconnected.size() == 1 && fixture.audit_events.events.size() == 13 &&
            fixture.audit_events.events[12].type ==
                application::TransmissionAuditEventType::forcibly_interrupted &&
            fixture.audit_events.events[12].operation ==
