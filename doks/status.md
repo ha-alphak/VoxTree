@@ -25,6 +25,8 @@
   angelegt.
 - CTest-Testfundament eingerichtet.
 - GitHub-CI für Windows Server 2022 und Debian 13.6 eingerichtet.
+- Vollständigen GitHub-CI-Lauf mit Windows MSVC Debug/Release, Debian GCC
+  Debug/Release und Debian Clang-Analyse erfolgreich abgeschlossen.
 - Lokale MSVC-Debug- und Release-Builds erfolgreich ausgeführt.
 - Lokale Tests, Formatprüfung, statische Analyse und Paketinstallation
   erfolgreich validiert.
@@ -139,7 +141,7 @@
   Membership- und Audit-Ablage sind vorhanden und lokal validiert.
 - Der erste versionierte Control-Plane-Netzwerkadapter ist implementiert. Der
   plattformunabhängige Vertrag und Dispatcher sind unter Windows lokal
-  validiert; der Linux-spezifische Socketpfad wird zusätzlich durch Debian-CI
+  validiert; der Linux-spezifische Socketpfad wurde durch Debian-CI erfolgreich
   gebaut und getestet.
 - Es existiert noch kein Voice-Transportadapter.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
@@ -163,9 +165,11 @@ Membership-Endpunkte mit kurzlebigen Voice-Grants vorbereiten.
 | CTest Release | 7 von 7 Tests bestanden |
 | Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
-| clang-tidy | Konfiguriert, aktueller Lauf über Debian-CI |
+| clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
 | CMake-Installation und Paketexport inklusive `hvc::domain` | Bestanden |
-| Debian-CI | Konfiguriert, Ausführung nach Push |
+| Debian GCC Debug | Bestanden, 7 von 7 Tests |
+| Debian GCC Release | Bestanden, 7 von 7 Tests |
+| GitHub-CI-Gesamtlauf | Bestanden |
 
 ## Risiken
 
