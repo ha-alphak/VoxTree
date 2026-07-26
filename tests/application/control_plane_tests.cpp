@@ -196,6 +196,28 @@ auto derivesShortLivedVoiceGrantClaimsFromAuthoritativeState() -> bool
            result.claims->receive_scopes.size() == 3 &&
            result.claims->expires_at == fixture.now + std::chrono::seconds{30};
 }
+
+auto keepsTransmitAndReceiveGrantRightsIndependent() -> bool
+{
+    Fixture fixture;
+    auto transmit_only = makeMember("sender", "leader");
+    transmit_only.can_receive_voice = false;
+    fixture.membership_provider.context->snapshot =
+        std::make_shared<const domain::MembershipSnapshot>(43, makeHierarchy(),
+                                                           std::vector<domain::VoiceMembership>{
+                                                               std::move(transmit_only),
+                                                               makeMember("recipient", "listener"),
+                                                           });
+    application::VoiceGrantAuthorizationService grants{
+        fixture.session_repository, fixture.membership_provider,
+        application::VoiceGrantPolicy{std::chrono::seconds{30}}};
+
+    const auto result =
+        grants.derive(domain::SessionId{"session-1"}, domain::DeviceId{"device-1"}, fixture.now);
+
+    return result.successful() && result.claims && result.claims->membership_version == 43 &&
+           result.claims->transmit_scopes.size() == 3 && result.claims->receive_scopes.empty();
+}
 } // namespace
 
 auto main() noexcept -> int
@@ -205,7 +227,8 @@ auto main() noexcept -> int
         const bool passed = authorizesFromServerSideIdentityAndMembership() &&
                             rejectsInvalidSessionContext() &&
                             rejectsStaleAndUnauthorizedRequests() &&
-                            derivesShortLivedVoiceGrantClaimsFromAuthoritativeState();
+                            derivesShortLivedVoiceGrantClaimsFromAuthoritativeState() &&
+                            keepsTransmitAndReceiveGrantRightsIndependent();
         if (!passed)
         {
             std::fputs("application control-plane tests failed\n", stderr);

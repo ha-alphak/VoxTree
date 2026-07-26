@@ -251,6 +251,15 @@
   Bereitschaftsansicht dargestellt.
 - Windows App SDK `2.2.0` und C++/WinRT `3.0.260715.1` als reproduzierbare,
   opt-in NuGet-Abhängigkeiten in ein eigenes CMake-Preset aufgenommen.
+- Voice-Routing-Stufe mit getrennten Team-, Specialization- und Group-Räumen,
+  serverautoritativer PTT-Prüfung und atomarem Abbruch bei Disconnect, Timeout,
+  Membership- oder Rechteänderung abgeschlossen.
+- Unabhängige Sende- und Empfangsrechte bis in die Voice-Grant-Ableitung
+  durchgängig umgesetzt; ein Empfangsverbot entzieht kein vorhandenes
+  Senderecht.
+- Explizite automatisierte Cross-Team- und Cross-Group-Raumisolation in den
+  LiveKit-Token-Tests ergänzt und die Routingstufe in `voice-routing.md`
+  dokumentiert.
 
 ## Aktueller Stand
 
@@ -297,9 +306,9 @@
 
 ## Nächster Schritt
 
-Die Clientschale um eine stabile lokale Geräteidentität, persistente
-Servereinstellungen sowie Membership-/Voice-Grant-Refresh und einen
-UI-sichtbaren Reconnect-Ablauf erweitern.
+Mit Abschnitt 6 „Audio-Engine“ fortfahren: Stream-Admission, konfigurierbares
+Ducking, lokales Mute/Block und individuelle Lautstärke auf dem bestehenden
+nativen Aufnahme-/Wiedergabepfad ergänzen.
 
 ## Validierung
 
@@ -323,6 +332,7 @@ UI-sichtbaren Reconnect-Ablauf erweitern.
 | Sofortiger serverseitiger LiveKit-Publish-Rechteentzug | Bestanden |
 | Verhinderung nicht autorisierter LiveKit-Track-Abonnements | Bestanden |
 | LiveKit-Cross-Room-Isolation | Bestanden |
+| Automatisierte Cross-Team- und Cross-Group-Routingisolation | Bestanden |
 | Windows-Client-Core und Fake-Transport-Tests | Bestanden |
 | Control-Plane-Client und autorisierte PTT-Koordination | Bestanden |
 | Windows-WinHTTP-Transport Debug/Release | Bestanden |

@@ -4,7 +4,8 @@ param(
     [string]$ServerPath = '',
     [string]$Url = 'ws://127.0.0.1:7880',
     [string]$ApiKey = 'devkey',
-    [string]$ApiSecret = 'secret'
+    [string]$ApiSecret = 'secret',
+    [string]$RecordingDevice = ''
 )
 
 Set-StrictMode -Version Latest
@@ -124,6 +125,24 @@ function Start-Probe {
         Stdout  = $stdoutPath
         Stderr  = $stderrPath
     }
+}
+
+function New-PublisherArguments {
+    param(
+        [string]$Token,
+        [string]$HoldSeconds
+    )
+
+    $arguments = @(
+        '--url', $Url,
+        '--token', $Token,
+        '--publish-audio',
+        '--hold', $HoldSeconds
+    )
+    if (![string]::IsNullOrWhiteSpace($RecordingDevice)) {
+        $arguments += @('--recording-device', $RecordingDevice)
+    }
+    return $arguments
 }
 
 function Complete-Probe {
@@ -246,11 +265,8 @@ try {
     )
     $probes.Add($receiver)
     Start-Sleep -Milliseconds 500
-    $publisher = Start-Probe @(
-        '--url', $Url,
-        '--token', $publisherToken,
-        '--publish-audio',
-        '--hold', '20'
+    $publisher = Start-Probe (
+        New-PublisherArguments -Token $publisherToken -HoldSeconds '20'
     )
     $probes.Add($publisher)
     Wait-PublishedTrack -Room $revocationRoom -Identity $publisherIdentity
@@ -304,11 +320,8 @@ try {
     )
     $probes.Add($blockedReceiver)
     Start-Sleep -Milliseconds 500
-    $subscriptionPublisher = Start-Probe @(
-        '--url', $Url,
-        '--token', $subscriptionPublisherToken,
-        '--publish-audio',
-        '--hold', '10'
+    $subscriptionPublisher = Start-Probe (
+        New-PublisherArguments -Token $subscriptionPublisherToken -HoldSeconds '10'
     )
     $probes.Add($subscriptionPublisher)
     Wait-PublishedTrack `
@@ -338,11 +351,8 @@ try {
     )
     $probes.Add($isolatedReceiver)
     Start-Sleep -Milliseconds 500
-    $foreignPublisher = Start-Probe @(
-        '--url', $Url,
-        '--token', $foreignPublisherToken,
-        '--publish-audio',
-        '--hold', '5'
+    $foreignPublisher = Start-Probe (
+        New-PublisherArguments -Token $foreignPublisherToken -HoldSeconds '5'
     )
     $probes.Add($foreignPublisher)
     Complete-Probe -Probe $foreignPublisher

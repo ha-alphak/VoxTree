@@ -225,6 +225,15 @@ diesen eigenen Prozess im `finally`-Block. Für einen bereits laufenden,
 abweichend konfigurierten Server können `-Url`, `-ApiKey` und `-ApiSecret`
 übergeben werden.
 
+Falls das Windows-Standardaufnahmegerät nicht verfügbar ist, kann die stabile
+Geräte-ID aus `--list-audio-devices` explizit gewählt werden:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\Invoke-LiveKitSecurityQualityGate.ps1 `
+  -RecordingDevice 'STABILE_AUFNAHMEGERAET_ID'
+```
+
 Die Probe führt drei voneinander getrennte Nachweise:
 
 1. Ein Sender veröffentlicht einen Opus-Mikrofontrack. Danach entzieht

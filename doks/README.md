@@ -15,6 +15,7 @@ Communication**.
 | [network-contract-v1.md](network-contract-v1.md) | Versionierter HTTP-Vertrag der Control-Plane |
 | [livekit-quality-gate.md](livekit-quality-gate.md) | Native SDK-Anbindung und Zwei-Client-Probe |
 | [voice-client.md](voice-client.md) | UI-unabhängiger Client-Core und LiveKit-Transportadapter |
+| [voice-routing.md](voice-routing.md) | Getrennte Voice-Räume, Grants, PTT-Autorisierung und Isolation |
 | [input-system.md](input-system.md) | Windows-Raw-Input, PTT-Aktionen und Bindings |
 | [windows-client.md](windows-client.md) | WinUI-Clientschale, Anmeldung und Bereitschaftszustand |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |

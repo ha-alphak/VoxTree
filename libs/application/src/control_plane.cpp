@@ -47,7 +47,7 @@ auto VoiceGrantAuthorizationService::derive(const domain::SessionId& session_id,
     {
         return {{}, VoiceGrantError::player_not_in_membership};
     }
-    if (!membership->connected || !membership->can_receive_voice)
+    if (!membership->connected)
     {
         return {{}, VoiceGrantError::voice_not_connected};
     }
@@ -62,7 +62,8 @@ auto VoiceGrantAuthorizationService::derive(const domain::SessionId& session_id,
         {
             transmit.push_back(scope.scope);
         }
-        if (context->role_policy->canReceive(membership->role_ids, scope.scope))
+        if (membership->can_receive_voice &&
+            context->role_policy->canReceive(membership->role_ids, scope.scope))
         {
             receive.push_back(scope.scope);
         }
