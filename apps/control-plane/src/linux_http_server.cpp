@@ -12,7 +12,6 @@
 #include <deque>
 #include <mutex>
 #include <netdb.h>
-#include <optional>
 #include <poll.h>
 #include <stdexcept>
 #include <string>
@@ -30,6 +29,9 @@ namespace
 {
 constexpr std::size_t maximum_header_bytes{std::size_t{16U} * 1024U};
 constexpr std::size_t maximum_body_bytes{std::size_t{64U} * 1024U};
+// A signal handler cannot safely capture per-server state. sig_atomic_t is the
+// standard lock-free communication mechanism for this process-wide handler.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 volatile std::sig_atomic_t shutdown_requested{};
 
 extern "C" void requestShutdown(int) noexcept
@@ -77,6 +79,13 @@ class Socket final
     [[nodiscard]] auto get() const noexcept -> int
     {
         return descriptor_;
+    }
+
+    [[nodiscard]] auto release() noexcept -> int
+    {
+        const int descriptor = descriptor_;
+        descriptor_ = -1;
+        return descriptor;
     }
 
   private:
@@ -247,6 +256,9 @@ void sendOverloadResponse(int descriptor)
         {
             return protocolError(413, "headers_too_large");
         }
+        // Clang 19 incorrectly propagates the worker's queue lock through its
+        // explicit unlock before processClient() into this blocking call.
+        // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
         const auto count = ::recv(descriptor, buffer.data(), buffer.size(), 0);
         if (count < 0)
         {
@@ -338,6 +350,9 @@ void sendOverloadResponse(int descriptor)
     while (received.size() < total_size)
     {
         const auto remaining = total_size - received.size();
+        // See the matching header read above. Socket I/O starts only after the
+        // worker has explicitly released the queue lock.
+        // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
         const auto count = ::recv(descriptor, buffer.data(), std::min(buffer.size(), remaining), 0);
         if (count < 0)
         {
@@ -465,18 +480,16 @@ auto runLinuxHttpServer(std::string_view bind_address, std::uint16_t port,
         workers.emplace_back([&] {
             while (true)
             {
-                std::optional<Socket> client;
+                std::unique_lock lock{queue_mutex};
+                queue_changed.wait(lock, [&] { return stopping || !queue.empty(); });
+                if (queue.empty())
                 {
-                    std::unique_lock lock{queue_mutex};
-                    queue_changed.wait(lock, [&] { return stopping || !queue.empty(); });
-                    if (queue.empty())
-                    {
-                        return;
-                    }
-                    client.emplace(std::move(queue.front()));
-                    queue.pop_front();
+                    return;
                 }
-                processClient(std::move(*client), handler);
+                Socket client{std::move(queue.front())};
+                queue.pop_front();
+                lock.unlock();
+                processClient(std::move(client), handler);
             }
         });
     }
@@ -523,7 +536,7 @@ auto runLinuxHttpServer(std::string_view bind_address, std::uint16_t port,
             std::scoped_lock lock{queue_mutex};
             if (queue.size() < options.maximum_queued_connections)
             {
-                queue.push_back(std::move(client));
+                queue.emplace_back(client.release());
                 queued = true;
             }
         }

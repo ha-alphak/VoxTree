@@ -6,7 +6,6 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
-#include <cstring>
 #include <hvc/network/control_plane_http.hpp>
 #include <string>
 #include <string_view>
@@ -215,7 +214,7 @@ auto main() -> int
     const pid_t process = ::fork();
     if (process < 0)
     {
-        std::fprintf(stderr, "fork failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "fork failed with errno %d\n", errno);
         return 1;
     }
     if (process == 0)
