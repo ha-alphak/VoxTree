@@ -33,10 +33,27 @@ coverage/
 .env
 .env.*
 !.env.example
+
+/ToolChains.md
 /.codex-local/
 
 # Local LiveKit server distribution
 /livekit_1.13.4_windows_amd64/
+
+# Private keys, certificates, VPN profiles, and password containers
+*.pem
+*.key
+*.p12
+*.pfx
+*.kdbx
+*.ovpn
+id_rsa
+id_ed25519
+
+# Deployment secrets; only templates and the directory guard may be tracked
+/deploy/secrets/*
+!/deploy/secrets/.gitignore
+!/deploy/secrets/*.example
 
 # Operating system and editor files
 .DS_Store

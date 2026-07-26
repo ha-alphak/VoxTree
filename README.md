@@ -1,3 +1,7 @@
+# Important Note
+> [!IMPORTANT]
+> All of the Code is __AI__ generated. This is a test!
+
 # Hierarchical Voice Communication
 
 Hierarchical Voice Communication is a standalone, real-time voice application
@@ -234,6 +238,16 @@ The project is currently in an early development phase. Before opening a pull
 request, ensure that the relevant build, tests, formatting checks, and static
 analysis pass. More detailed contribution guidelines will be added as the
 public API and development workflow stabilize.
+
+Local-only documentation, environment files, deployment secrets, private keys,
+and credential containers must never be committed. Enable the repository's
+commit and push guards once after cloning:
+
+```powershell
+./scripts/Enable-GitGuards.ps1
+```
+
+The same sensitive-content policy is enforced in GitHub Actions.
 
 ## License
 
