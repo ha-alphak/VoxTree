@@ -1,11 +1,14 @@
 #include <algorithm>
 #include <array>
+#include <condition_variable>
 #include <cstdio>
 #include <exception>
 #include <hvc/client/voice_client.hpp>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -56,6 +59,15 @@ class FakeVoiceTransport final : public IVoiceTransport
     [[nodiscard]] auto startMicrophone(VoiceScope scope) -> VoiceTransportResult override
     {
         ++start_calls;
+        {
+            std::unique_lock lock{publication_mutex};
+            start_entered = true;
+            publication_changed.notify_all();
+            publication_changed.wait(lock,
+                                     [this] { return !block_microphone_start || finish_start; });
+            finish_start = false;
+            start_entered = false;
+        }
         if (state_ != VoiceTransportState::connected || active_scope_.has_value())
         {
             return VoiceTransportResult::failure(VoiceTransportError::invalid_state,
@@ -158,6 +170,19 @@ class FakeVoiceTransport final : public IVoiceTransport
         observer_->onRemoteAudioUnavailable(scope, participant_id);
     }
 
+    void waitForMicrophoneStart()
+    {
+        std::unique_lock lock{publication_mutex};
+        publication_changed.wait(lock, [this] { return start_entered; });
+    }
+
+    void completeMicrophoneStart()
+    {
+        const std::scoped_lock lock{publication_mutex};
+        finish_start = true;
+        publication_changed.notify_all();
+    }
+
     IVoiceTransportObserver* observer_{nullptr};
     VoiceTransportState state_{VoiceTransportState::disconnected};
     std::optional<VoiceScope> active_scope_;
@@ -166,6 +191,11 @@ class FakeVoiceTransport final : public IVoiceTransport
     int disconnect_calls{0};
     int start_calls{0};
     int stop_calls{0};
+    bool block_microphone_start{false};
+    bool start_entered{false};
+    bool finish_start{false};
+    std::mutex publication_mutex;
+    std::condition_variable publication_changed;
     std::vector<std::tuple<VoiceScope, std::string, bool, float>> playback;
 };
 
@@ -238,6 +268,92 @@ auto testReconnectStopsAndNeverResumesPtt() -> bool
            !client.activeTransmissionScope().has_value() &&
            !transport.activeTransmissionScope().has_value() && transport.stop_calls == 1 &&
            transport.start_calls == 1;
+}
+
+auto testCancelsPendingPublicationAcrossEveryScope() -> bool
+{
+    FakeVoiceTransport transport;
+    transport.block_microphone_start = true;
+    VoiceClient client{transport};
+    const auto grants = validGrants();
+    if (!client.connect(grants))
+    {
+        return false;
+    }
+
+    constexpr std::array scopes{
+        VoiceScope::team,
+        VoiceScope::specialization,
+        VoiceScope::group,
+    };
+    constexpr int cycles_per_scope = 100;
+    for (const auto scope : scopes)
+    {
+        for (auto cycle = 0; cycle < cycles_per_scope; ++cycle)
+        {
+            VoiceTransportResult start_result;
+            VoiceTransportResult stop_result;
+            std::jthread starter{[&] { start_result = client.pressPushToTalk(scope); }};
+            transport.waitForMicrophoneStart();
+            if (client.microphonePublicationState() != MicrophonePublicationState::starting)
+            {
+                return false;
+            }
+            std::jthread stopper{[&] { stop_result = client.releasePushToTalk(); }};
+            while (client.microphonePublicationState() != MicrophonePublicationState::stopping)
+            {
+                std::this_thread::yield();
+            }
+            transport.completeMicrophoneStart();
+            starter.join();
+            stopper.join();
+            if (start_result || !stop_result ||
+                client.microphonePublicationState() != MicrophonePublicationState::idle ||
+                client.activeTransmissionScope().has_value() ||
+                transport.activeTransmissionScope().has_value())
+            {
+                return false;
+            }
+        }
+    }
+
+    return client.microphonePublicationGeneration() ==
+               static_cast<std::uint64_t>(scopes.size() * cycles_per_scope) &&
+           transport.start_calls == static_cast<int>(scopes.size()) * cycles_per_scope &&
+           transport.stop_calls == static_cast<int>(scopes.size()) * cycles_per_scope;
+}
+
+auto testDisconnectCancelsPendingPublication() -> bool
+{
+    FakeVoiceTransport transport;
+    transport.block_microphone_start = true;
+    VoiceClient client{transport};
+    const auto grants = validGrants();
+    if (!client.connect(grants))
+    {
+        return false;
+    }
+
+    VoiceTransportResult start_result;
+    VoiceTransportResult disconnect_result;
+    std::jthread starter{
+        [&] { start_result = client.pressPushToTalk(VoiceScope::specialization); }};
+    transport.waitForMicrophoneStart();
+    std::jthread disconnector{[&] { disconnect_result = client.disconnect(); }};
+    while (client.microphonePublicationState() != MicrophonePublicationState::stopping)
+    {
+        std::this_thread::yield();
+    }
+    transport.completeMicrophoneStart();
+    starter.join();
+    disconnector.join();
+
+    return !start_result && disconnect_result &&
+           client.state() == VoiceTransportState::disconnected &&
+           client.microphonePublicationState() == MicrophonePublicationState::idle &&
+           !client.activeTransmissionScope().has_value() &&
+           !transport.activeTransmissionScope().has_value() && transport.start_calls == 1 &&
+           transport.stop_calls == 1 && transport.disconnect_calls == 1;
 }
 
 [[nodiscard]] auto playbackFor(const VoiceClient& client, VoiceScope scope,
@@ -363,7 +479,9 @@ auto main() noexcept -> int
     try
     {
         if (!testRequiresUniqueAuthorizedScopes() || !testConnectAndPttLifecycle() ||
-            !testReconnectStopsAndNeverResumesPtt() || !testPriorityAdmissionAndDucking() ||
+            !testReconnectStopsAndNeverResumesPtt() ||
+            !testCancelsPendingPublicationAcrossEveryScope() ||
+            !testDisconnectCancelsPendingPublication() || !testPriorityAdmissionAndDucking() ||
             !testMuteBlockVolumeAndReadmission())
         {
             std::fputs("A voice-client assertion failed.\n", stderr);

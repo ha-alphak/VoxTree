@@ -102,6 +102,7 @@ auto VoiceClient::disconnect() -> VoiceTransportResult
 
 auto VoiceClient::pressPushToTalk(domain::VoiceScope scope) -> VoiceTransportResult
 {
+    std::uint64_t generation{};
     {
         const std::scoped_lock lock{mutex_};
         if (state_ != VoiceTransportState::connected)
@@ -109,50 +110,110 @@ auto VoiceClient::pressPushToTalk(domain::VoiceScope scope) -> VoiceTransportRes
             return VoiceTransportResult::failure(VoiceTransportError::invalid_state,
                                                  "voice transport is not connected");
         }
-        if (active_scope_.has_value())
+        if (publication_state_ != MicrophonePublicationState::idle)
         {
             return VoiceTransportResult::failure(
                 VoiceTransportError::invalid_state,
                 "only one push-to-talk transmission may be active");
         }
+        generation = ++publication_generation_;
+        publication_state_ = MicrophonePublicationState::starting;
+        active_scope_.reset();
+        last_stop_result_ = VoiceTransportResult::success();
     }
 
     auto result = transport_.startMicrophone(scope);
+    auto cancel_publication = false;
+    {
+        const std::scoped_lock lock{mutex_};
+        if (result && generation == publication_generation_ &&
+            publication_state_ == MicrophonePublicationState::starting &&
+            state_ == VoiceTransportState::connected)
+        {
+            publication_state_ = MicrophonePublicationState::active;
+            active_scope_ = scope;
+            publication_changed_.notify_all();
+            return result;
+        }
+        cancel_publication = result && generation == publication_generation_ &&
+                             publication_state_ != MicrophonePublicationState::idle;
+    }
+
+    auto stop_result = VoiceTransportResult::success();
+    if (cancel_publication || transport_.activeTransmissionScope().has_value())
+    {
+        stop_result = transport_.stopMicrophone();
+        if (!stop_result && stop_result.error == VoiceTransportError::invalid_state)
+        {
+            stop_result = VoiceTransportResult::success();
+        }
+    }
+
+    {
+        const std::scoped_lock lock{mutex_};
+        if (generation == publication_generation_)
+        {
+            publication_state_ = MicrophonePublicationState::idle;
+            active_scope_.reset();
+            last_stop_result_ = stop_result;
+            publication_changed_.notify_all();
+        }
+    }
     if (!result)
     {
         return result;
     }
-
+    if (!stop_result)
     {
-        const std::scoped_lock lock{mutex_};
-        if (state_ == VoiceTransportState::connected)
-        {
-            active_scope_ = scope;
-            return result;
-        }
+        return stop_result;
     }
-
-    static_cast<void>(transport_.stopMicrophone());
-    return VoiceTransportResult::failure(VoiceTransportError::invalid_state,
-                                         "connection changed while push-to-talk was starting");
+    return VoiceTransportResult::failure(
+        VoiceTransportError::invalid_state,
+        "microphone publication generation " + std::to_string(generation) +
+            " was cancelled during the starting-to-stopping transition");
 }
 
 auto VoiceClient::releasePushToTalk() -> VoiceTransportResult
 {
+    std::uint64_t generation{};
     {
-        const std::scoped_lock lock{mutex_};
-        if (!active_scope_.has_value() && !transport_.activeTransmissionScope().has_value())
+        std::unique_lock lock{mutex_};
+        if (publication_state_ == MicrophonePublicationState::idle)
         {
             return VoiceTransportResult::failure(VoiceTransportError::invalid_state,
                                                  "no push-to-talk transmission is active");
         }
+        generation = publication_generation_;
+        if (publication_state_ == MicrophonePublicationState::starting)
+        {
+            publication_state_ = MicrophonePublicationState::stopping;
+            publication_changed_.wait(lock, [this, generation] {
+                return publication_generation_ != generation ||
+                       publication_state_ == MicrophonePublicationState::idle;
+            });
+            return last_stop_result_;
+        }
+        if (publication_state_ == MicrophonePublicationState::stopping)
+        {
+            publication_changed_.wait(lock, [this, generation] {
+                return publication_generation_ != generation ||
+                       publication_state_ == MicrophonePublicationState::idle;
+            });
+            return last_stop_result_;
+        }
+        publication_state_ = MicrophonePublicationState::stopping;
     }
 
     auto result = transport_.stopMicrophone();
-    if (result)
     {
         const std::scoped_lock lock{mutex_};
-        active_scope_.reset();
+        if (generation == publication_generation_)
+        {
+            publication_state_ = MicrophonePublicationState::idle;
+            active_scope_.reset();
+            last_stop_result_ = result;
+            publication_changed_.notify_all();
+        }
     }
     return result;
 }
@@ -161,6 +222,18 @@ auto VoiceClient::activeTransmissionScope() const noexcept -> std::optional<doma
 {
     const std::scoped_lock lock{mutex_};
     return active_scope_;
+}
+
+auto VoiceClient::microphonePublicationState() const noexcept -> MicrophonePublicationState
+{
+    const std::scoped_lock lock{mutex_};
+    return publication_state_;
+}
+
+auto VoiceClient::microphonePublicationGeneration() const noexcept -> std::uint64_t
+{
+    const std::scoped_lock lock{mutex_};
+    return publication_generation_;
 }
 
 auto VoiceClient::setAudioEngineConfig(const AudioEngineConfig& config) -> VoiceTransportResult
@@ -254,6 +327,18 @@ void VoiceClient::onTransportStateChanged(VoiceTransportState state)
         if (state != VoiceTransportState::connected && active_scope_.has_value())
         {
             active_scope_.reset();
+        }
+        if (state != VoiceTransportState::connected &&
+            publication_state_ == MicrophonePublicationState::active)
+        {
+            publication_state_ = MicrophonePublicationState::idle;
+            last_stop_result_ = VoiceTransportResult::success();
+            publication_changed_.notify_all();
+        }
+        else if (state != VoiceTransportState::connected &&
+                 publication_state_ == MicrophonePublicationState::starting)
+        {
+            publication_state_ = MicrophonePublicationState::stopping;
         }
         if (state != VoiceTransportState::connected)
         {

@@ -2,14 +2,17 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <hvc/livekit/livekit_voice_transport.hpp>
 #include <livekit/livekit.h>
 #include <memory>
 #include <mutex>
+#include <ranges>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -26,6 +29,8 @@ namespace
 constexpr std::uint64_t opus_bitrate = 64'000;
 constexpr std::size_t voice_scope_count = 3;
 constexpr std::uint32_t maximum_queued_audio_frames = 12;
+constexpr auto publication_confirmation_timeout = std::chrono::seconds{10};
+constexpr auto maximum_publication_settle_time = std::chrono::milliseconds{250};
 
 struct LiveKitGlobalState final
 {
@@ -42,6 +47,20 @@ struct LiveKitGlobalState final
 [[nodiscard]] auto scopeIndex(domain::VoiceScope scope) noexcept -> std::size_t
 {
     return static_cast<std::size_t>(scope);
+}
+
+[[nodiscard]] auto scopeName(domain::VoiceScope scope) noexcept -> std::string_view
+{
+    switch (scope)
+    {
+    case domain::VoiceScope::team:
+        return "team";
+    case domain::VoiceScope::specialization:
+        return "specialization";
+    case domain::VoiceScope::group:
+        return "group";
+    }
+    return "unknown";
 }
 
 class LiveKitLifetime final
@@ -227,12 +246,12 @@ class RemoteTrackPlayout final : private IXAudio2VoiceCallback
                 }
 
                 auto samples = std::make_unique<std::vector<std::int16_t>>(event.frame.data());
-                auto* const samples_pointer = samples.get();
+                auto* samples_pointer = samples.get();
                 {
                     const std::scoped_lock lock{buffers_mutex_};
                     pending_buffers_.insert(samples_pointer);
                 }
-                static_cast<void>(samples.release());
+                samples_pointer = samples.release();
                 XAUDIO2_BUFFER buffer{};
                 buffer.AudioBytes =
                     static_cast<UINT32>(samples_pointer->size() * sizeof(std::int16_t));
@@ -250,6 +269,7 @@ class RemoteTrackPlayout final : private IXAudio2VoiceCallback
         catch (...)
         {
             // Audio callback threads must never terminate the process on allocation/SDK failures.
+            stream_->close();
         }
     }
 
@@ -384,6 +404,12 @@ class LiveKitVoiceTransport::Impl final
             owner_.participantDisconnected(scope_, participantIdentity(event.participant));
         }
 
+        void onLocalTrackPublished(::livekit::Room&,
+                                   const ::livekit::LocalTrackPublishedEvent& event) override
+        {
+            owner_.localAudioPublished(scope_, event.track, event.publication);
+        }
+
         void onTrackSubscribed(::livekit::Room&,
                                const ::livekit::TrackSubscribedEvent& event) override
         {
@@ -475,11 +501,22 @@ class LiveKitVoiceTransport::Impl final
         ::livekit::Room room;
     };
 
+    enum class PublicationState : std::uint8_t
+    {
+        idle,
+        starting,
+        active,
+        stopping
+    };
+
     struct PublishedAudio final
     {
         domain::VoiceScope scope{domain::VoiceScope::team};
+        std::uint64_t generation{0};
         std::shared_ptr<::livekit::PlatformAudioSource> source;
         std::shared_ptr<::livekit::LocalAudioTrack> track;
+        std::string publication_id;
+        std::chrono::steady_clock::time_point safe_unpublish_at{};
     };
 
     struct RemoteAudioPublication final
@@ -491,7 +528,17 @@ class LiveKitVoiceTransport::Impl final
         std::shared_ptr<RemoteTrackPlayout> playout;
     };
 
-    Impl() = default;
+    Impl()
+    {
+        try
+        {
+            playout_engine_ = std::make_unique<XAudio2Engine>();
+        }
+        catch (const std::exception& error)
+        {
+            playout_initialization_error_ = error.what();
+        }
+    }
 
     void setObserver(client::IVoiceTransportObserver* observer) noexcept
     {
@@ -569,6 +616,13 @@ class LiveKitVoiceTransport::Impl final
         auto rooms = takeRooms();
         static_cast<void>(disconnectRooms(rooms));
         controlled_reconnect_.store(false);
+        {
+            const std::scoped_lock lock{publication_mutex_};
+            published_audio_.reset();
+            retired_publications_.clear();
+            publication_state_ = PublicationState::idle;
+            publication_changed_.notify_all();
+        }
         resetRemoteAudio();
         resetRemotePublications();
         notifyState(client::VoiceTransportState::disconnected);
@@ -591,19 +645,29 @@ class LiveKitVoiceTransport::Impl final
                            "the requested LiveKit scope is not connected");
         }
 
-        const std::scoped_lock lock{publication_mutex_};
-        if (published_audio_.has_value())
+        std::uint64_t generation{};
         {
-            return failure(client::VoiceTransportError::invalid_state,
-                           "a microphone publication is already active");
+            const std::scoped_lock lock{publication_mutex_};
+            if (publication_state_ != PublicationState::idle || published_audio_.has_value())
+            {
+                return failure(client::VoiceTransportError::invalid_state,
+                               "a microphone publication is already active");
+            }
+            generation = ++publication_generation_;
+            publication_state_ = PublicationState::starting;
+            published_audio_.emplace();
+            published_audio_->scope = scope;
+            published_audio_->generation = generation;
         }
 
         try
         {
             if (platform_audio_.recordingDeviceCount() < 1)
             {
+                resetFailedPublication(generation);
                 return failure(client::VoiceTransportError::audio_device_unavailable,
-                               "no microphone is available");
+                               publicationDiagnostic(scope, generation, "starting", "idle",
+                                                     "no microphone is available"));
             }
 
             ::livekit::PlatformAudioOptions audio_options;
@@ -613,6 +677,7 @@ class LiveKitVoiceTransport::Impl final
 
             PublishedAudio published_audio;
             published_audio.scope = scope;
+            published_audio.generation = generation;
             published_audio.source = platform_audio_.createAudioSource(audio_options);
             published_audio.track = ::livekit::LocalAudioTrack::createLocalAudioTrack(
                 "hvc-microphone", published_audio.source);
@@ -620,8 +685,22 @@ class LiveKitVoiceTransport::Impl final
             const auto local_participant = scope_room->room.localParticipant().lock();
             if (local_participant == nullptr)
             {
+                resetFailedPublication(generation);
                 return failure(client::VoiceTransportError::publication_failed,
-                               "LiveKit local participant is unavailable");
+                               publicationDiagnostic(scope, generation, "starting", "idle",
+                                                     "LiveKit local participant is unavailable"));
+            }
+
+            {
+                const std::scoped_lock lock{publication_mutex_};
+                if (!published_audio_.has_value() || published_audio_->generation != generation)
+                {
+                    return failure(client::VoiceTransportError::invalid_state,
+                                   publicationDiagnostic(scope, generation, "starting", "idle",
+                                                         "publication generation was superseded"));
+                }
+                published_audio_->source = published_audio.source;
+                published_audio_->track = published_audio.track;
             }
 
             ::livekit::TrackPublishOptions publish_options;
@@ -630,12 +709,100 @@ class LiveKitVoiceTransport::Impl final
             publish_options.dtx = true;
             publish_options.red = false;
             local_participant->publishTrack(published_audio.track, publish_options);
-            published_audio_ = std::move(published_audio);
-            return client::VoiceTransportResult::success();
+
+            {
+                const std::scoped_lock lock{publication_mutex_};
+                if (!published_audio_.has_value() || published_audio_->generation != generation)
+                {
+                    return failure(
+                        client::VoiceTransportError::invalid_state,
+                        publicationDiagnostic(scope, generation, "starting", "idle",
+                                              "publication generation completed after teardown"));
+                }
+                publication_changed_.notify_all();
+            }
+
+            const auto confirmation_deadline =
+                std::chrono::steady_clock::now() + publication_confirmation_timeout;
+            while (std::chrono::steady_clock::now() < confirmation_deadline)
+            {
+                {
+                    const std::scoped_lock lock{publication_mutex_};
+                    if (!published_audio_.has_value() ||
+                        published_audio_->generation != generation ||
+                        !published_audio_->publication_id.empty())
+                    {
+                        break;
+                    }
+                }
+
+                const auto publication = published_audio.track->publication();
+                if (publication != nullptr && !publication->sid().empty())
+                {
+                    const auto& publications = local_participant->trackPublications();
+                    if (publications.contains(publication->sid()))
+                    {
+                        const std::scoped_lock lock{publication_mutex_};
+                        if (published_audio_.has_value() &&
+                            published_audio_->generation == generation)
+                        {
+                            published_audio_->publication_id = publication->sid();
+                            published_audio_->safe_unpublish_at =
+                                std::chrono::steady_clock::now() + maximum_publication_settle_time;
+                            if (publication_state_ == PublicationState::starting)
+                            {
+                                publication_state_ = PublicationState::active;
+                            }
+                            publication_changed_.notify_all();
+                        }
+                        break;
+                    }
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds{2});
+            }
+
+            std::unique_lock lock{publication_mutex_};
+            const auto confirmed =
+                publication_changed_.wait_until(lock, confirmation_deadline, [this, generation] {
+                    return !published_audio_.has_value() ||
+                           published_audio_->generation != generation ||
+                           publication_state_ != PublicationState::starting;
+                });
+            if (confirmed && published_audio_.has_value() &&
+                published_audio_->generation == generation &&
+                publication_state_ == PublicationState::active &&
+                !published_audio_->publication_id.empty())
+            {
+                return client::VoiceTransportResult::success();
+            }
+            if (confirmed && publication_state_ == PublicationState::stopping)
+            {
+                publication_changed_.wait_for(
+                    lock, publication_confirmation_timeout, [this, generation] {
+                        return !published_audio_.has_value() ||
+                               published_audio_->generation != generation ||
+                               publication_state_ == PublicationState::idle;
+                    });
+                return failure(
+                    client::VoiceTransportError::invalid_state,
+                    publicationDiagnostic(scope, generation, "starting", "stopping",
+                                          "publication was cancelled before confirmation"));
+            }
+
+            retirePublicationLocked(generation);
+            publication_state_ = PublicationState::idle;
+            publication_changed_.notify_all();
+            return failure(
+                client::VoiceTransportError::publication_failed,
+                publicationDiagnostic(scope, generation, "starting", "idle",
+                                      "LiveKit did not confirm the local publication in time"));
         }
         catch (const std::exception& error)
         {
-            return failure(client::VoiceTransportError::publication_failed, error.what());
+            resetFailedPublication(generation);
+            return failure(
+                client::VoiceTransportError::publication_failed,
+                publicationDiagnostic(scope, generation, "starting", "idle", error.what()));
         }
     }
 
@@ -652,7 +819,7 @@ class LiveKitVoiceTransport::Impl final
     [[nodiscard]] auto activeTransmissionScope() const noexcept -> std::optional<domain::VoiceScope>
     {
         const std::scoped_lock lock{publication_mutex_};
-        if (!published_audio_.has_value())
+        if (!published_audio_.has_value() || publication_state_ != PublicationState::active)
         {
             return std::nullopt;
         }
@@ -719,7 +886,12 @@ class LiveKitVoiceTransport::Impl final
         try
         {
             platform_audio_.setPlayoutDevice(device_id);
-            playout_engine_.selectDevice(device_id);
+            if (playout_engine_ == nullptr)
+            {
+                return failure(client::VoiceTransportError::audio_device_unavailable,
+                               playout_initialization_error_);
+            }
+            playout_engine_->selectDevice(device_id);
             return client::VoiceTransportResult::success();
         }
         catch (const std::exception& error)
@@ -737,6 +909,11 @@ class LiveKitVoiceTransport::Impl final
             return failure(
                 client::VoiceTransportError::invalid_argument,
                 "remote audio policy requires a participant ID and gain from zero to one");
+        }
+        if (admitted && playout_engine_ == nullptr)
+        {
+            return failure(client::VoiceTransportError::audio_device_unavailable,
+                           playout_initialization_error_);
         }
 
         std::shared_ptr<::livekit::RemoteTrackPublication> publication;
@@ -894,8 +1071,14 @@ class LiveKitVoiceTransport::Impl final
             }
             try
             {
+                if (playout_engine_ == nullptr)
+                {
+                    notifyError(client::VoiceTransportError::audio_device_unavailable,
+                                playout_initialization_error_);
+                    return;
+                }
                 publication->second.playout = std::make_shared<RemoteTrackPlayout>(
-                    playout_engine_, track, publication->second.gain);
+                    *playout_engine_, track, publication->second.gain);
             }
             catch (const std::exception& error)
             {
@@ -1031,54 +1214,231 @@ class LiveKitVoiceTransport::Impl final
         notifyState(client::VoiceTransportState::disconnected);
     }
 
-    [[nodiscard]] auto stopMicrophoneIfActive() -> client::VoiceTransportResult
+    [[nodiscard]] static auto publicationDiagnostic(domain::VoiceScope scope,
+                                                    std::uint64_t generation,
+                                                    std::string_view from_state,
+                                                    std::string_view to_state,
+                                                    std::string_view message) -> std::string
+    {
+        return std::string{message} + "; scope=" + std::string{scopeName(scope)} +
+               "; transition=" + std::string{from_state} + "->" + std::string{to_state} +
+               "; generation=" + std::to_string(generation);
+    }
+
+    void retirePublicationLocked(std::uint64_t generation)
+    {
+        if (!published_audio_.has_value() || published_audio_->generation != generation)
+        {
+            return;
+        }
+        if (published_audio_->track != nullptr)
+        {
+            retired_publications_.push_back(std::move(*published_audio_));
+        }
+        published_audio_.reset();
+    }
+
+    void resetFailedPublication(std::uint64_t generation)
     {
         const std::scoped_lock lock{publication_mutex_};
-        if (!published_audio_.has_value())
+        if (published_audio_.has_value() && published_audio_->generation == generation)
+        {
+            retirePublicationLocked(generation);
+            publication_state_ = PublicationState::idle;
+            publication_changed_.notify_all();
+        }
+    }
+
+    void localAudioPublished(domain::VoiceScope scope,
+                             const std::shared_ptr<::livekit::Track>& track,
+                             const std::shared_ptr<::livekit::LocalTrackPublication>& publication)
+    {
+        if (track == nullptr || publication == nullptr || publication->sid().empty())
+        {
+            return;
+        }
+
+        auto late_publication = false;
+        {
+            const std::scoped_lock lock{publication_mutex_};
+            const auto matches_publication = [&](const PublishedAudio& audio) {
+                if (audio.scope != scope || audio.track == nullptr)
+                {
+                    return false;
+                }
+                if (audio.track == track)
+                {
+                    return true;
+                }
+                const auto known_publication = audio.track->publication();
+                return known_publication != nullptr &&
+                       known_publication->sid() == publication->sid();
+            };
+
+            if (published_audio_.has_value() && matches_publication(*published_audio_))
+            {
+                published_audio_->publication_id = publication->sid();
+                published_audio_->safe_unpublish_at = std::chrono::steady_clock::now();
+                if (publication_state_ == PublicationState::starting)
+                {
+                    publication_state_ = PublicationState::active;
+                }
+                publication_changed_.notify_all();
+                return;
+            }
+
+            const auto iterator =
+                std::ranges::find_if(retired_publications_, [&](const auto& retired) {
+                    return matches_publication(retired);
+                });
+            if (iterator != retired_publications_.end())
+            {
+                retired_publications_.erase(iterator);
+                late_publication = true;
+            }
+        }
+
+        if (!late_publication)
+        {
+            return;
+        }
+        const auto scope_room = room(scope);
+        if (scope_room == nullptr)
+        {
+            return;
+        }
+        try
+        {
+            const auto local_participant = scope_room->room.localParticipant().lock();
+            if (local_participant != nullptr)
+            {
+                local_participant->unpublishTrack(publication->sid());
+            }
+        }
+        catch (const std::exception& error)
+        {
+            notifyError(client::VoiceTransportError::publication_failed,
+                        publicationDiagnostic(scope, 0, "stopping", "idle", error.what()));
+        }
+    }
+
+    [[nodiscard]] auto stopMicrophoneIfActive() -> client::VoiceTransportResult
+    {
+        std::unique_lock lock{publication_mutex_};
+        if (!published_audio_.has_value() || publication_state_ == PublicationState::idle)
         {
             return client::VoiceTransportResult::failure(client::VoiceTransportError::invalid_state,
                                                          "no microphone publication is active");
         }
 
+        const auto generation = published_audio_->generation;
+        const auto scope = published_audio_->scope;
+        if (publication_state_ == PublicationState::starting)
+        {
+            publication_state_ = PublicationState::stopping;
+            publication_changed_.notify_all();
+        }
+        if (publication_state_ == PublicationState::stopping &&
+            published_audio_->publication_id.empty())
+        {
+            const auto publication_available = publication_changed_.wait_for(
+                lock, publication_confirmation_timeout, [this, generation] {
+                    return !published_audio_.has_value() ||
+                           published_audio_->generation != generation ||
+                           !published_audio_->publication_id.empty();
+                });
+            if (!publication_available || !published_audio_.has_value() ||
+                published_audio_->generation != generation ||
+                published_audio_->publication_id.empty())
+            {
+                retirePublicationLocked(generation);
+                publication_state_ = PublicationState::idle;
+                publication_changed_.notify_all();
+                return client::VoiceTransportResult::failure(
+                    client::VoiceTransportError::publication_failed,
+                    publicationDiagnostic(scope, generation, "stopping", "idle",
+                                          "cancelled publication did not produce a LiveKit SID"));
+            }
+        }
+
+        if (published_audio_->safe_unpublish_at > std::chrono::steady_clock::now())
+        {
+            const auto safe_unpublish_at = published_audio_->safe_unpublish_at;
+            publication_changed_.wait_until(lock, safe_unpublish_at, [this, generation] {
+                return !published_audio_.has_value() ||
+                       published_audio_->generation != generation ||
+                       published_audio_->safe_unpublish_at <= std::chrono::steady_clock::now();
+            });
+        }
+        if (!published_audio_.has_value() || published_audio_->generation != generation)
+        {
+            return client::VoiceTransportResult::failure(
+                client::VoiceTransportError::invalid_state,
+                publicationDiagnostic(scope, generation, "stopping", "idle",
+                                      "publication generation changed during cancellation"));
+        }
+
         auto published_audio = std::move(*published_audio_);
         published_audio_.reset();
+        publication_state_ = PublicationState::stopping;
+        lock.unlock();
         const auto scope_room = room(published_audio.scope);
         if (scope_room == nullptr)
         {
+            finishPublicationStop(generation);
             return client::VoiceTransportResult::failure(
                 client::VoiceTransportError::publication_failed,
-                "the publishing LiveKit room is unavailable");
+                publicationDiagnostic(published_audio.scope, generation, "stopping", "idle",
+                                      "the publishing LiveKit room is unavailable"));
         }
 
+        client::VoiceTransportResult result = client::VoiceTransportResult::success();
         try
         {
             const auto local_participant = scope_room->room.localParticipant().lock();
             if (local_participant == nullptr)
             {
-                return client::VoiceTransportResult::failure(
+                result = client::VoiceTransportResult::failure(
                     client::VoiceTransportError::publication_failed,
-                    "LiveKit local participant is unavailable during PTT release");
+                    publicationDiagnostic(
+                        published_audio.scope, generation, "stopping", "idle",
+                        "LiveKit local participant is unavailable during PTT release"));
             }
-            const auto publication = published_audio.track->publication();
-            if (publication == nullptr || publication->sid().empty())
+            else if (published_audio.publication_id.empty())
             {
-                return client::VoiceTransportResult::failure(
+                result = client::VoiceTransportResult::failure(
                     client::VoiceTransportError::publication_failed,
-                    "published microphone has no LiveKit publication SID");
+                    publicationDiagnostic(published_audio.scope, generation, "stopping", "idle",
+                                          "published microphone has no LiveKit publication SID"));
             }
-            local_participant->unpublishTrack(publication->sid());
-            if (!local_participant->trackPublications().empty())
+            else
             {
-                return client::VoiceTransportResult::failure(
-                    client::VoiceTransportError::publication_failed,
-                    "microphone publication remained after PTT release");
+                local_participant->unpublishTrack(published_audio.publication_id);
+                if (!local_participant->trackPublications().empty())
+                {
+                    result = client::VoiceTransportResult::failure(
+                        client::VoiceTransportError::publication_failed,
+                        publicationDiagnostic(published_audio.scope, generation, "stopping", "idle",
+                                              "microphone publication remained after PTT release"));
+                }
             }
-            return client::VoiceTransportResult::success();
         }
         catch (const std::exception& error)
         {
-            return client::VoiceTransportResult::failure(
+            result = client::VoiceTransportResult::failure(
                 client::VoiceTransportError::publication_failed, error.what());
+        }
+        finishPublicationStop(generation);
+        return result;
+    }
+
+    void finishPublicationStop(std::uint64_t generation)
+    {
+        const std::scoped_lock lock{publication_mutex_};
+        if (publication_generation_ == generation)
+        {
+            publication_state_ = PublicationState::idle;
+            publication_changed_.notify_all();
         }
     }
 
@@ -1109,7 +1469,11 @@ class LiveKitVoiceTransport::Impl final
         try
         {
             platform_audio_.setPlayoutDevice(device_id);
-            playout_engine_.selectDevice(device_id);
+            if (playout_engine_ == nullptr)
+            {
+                throw std::runtime_error{playout_initialization_error_};
+            }
+            playout_engine_->selectDevice(device_id);
         }
         catch (const std::exception& error)
         {
@@ -1226,7 +1590,8 @@ class LiveKitVoiceTransport::Impl final
     }
 
     LiveKitLifetime lifetime_;
-    XAudio2Engine playout_engine_;
+    std::unique_ptr<XAudio2Engine> playout_engine_;
+    std::string playout_initialization_error_;
     ::livekit::PlatformAudio platform_audio_;
     std::atomic<client::IVoiceTransportObserver*> observer_{nullptr};
     std::atomic<client::VoiceTransportState> state_{client::VoiceTransportState::disconnected};
@@ -1234,7 +1599,11 @@ class LiveKitVoiceTransport::Impl final
     mutable std::mutex rooms_mutex_;
     std::array<std::shared_ptr<ScopeRoom>, voice_scope_count> rooms_;
     mutable std::mutex publication_mutex_;
+    std::condition_variable publication_changed_;
+    PublicationState publication_state_{PublicationState::idle};
+    std::uint64_t publication_generation_{0};
     std::optional<PublishedAudio> published_audio_;
+    std::vector<PublishedAudio> retired_publications_;
     mutable std::mutex remote_audio_mutex_;
     mutable std::array<std::unordered_map<std::string, std::string>, voice_scope_count>
         remote_audio_tracks_;

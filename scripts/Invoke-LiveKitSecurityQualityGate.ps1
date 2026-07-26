@@ -5,7 +5,10 @@ param(
     [string]$Url = 'ws://127.0.0.1:7880',
     [string]$ApiKey = 'devkey',
     [string]$ApiSecret = 'secret',
-    [string]$RecordingDevice = ''
+    [string]$RecordingDevice = '',
+    [ValidateRange(1, 1000)]
+    [int]$PttCyclesPerScope = 100,
+    [switch]$PttStressOnly
 )
 
 Set-StrictMode -Version Latest
@@ -155,7 +158,8 @@ function New-PublisherArguments {
 function Complete-Probe {
     param(
         [object]$Probe,
-        [int]$TimeoutSeconds = 30
+        [int]$TimeoutSeconds = 30,
+        [switch]$RejectPublishTimeout
     )
 
     if (!$Probe.Process.WaitForExit($TimeoutSeconds * 1000)) {
@@ -163,6 +167,7 @@ function Complete-Probe {
         throw "LiveKit quality-gate process $($Probe.Process.Id) timed out."
     }
     $Probe.Process.WaitForExit()
+    $Probe.Process.Refresh()
     $stdout = Get-Content -LiteralPath $Probe.Stdout -Raw -ErrorAction SilentlyContinue
     $stderr = Get-Content -LiteralPath $Probe.Stderr -Raw -ErrorAction SilentlyContinue
     if (![string]::IsNullOrWhiteSpace($stdout)) {
@@ -171,9 +176,19 @@ function Complete-Probe {
     if (![string]::IsNullOrWhiteSpace($stderr)) {
         Write-Host $stderr.TrimEnd()
     }
-    if ($stdout -notmatch '(?m)^PASS:' -or $stdout -match '(?m)^FAIL:' -or
-        $stderr -match '(?m)^FAIL:') {
-        throw "LiveKit quality-gate process $($Probe.Process.Id) did not report PASS."
+    $reportedPass = $stdout -match '(?m)^PASS:'
+    $reportedFailure = $stdout -match '(?m)^FAIL:' -or $stderr -match '(?m)^FAIL:'
+    $publishTimeout = $RejectPublishTimeout -and
+        ("$stdout`n$stderr" -match
+            '(?i)publish(?:ing|ed|ation)?.*time(?:d)?\s*out|failed to negotiate the publisher')
+    $exitCode = $Probe.Process.ExitCode
+    $badExitCode = ![string]::IsNullOrEmpty("$exitCode") -and $exitCode -ne 0
+    if ($badExitCode -or !$reportedPass -or $reportedFailure -or $publishTimeout) {
+        throw (
+            "LiveKit quality-gate process $($Probe.Process.Id) failed " +
+            "(exit=$exitCode, pass=$reportedPass, " +
+            "failure=$reportedFailure, publish_timeout=$publishTimeout)."
+        )
     }
 }
 
@@ -254,6 +269,53 @@ try {
     }
 
     $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+
+    Write-Host '=== Rapid PTT publication cancellation ==='
+    $teamStressRoom = "hvc-ptt-team-$suffix"
+    $specializationStressRoom = "hvc-ptt-specialization-$suffix"
+    $groupStressRoom = "hvc-ptt-group-$suffix"
+    $teamStressToken = New-LiveKitToken `
+        -Identity "ptt-stress-$suffix" `
+        -Room $teamStressRoom `
+        -CanPublish $true `
+        -CanSubscribe $false
+    $specializationStressToken = New-LiveKitToken `
+        -Identity "ptt-stress-$suffix" `
+        -Room $specializationStressRoom `
+        -CanPublish $true `
+        -CanSubscribe $false
+    $groupStressToken = New-LiveKitToken `
+        -Identity "ptt-stress-$suffix" `
+        -Room $groupStressRoom `
+        -CanPublish $true `
+        -CanSubscribe $false
+    $stressArguments = @(
+        '--url', $Url,
+        '--team-token', $teamStressToken,
+        '--specialization-token', $specializationStressToken,
+        '--group-token', $groupStressToken,
+        '--transport-ptt-cycles', [string]$PttCyclesPerScope
+    )
+    if (![string]::IsNullOrWhiteSpace($RecordingDevice)) {
+        $stressArguments += @('--recording-device', $RecordingDevice)
+    }
+    $pttStress = Start-Probe $stressArguments
+    $probes.Add($pttStress)
+    Complete-Probe -Probe $pttStress -TimeoutSeconds 600 -RejectPublishTimeout
+    foreach ($room in @($teamStressRoom, $specializationStressRoom, $groupStressRoom)) {
+        $participants = Invoke-RoomService `
+            -Method 'ListParticipants' `
+            -Room $room `
+            -Body @{ room = $room }
+        $remainingTracks = @($participants.participants | ForEach-Object { $_.tracks }).Count
+        if ($remainingTracks -ne 0) {
+            throw "Rapid PTT stress left $remainingTracks track(s) in room '$room'."
+        }
+    }
+    Write-Host 'PASS: rapid PTT stress left no server-visible microphone track.'
+    if ($PttStressOnly) {
+        return
+    }
 
     Write-Host '=== Immediate server-side publication revocation ==='
     $revocationRoom = "hvc-revocation-$suffix"

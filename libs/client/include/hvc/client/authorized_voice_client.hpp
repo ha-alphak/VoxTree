@@ -1,5 +1,7 @@
 #pragma once
 
+#include <condition_variable>
+#include <cstdint>
 #include <hvc/client/control_plane_client.hpp>
 #include <hvc/client/voice_client.hpp>
 #include <mutex>
@@ -175,6 +177,12 @@ class AuthorizedVoiceClient final : public IPushToTalkTarget
     VoiceClient& voice_client_;
     std::optional<MembershipView> membership_;
     std::optional<StartedTransmission> active_transmission_;
-    mutable std::recursive_mutex mutex_;
+    bool push_to_talk_enabled_{false};
+    MicrophonePublicationState publication_state_{MicrophonePublicationState::idle};
+    std::uint64_t publication_generation_{0};
+    bool voice_start_in_progress_{false};
+    VoiceSessionResult last_release_result_{};
+    mutable std::mutex mutex_;
+    std::condition_variable publication_changed_;
 };
 } // namespace hvc::client

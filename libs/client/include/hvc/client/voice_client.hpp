@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <hvc/client/voice_transport.hpp>
@@ -14,6 +15,19 @@
 
 namespace hvc::client
 {
+/// Identify the lifecycle phase of the local microphone publication.
+enum class MicrophonePublicationState : std::uint8_t
+{
+    /// No publication is active or pending.
+    idle,
+    /// The transport is negotiating a new publication.
+    starting,
+    /// The transport confirmed the local publication.
+    active,
+    /// Cancellation or unpublish is in progress.
+    stopping
+};
+
 /**
  * Configure stream admission, hierarchy ducking, and local playout gain.
  *
@@ -168,6 +182,22 @@ class VoiceClient final : private IVoiceTransportObserver
     [[nodiscard]] auto activeTransmissionScope() const noexcept
         -> std::optional<domain::VoiceScope>;
     /**
+     * Return the local microphone publication phase.
+     *
+     * @returns Current phase synchronized with publication confirmation and
+     *     teardown.
+     */
+    [[nodiscard]] auto microphonePublicationState() const noexcept -> MicrophonePublicationState;
+    /**
+     * Return the current publication generation.
+     *
+     * Each accepted press advances the generation so a delayed start result
+     * cannot activate a newer request.
+     *
+     * @returns Monotonically increasing generation within this client.
+     */
+    [[nodiscard]] auto microphonePublicationGeneration() const noexcept -> std::uint64_t;
+    /**
      * Replace audio admission and ducking settings.
      *
      * Existing remote publications are re-evaluated immediately.
@@ -265,9 +295,13 @@ class VoiceClient final : private IVoiceTransportObserver
 
     IVoiceTransport& transport_;
     mutable std::mutex mutex_;
+    std::condition_variable publication_changed_;
     IVoiceClientObserver* observer_{nullptr};
     VoiceTransportState state_{VoiceTransportState::disconnected};
+    MicrophonePublicationState publication_state_{MicrophonePublicationState::idle};
+    std::uint64_t publication_generation_{0};
     std::optional<domain::VoiceScope> active_scope_;
+    VoiceTransportResult last_stop_result_{};
     AudioEngineConfig audio_config_;
     std::vector<AvailableRemoteAudio> available_remote_audio_;
     std::unordered_set<std::string> muted_participants_;

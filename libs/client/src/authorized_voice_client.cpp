@@ -3,6 +3,34 @@
 
 namespace hvc::client
 {
+namespace
+{
+[[nodiscard]] auto scopeName(domain::VoiceScope scope) -> std::string_view
+{
+    switch (scope)
+    {
+    case domain::VoiceScope::team:
+        return "team";
+    case domain::VoiceScope::specialization:
+        return "specialization";
+    case domain::VoiceScope::group:
+        return "group";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] auto cancelledPublication(domain::VoiceScope scope, std::uint64_t generation,
+                                        std::string_view correlation_id) -> VoiceSessionResult
+{
+    return VoiceSessionResult::failure(
+        {VoiceSessionErrorSource::client_state, "publication_cancelled",
+         "scope=" + std::string{scopeName(scope)} + "; transition=starting->stopping->idle" +
+             "; generation=" + std::to_string(generation) +
+             "; correlation_id=" + std::string{correlation_id},
+         0});
+}
+} // namespace
+
 auto VoiceSessionResult::success(std::optional<StartedTransmission> started_transmission)
     -> VoiceSessionResult
 {
@@ -63,19 +91,30 @@ auto AuthorizedVoiceClient::connect(std::string_view external_credential) -> Voi
         return transportFailure(connected);
     }
     membership_ = std::move(*current_membership.value);
+    push_to_talk_enabled_ = true;
     return VoiceSessionResult::success();
 }
 
 auto AuthorizedVoiceClient::disconnect() -> VoiceSessionResult
 {
-    const std::scoped_lock lock{mutex_};
-    if (active_transmission_.has_value())
+    auto publication_active = false;
     {
-        auto ended = releasePushToTalk();
+        const std::scoped_lock lock{mutex_};
+        push_to_talk_enabled_ = false;
+        publication_active = publication_state_ != MicrophonePublicationState::idle;
+    }
+    if (publication_active)
+    {
+        const auto ended = releasePushToTalk();
         if (!ended)
         {
             return ended;
         }
+    }
+    auto interrupted = endInterruptedTransmission();
+    if (!interrupted)
+    {
+        return interrupted;
     }
 
     auto disconnected = voice_client_.disconnect();
@@ -83,30 +122,38 @@ auto AuthorizedVoiceClient::disconnect() -> VoiceSessionResult
     {
         return transportFailure(disconnected);
     }
-    membership_.reset();
+    {
+        const std::scoped_lock lock{mutex_};
+        membership_.reset();
+    }
     control_plane_.clearSession();
     return VoiceSessionResult::success();
 }
 
 auto AuthorizedVoiceClient::refreshAuthorization() -> VoiceSessionResult
 {
-    const std::scoped_lock lock{mutex_};
-    if (!membership_.has_value() || voice_client_.state() == VoiceTransportState::disconnected)
+    std::uint64_t known_version{};
     {
-        return VoiceSessionResult::failure({VoiceSessionErrorSource::client_state, "not_connected",
-                                            "membership refresh requires a connected voice session",
-                                            0});
+        const std::scoped_lock lock{mutex_};
+        if (!membership_.has_value() || voice_client_.state() == VoiceTransportState::disconnected)
+        {
+            return VoiceSessionResult::failure(
+                {VoiceSessionErrorSource::client_state, "not_connected",
+                 "membership refresh requires a connected voice session", 0});
+        }
+        known_version = membership_->version;
     }
+
     auto current_membership = control_plane_.membership();
     if (!current_membership)
     {
         return controlPlaneFailure(*current_membership.error);
     }
-    if (current_membership.value->version == membership_->version)
+    if (current_membership.value->version == known_version)
     {
         return VoiceSessionResult::success();
     }
-    if (current_membership.value->version < membership_->version)
+    if (current_membership.value->version < known_version)
     {
         return VoiceSessionResult::failure(
             {VoiceSessionErrorSource::control_plane, "voice_membership_stale",
@@ -124,14 +171,24 @@ auto AuthorizedVoiceClient::refreshAuthorization() -> VoiceSessionResult
              "voice grants do not match the refreshed membership version", 0});
     }
 
-    if (voice_client_.activeTransmissionScope().has_value())
+    auto publication_active = false;
     {
-        static_cast<void>(voice_client_.releasePushToTalk());
+        const std::scoped_lock lock{mutex_};
+        push_to_talk_enabled_ = false;
+        publication_active = publication_state_ != MicrophonePublicationState::idle;
     }
-    if (active_transmission_.has_value())
+    if (publication_active)
     {
-        static_cast<void>(control_plane_.endTransmission(active_transmission_->transmission_id));
-        active_transmission_.reset();
+        const auto ended = releasePushToTalk();
+        if (!ended)
+        {
+            return ended;
+        }
+    }
+    auto interrupted = endInterruptedTransmission();
+    if (!interrupted)
+    {
+        return interrupted;
     }
     auto disconnected = voice_client_.disconnect();
     if (!disconnected)
@@ -141,85 +198,257 @@ auto AuthorizedVoiceClient::refreshAuthorization() -> VoiceSessionResult
     auto connected = voice_client_.connect(grants.value->room_grants);
     if (!connected)
     {
+        const std::scoped_lock lock{mutex_};
         membership_.reset();
         return transportFailure(connected);
     }
-    membership_ = std::move(*current_membership.value);
+    {
+        const std::scoped_lock lock{mutex_};
+        membership_ = std::move(*current_membership.value);
+        push_to_talk_enabled_ = true;
+    }
     return VoiceSessionResult::success();
 }
 
 auto AuthorizedVoiceClient::pressPushToTalk(domain::VoiceScope scope) -> VoiceSessionResult
 {
-    const std::scoped_lock lock{mutex_};
-    if (!membership_.has_value() || voice_client_.state() != VoiceTransportState::connected)
+    std::uint64_t generation{};
+    std::uint64_t membership_version{};
     {
-        return VoiceSessionResult::failure(
-            {VoiceSessionErrorSource::client_state, "not_connected",
-             "membership and voice transport must be ready before push-to-talk", 0});
-    }
-    if (active_transmission_.has_value())
-    {
-        return VoiceSessionResult::failure({VoiceSessionErrorSource::client_state,
-                                            "transmission_already_active",
-                                            "only one authorized transmission may be active", 0});
+        const std::scoped_lock lock{mutex_};
+        if (!push_to_talk_enabled_ || !membership_.has_value() ||
+            voice_client_.state() != VoiceTransportState::connected)
+        {
+            return VoiceSessionResult::failure(
+                {VoiceSessionErrorSource::client_state, "not_connected",
+                 "membership and voice transport must be ready before push-to-talk", 0});
+        }
+        if (publication_state_ != MicrophonePublicationState::idle ||
+            active_transmission_.has_value())
+        {
+            return VoiceSessionResult::failure(
+                {VoiceSessionErrorSource::client_state, "transmission_already_active",
+                 "only one authorized transmission may be active", 0});
+        }
+        generation = ++publication_generation_;
+        membership_version = membership_->version;
+        publication_state_ = MicrophonePublicationState::starting;
+        last_release_result_ = VoiceSessionResult::success();
     }
 
-    auto started = control_plane_.startTransmission(scope, membership_->version);
+    auto started = control_plane_.startTransmission(scope, membership_version);
     if (!started)
     {
+        const std::scoped_lock lock{mutex_};
+        if (generation == publication_generation_)
+        {
+            publication_state_ = MicrophonePublicationState::idle;
+            publication_changed_.notify_all();
+        }
         return controlPlaneFailure(*started.error);
     }
-    active_transmission_ = *started.value;
+
+    auto cancelled_before_voice = false;
+    {
+        const std::scoped_lock lock{mutex_};
+        if (generation != publication_generation_)
+        {
+            cancelled_before_voice = true;
+        }
+        else
+        {
+            active_transmission_ = *started.value;
+            cancelled_before_voice = publication_state_ == MicrophonePublicationState::stopping;
+            voice_start_in_progress_ = !cancelled_before_voice;
+        }
+    }
+
+    if (cancelled_before_voice)
+    {
+        const auto ended = control_plane_.endTransmission(started.value->transmission_id);
+        const auto cancellation =
+            cancelledPublication(scope, generation, started.value->client_transmission_id.value());
+        {
+            const std::scoped_lock lock{mutex_};
+            if (generation == publication_generation_)
+            {
+                if (ended)
+                {
+                    active_transmission_.reset();
+                    last_release_result_ = VoiceSessionResult::success();
+                }
+                else
+                {
+                    last_release_result_ = controlPlaneFailure(*ended.error);
+                }
+                publication_state_ = MicrophonePublicationState::idle;
+                publication_changed_.notify_all();
+            }
+        }
+        return cancellation;
+    }
+
     auto microphone = voice_client_.pressPushToTalk(scope);
+    auto cancelled_while_starting = false;
+    {
+        const std::scoped_lock lock{mutex_};
+        voice_start_in_progress_ = false;
+        cancelled_while_starting = generation == publication_generation_ &&
+                                   publication_state_ == MicrophonePublicationState::stopping;
+    }
     if (!microphone)
     {
-        const auto rollback = control_plane_.endTransmission(active_transmission_->transmission_id);
+        const auto rollback = control_plane_.endTransmission(started.value->transmission_id);
         auto failure = transportFailure(microphone);
+        failure.error->message +=
+            "; scope=" + std::string{scopeName(scope)} + "; transition=starting->idle" +
+            "; generation=" + std::to_string(generation) +
+            "; correlation_id=" + std::string{started.value->client_transmission_id.value()};
         if (!rollback)
         {
             failure.error->message += "; server rollback also failed: " + rollback.error->code;
         }
-        else
         {
-            active_transmission_.reset();
+            const std::scoped_lock lock{mutex_};
+            if (generation == publication_generation_)
+            {
+                if (rollback)
+                {
+                    active_transmission_.reset();
+                    last_release_result_ = VoiceSessionResult::success();
+                }
+                else
+                {
+                    last_release_result_ = controlPlaneFailure(*rollback.error);
+                }
+                publication_state_ = MicrophonePublicationState::idle;
+                publication_changed_.notify_all();
+            }
+        }
+        if (cancelled_while_starting && rollback)
+        {
+            return cancelledPublication(scope, generation,
+                                        started.value->client_transmission_id.value());
         }
         return failure;
     }
 
-    return VoiceSessionResult::success(active_transmission_);
+    {
+        const std::scoped_lock lock{mutex_};
+        if (generation == publication_generation_ &&
+            publication_state_ == MicrophonePublicationState::starting)
+        {
+            publication_state_ = MicrophonePublicationState::active;
+            publication_changed_.notify_all();
+            return VoiceSessionResult::success(active_transmission_);
+        }
+    }
+
+    static_cast<void>(voice_client_.releasePushToTalk());
+    const auto rollback = control_plane_.endTransmission(started.value->transmission_id);
+    {
+        const std::scoped_lock lock{mutex_};
+        if (generation == publication_generation_)
+        {
+            if (rollback)
+            {
+                active_transmission_.reset();
+                last_release_result_ = VoiceSessionResult::success();
+            }
+            else
+            {
+                last_release_result_ = controlPlaneFailure(*rollback.error);
+            }
+            publication_state_ = MicrophonePublicationState::idle;
+            publication_changed_.notify_all();
+        }
+    }
+    return cancelledPublication(scope, generation, started.value->client_transmission_id.value());
 }
 
 auto AuthorizedVoiceClient::releasePushToTalk() -> VoiceSessionResult
 {
-    const std::scoped_lock lock{mutex_};
-    if (!active_transmission_.has_value())
+    std::uint64_t generation{};
+    std::optional<StartedTransmission> transmission;
+    auto cancel_start = false;
     {
-        return VoiceSessionResult::failure({VoiceSessionErrorSource::client_state,
-                                            "no_active_transmission",
-                                            "no authorized transmission is active", 0});
-    }
-
-    std::optional<VoiceTransportResult> microphone_error;
-    if (voice_client_.activeTransmissionScope().has_value())
-    {
-        auto stopped = voice_client_.releasePushToTalk();
-        if (!stopped)
+        std::unique_lock lock{mutex_};
+        if (publication_state_ == MicrophonePublicationState::idle)
         {
-            microphone_error = std::move(stopped);
+            return VoiceSessionResult::failure({VoiceSessionErrorSource::client_state,
+                                                "no_active_transmission",
+                                                "no authorized transmission is active", 0});
+        }
+        generation = publication_generation_;
+        if (publication_state_ == MicrophonePublicationState::stopping)
+        {
+            publication_changed_.wait(lock, [this, generation] {
+                return publication_generation_ != generation ||
+                       publication_state_ == MicrophonePublicationState::idle;
+            });
+            return last_release_result_;
+        }
+        if (publication_state_ == MicrophonePublicationState::starting)
+        {
+            publication_state_ = MicrophonePublicationState::stopping;
+            cancel_start = voice_start_in_progress_;
+        }
+        else
+        {
+            publication_state_ = MicrophonePublicationState::stopping;
+            transmission = active_transmission_;
         }
     }
 
-    auto ended = control_plane_.endTransmission(active_transmission_->transmission_id);
+    if (cancel_start)
+    {
+        const auto stopped = voice_client_.releasePushToTalk();
+        std::unique_lock lock{mutex_};
+        publication_changed_.wait(lock, [this, generation] {
+            return publication_generation_ != generation ||
+                   publication_state_ == MicrophonePublicationState::idle;
+        });
+        if (!stopped)
+        {
+            return transportFailure(stopped);
+        }
+        return last_release_result_;
+    }
+    if (!transmission.has_value())
+    {
+        std::unique_lock lock{mutex_};
+        publication_changed_.wait(lock, [this, generation] {
+            return publication_generation_ != generation ||
+                   publication_state_ == MicrophonePublicationState::idle;
+        });
+        return last_release_result_;
+    }
+
+    const auto stopped = voice_client_.releasePushToTalk();
+    auto ended = control_plane_.endTransmission(transmission->transmission_id);
+    VoiceSessionResult result = VoiceSessionResult::success();
     if (!ended)
     {
-        return controlPlaneFailure(*ended.error);
+        result = controlPlaneFailure(*ended.error);
     }
-    active_transmission_.reset();
-    if (microphone_error.has_value())
+    else if (!stopped)
     {
-        return transportFailure(*microphone_error);
+        result = transportFailure(stopped);
     }
-    return VoiceSessionResult::success();
+    {
+        const std::scoped_lock lock{mutex_};
+        if (generation == publication_generation_)
+        {
+            if (ended)
+            {
+                active_transmission_.reset();
+            }
+            publication_state_ = MicrophonePublicationState::idle;
+            last_release_result_ = result;
+            publication_changed_.notify_all();
+        }
+    }
+    return result;
 }
 
 auto AuthorizedVoiceClient::endInterruptedTransmission() -> VoiceSessionResult

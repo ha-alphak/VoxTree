@@ -1,6 +1,6 @@
 # Windows-Client-Core und Voice-Transport
 
-**Stand:** 25. Juli 2026
+**Stand:** 26. Juli 2026
 
 ## Schichtengrenze
 
@@ -21,6 +21,12 @@ Scope-Grants. Ein nicht berechtigter Scope wird nicht künstlich ergänzt. Der
 Client verhindert parallele PTT-Übertragungen und verwirft seinen aktiven
 PTT-Zustand bei jedem Reconnect oder Disconnect. Eine beendete Übertragung wird
 nach einem Reconnect niemals automatisch fortgesetzt.
+
+Die lokale Mikrofonpublikation wird getrennt als `idle`, `starting`, `active`
+und `stopping` geführt. Jede angenommene PTT-Anfrage erhält eine strikt
+steigende Generation. Ein Release während `starting` ist ein Abbruchwunsch;
+ein verspätetes Ergebnis derselben Generation kann keine neuere Publikation
+aktivieren.
 
 Die Grant-Tokens werden ausschließlich an den Transportadapter weitergereicht.
 Der Client-Core wertet sie nicht aus und protokolliert sie nicht.
@@ -48,6 +54,18 @@ Aus dem bestandenen Quality Gate wurden folgende Pfade übernommen:
 
 Der kontrollierte Wiedergabe-Reconnect verwendet nur die bereits
 autorisierten Grants und startet keine zuvor aktive Mikrofonpublikation neu.
+
+`LiveKitVoiceTransport::startMicrophone()` meldet Erfolg erst, wenn eine
+nicht leere Publication-SID auch in der lokalen Publication-Map des Raums
+sichtbar ist. Für einen ausschließlich sehr kurzen Impuls wartet der
+Unpublish-Pfad bis zum sicheren Abschluss der SDK-internen
+Publication-Ereignisverarbeitung. Späte Bestätigungen abgebrochener
+Generationen werden unmittelbar unpubliziert.
+
+Ein fehlendes XAudio2-Wiedergabegerät verhindert die Senderinitialisierung
+nicht mehr. Aufnahme und Publikation bleiben verfügbar; erst die Admission
+eines Remote-Tracks liefert in diesem Fall den typisierten Fehler
+`audio_device_unavailable`.
 
 ## Audio-Policy und natives Playout
 
@@ -91,6 +109,12 @@ beendet der Client die Servertransmission sofort als Rollback. Bei einem
 Transportabbruch kann `endInterruptedTransmission()` die bereits lokal
 beendete Transmission serverseitig aufräumen.
 
+Während einer noch ausstehenden Publikation können Release, Disconnect oder
+Membership-Refresh den Start nebenläufig abbrechen. Der Starter besitzt die
+Bereinigung der bereits autorisierten Servertransmission; wartende Stop-Pfade
+verwenden dasselbe Ergebnis. Dadurch wird der Endpunkt auch bei konkurrierenden
+Abbruchpfaden genau einmal aufgerufen.
+
 Die abstrakte Grenze `IPushToTalkTarget` macht diesen autorisierten
 PTT-Lebenszyklus für das Eingabesystem testbar. Die konkreten
 Team-, Specialization- und Group-Aktionen sowie der Windows-Raw-Input-Adapter
@@ -100,9 +124,11 @@ sind in [input-system.md](input-system.md) beschrieben.
 
 SDK-Ausnahmen aus Transportoperationen verlassen den Adapter nicht. Diese
 Operationen liefern `VoiceTransportResult` mit einem stabilen
-`VoiceTransportError`. Fehler bei der einmaligen SDK- oder Audio-Initialisierung
-werden beim Erzeugen des Adapters als Exception gemeldet. Asynchrone Fehler
-werden zusätzlich an den registrierten Observer weitergegeben.
+`VoiceTransportError`. Fehler der einmaligen SDK-Initialisierung werden beim
+Erzeugen des Adapters als Exception gemeldet. Ein fehlendes
+XAudio2-Wiedergabegerät bleibt als typisierter, späterer Playoutfehler erhalten,
+damit reine Sender funktionieren. Asynchrone Fehler werden zusätzlich an den
+registrierten Observer weitergegeben.
 
 Observer besitzen den Transport nicht. Der Aufrufer muss sie vor ihrer
 Zerstörung mit `setObserver(nullptr)` abmelden; `VoiceClient` erledigt dies
@@ -142,3 +168,9 @@ Reconnect. Zusätzlich prüfen sie Stream-Admission, Ducking, Mute/Block,
 Teilnehmerlautstärke, Bindings, Kombinationen und die drei separaten
 Eingabeaktionen. Das native Quality-Gate bleibt als unabhängiger
 Ende-zu-Ende-Nachweis der verwendeten SDK-Operationen erhalten.
+
+Die PRE-01-Regression führt zusätzlich 100 deterministisch während `starting`
+abgebrochene Zyklen je Scope aus. Das native Quality-Gate wiederholt dieselbe
+Anzahl gegen LiveKit Server 1.13.4, verwirft SDK-Timeouts und verspätete
+Publication-Warnungen als Fehler und prüft anschließend, dass in keinem
+Scope-Raum ein Mikrofontrack verbleibt.

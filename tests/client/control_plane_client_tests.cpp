@@ -1,9 +1,12 @@
+#include <condition_variable>
 #include <cstdio>
 #include <exception>
 #include <hvc/client/authorized_voice_client.hpp>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -148,6 +151,15 @@ class FakeVoiceTransport final : public client::IVoiceTransport
         -> client::VoiceTransportResult override
     {
         ++start_calls;
+        {
+            std::unique_lock lock{publication_mutex};
+            start_entered = true;
+            publication_changed.notify_all();
+            publication_changed.wait(lock,
+                                     [this] { return !block_microphone_start || finish_start; });
+            finish_start = false;
+            start_entered = false;
+        }
         if (!http_.start_authorized)
         {
             return client::VoiceTransportResult::failure(
@@ -213,6 +225,19 @@ class FakeVoiceTransport final : public client::IVoiceTransport
         return false;
     }
 
+    void waitForMicrophoneStart()
+    {
+        std::unique_lock lock{publication_mutex};
+        publication_changed.wait(lock, [this] { return start_entered; });
+    }
+
+    void completeMicrophoneStart()
+    {
+        const std::scoped_lock lock{publication_mutex};
+        finish_start = true;
+        publication_changed.notify_all();
+    }
+
     const ScriptedHttpTransport& http_;
     client::IVoiceTransportObserver* observer_{nullptr};
     client::VoiceTransportState state_{client::VoiceTransportState::disconnected};
@@ -222,6 +247,11 @@ class FakeVoiceTransport final : public client::IVoiceTransport
     int connect_calls{0};
     int disconnect_calls{0};
     bool fail_microphone_start{false};
+    bool block_microphone_start{false};
+    bool start_entered{false};
+    bool finish_start{false};
+    std::mutex publication_mutex;
+    std::condition_variable publication_changed;
 };
 
 auto connectsAndAuthorizesBeforePublishing() -> bool
@@ -273,6 +303,41 @@ auto rollsBackAuthorizationWhenMicrophoneFails() -> bool
            !authorized.activeTransmission().has_value();
 }
 
+auto cancelsPendingPublicationAndEndsServerOnce() -> bool
+{
+    ScriptedHttpTransport http;
+    Identifiers identifiers;
+    client::ControlPlaneClient control{http, identifiers, domain::DeviceId{"device-1"}};
+    FakeVoiceTransport voice_transport{http};
+    voice_transport.block_microphone_start = true;
+    client::VoiceClient voice{voice_transport};
+    client::AuthorizedVoiceClient authorized{control, voice};
+    if (!authorized.connect("external-credential"))
+    {
+        return false;
+    }
+
+    client::VoiceSessionResult start_result;
+    client::VoiceSessionResult stop_result;
+    std::jthread starter{
+        [&] { start_result = authorized.pressPushToTalk(domain::VoiceScope::group); }};
+    voice_transport.waitForMicrophoneStart();
+    std::jthread stopper{[&] { stop_result = authorized.releasePushToTalk(); }};
+    while (voice.microphonePublicationState() != client::MicrophonePublicationState::stopping)
+    {
+        std::this_thread::yield();
+    }
+    voice_transport.completeMicrophoneStart();
+    starter.join();
+    stopper.join();
+
+    return !start_result && start_result.error.has_value() &&
+           start_result.error->code == "publication_cancelled" && stop_result &&
+           http.end_calls == 1 && !authorized.activeTransmission().has_value() &&
+           voice.microphonePublicationState() == client::MicrophonePublicationState::idle &&
+           !voice_transport.activeTransmissionScope().has_value();
+}
+
 auto refreshesChangedMembershipAndRoomSubscriptions() -> bool
 {
     ScriptedHttpTransport http;
@@ -291,6 +356,29 @@ auto refreshesChangedMembershipAndRoomSubscriptions() -> bool
     return refreshed && membership && membership->version == 43 &&
            voice_transport.connect_calls == 2 && voice_transport.disconnect_calls == 1 &&
            !authorized.activeTransmission().has_value();
+}
+
+auto refreshStopsActivePublicationAndServerTransmission() -> bool
+{
+    ScriptedHttpTransport http;
+    Identifiers identifiers;
+    client::ControlPlaneClient control{http, identifiers, domain::DeviceId{"device-1"}};
+    FakeVoiceTransport voice_transport{http};
+    client::VoiceClient voice{voice_transport};
+    client::AuthorizedVoiceClient authorized{control, voice};
+    if (!authorized.connect("external-credential") ||
+        !authorized.pressPushToTalk(domain::VoiceScope::group))
+    {
+        return false;
+    }
+
+    http.membership_version = 43;
+    const auto refreshed = authorized.refreshAuthorization();
+    return refreshed && http.end_calls == 1 && voice_transport.start_calls == 1 &&
+           voice_transport.connect_calls == 2 && voice_transport.disconnect_calls == 1 &&
+           !authorized.activeTransmission().has_value() &&
+           voice.microphonePublicationState() == client::MicrophonePublicationState::idle &&
+           !voice_transport.activeTransmissionScope().has_value();
 }
 
 auto retainsFailedRollbackForExplicitCleanup() -> bool
@@ -346,7 +434,9 @@ auto main() noexcept -> int
         if (!connectsAndAuthorizesBeforePublishing() ||
             !neverPublishesWhenAuthorizationIsRejected() ||
             !rollsBackAuthorizationWhenMicrophoneFails() ||
+            !cancelsPendingPublicationAndEndsServerOnce() ||
             !refreshesChangedMembershipAndRoomSubscriptions() ||
+            !refreshStopsActivePublicationAndServerTransmission() ||
             !retainsFailedRollbackForExplicitCleanup() || !rejectsMismatchedProtocolHeader())
         {
             std::fputs("A control-plane client assertion failed.\n", stderr);

@@ -63,8 +63,11 @@ Die verbundene Ansicht stellt die aktuelle Hierarchie vollständig dar:
 
 Verbindung, Senden, Empfang und letzter Fehler besitzen getrennte Textzustände.
 Der Sendestatus wechselt erst nach einer erfolgreichen, korrelierten
-Startautorisierung auf „Übertragung aktiv“. Reconnect und Disconnect setzen den
-Sendescope sichtbar zurück und nehmen eine beendete Transmission nicht
+Startautorisierung und der bestätigten lokalen LiveKit-Publikation auf
+„Übertragung aktiv“. Ein Release während der noch ausstehenden Publikation
+bleibt unsichtbar als aktive Übertragung, bricht dieselbe Generation ab und
+beendet ihre Servertransmission genau einmal. Reconnect und Disconnect setzen
+den Sendescope sichtbar zurück und nehmen eine beendete Transmission nicht
 automatisch wieder auf.
 
 Team-, Specialization- und Group-PTT sind als getrennte Aktionen sichtbar. Die

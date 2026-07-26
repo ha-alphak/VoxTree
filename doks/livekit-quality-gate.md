@@ -2,6 +2,7 @@
 
 **SDK-Version:** 1.4.0  
 **Zielplattform:** Windows x64
+**Stand:** 26. Juli 2026
 
 ## Reproduzierbare SDK-Anbindung
 
@@ -146,6 +147,35 @@ nicht als sauberer PTT-Abbruch.
 Der ursprünglich vorgesehene Mikrofon-/Opus-Nachweis auf zwei getrennten
 Windows-Rechnern wird gemäß Projektentscheidung übersprungen. Die lokalen
 Zwei-Prozess-, Drei-Scope- und PTT-Nachweise bleiben verbindlich.
+
+## PRE-01: Schnelle PTT-Impulse
+
+Die native Transportprobe verbindet Team-, Specialization- und Group-Raum
+gleichzeitig und führt je Scope standardmäßig 100 unmittelbar wieder
+abgebrochene PTT-Zyklen aus:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\Invoke-LiveKitSecurityQualityGate.ps1 `
+  -PttCyclesPerScope 100 -PttStressOnly
+```
+
+Die Probe verwendet den produktiven `LiveKitVoiceTransport` und `VoiceClient`.
+Ein separater Starter- und Stopper-Thread macht den Release während
+`starting` reproduzierbar. Jeder Zyklus muss innerhalb von zwei Sekunden nach
+`idle` zurückkehren; anschließend dürfen weder Client noch LiveKit-Adapter
+einen aktiven Scope melden.
+
+Das PowerShell-Gate erzeugt drei ausschließlich im Arbeitsspeicher gehaltene,
+raumgebundene Tokens, startet bei Bedarf den lokalen LiveKit Server 1.13.4 und
+prüft nach dem Prozessende über RoomService, dass in keinem Raum ein Track
+verbleibt. `publish time out` und eine verspätete Publisher-Negotiation werden
+als Fehler gewertet. LiveKit C++ SDK 1.4.0 kann nach dem absichtlichen
+Unpublish noch `local_track_published for unknown sid` protokollieren: Seine
+private Publication-Map ist dann bereits korrekt geleert, und das Gate wertet
+diese späte, vom SDK verworfene Ereigniskopie nur zusammen mit dem
+verbindlichen RoomService- und Adapter-Leerstandsnachweis. Ohne
+`-PttStressOnly` laufen danach weiterhin alle bestehenden Sicherheitsproben.
 
 ## Reconnect ohne automatische Transmission
 

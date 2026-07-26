@@ -1,8 +1,11 @@
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <hvc/client/voice_client.hpp>
+#include <hvc/livekit/livekit_voice_transport.hpp>
 #include <iostream>
 #include <livekit/livekit.h>
 #include <memory>
@@ -32,6 +35,7 @@ struct Arguments
     std::optional<std::string> switch_recording_device_id;
     std::optional<std::string> switch_playout_device_id;
     std::optional<std::chrono::seconds> ptt_duration;
+    std::optional<std::size_t> transport_ptt_cycles;
     std::optional<std::chrono::seconds> device_switch_after;
     std::chrono::seconds wait_for_peer{30};
     bool hold_connection{false};
@@ -60,6 +64,7 @@ void print_usage()
               << "    (--wait-for-peer <seconds> | --hold <seconds>)\n"
               << "  hvc-livekit-quality-gate --url <ws-url>\n"
               << "    --team-token <jwt> --specialization-token <jwt> --group-token <jwt>\n"
+              << "    [--transport-ptt-cycles <count>] [--recording-device <id>]\n"
               << "    [--expect-audio] [--playout-device <id>]\n"
               << "    (--wait-for-peer <seconds> | --hold <seconds>)\n";
 }
@@ -126,6 +131,10 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         {
             arguments.ptt_duration = std::chrono::seconds{std::stoll(argv[++index])};
         }
+        else if (option == "--transport-ptt-cycles" && index + 1 < argc)
+        {
+            arguments.transport_ptt_cycles = static_cast<std::size_t>(std::stoull(argv[++index]));
+        }
         else if (option == "--wait-for-peer" && index + 1 < argc)
         {
             arguments.wait_for_peer = std::chrono::seconds{std::stoll(argv[++index])};
@@ -181,6 +190,10 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     {
         throw std::invalid_argument{"PTT duration must be at least one second"};
     }
+    if (arguments.transport_ptt_cycles == 0)
+    {
+        throw std::invalid_argument{"transport PTT cycle count must be positive"};
+    }
     if (arguments.device_switch_after.has_value() && arguments.device_switch_after->count() < 1)
     {
         throw std::invalid_argument{"device switch delay must be at least one second"};
@@ -206,6 +219,10 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         throw std::invalid_argument{
             "--token cannot be combined with the three scope-token options"};
     }
+    if (arguments.transport_ptt_cycles.has_value() && !has_all_scope_tokens(arguments))
+    {
+        throw std::invalid_argument{"--transport-ptt-cycles requires all three scope tokens"};
+    }
     if (has_scope_tokens && (arguments.publish_audio || arguments.ptt_duration.has_value()))
     {
         throw std::invalid_argument{
@@ -224,6 +241,14 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     if (has_scope_tokens && has_device_switch)
     {
         throw std::invalid_argument{"device switching is only supported by the single-room probe"};
+    }
+    if (arguments.transport_ptt_cycles.has_value() &&
+        (arguments.expect_audio || arguments.expect_ptt || arguments.expect_reconnect ||
+         arguments.expect_no_audio || arguments.expect_empty_room ||
+         arguments.expect_publish_denied || arguments.hold_connection))
+    {
+        throw std::invalid_argument{
+            "--transport-ptt-cycles cannot be combined with another room probe"};
     }
     if (arguments.publish_audio && arguments.ptt_duration.has_value())
     {
@@ -296,7 +321,7 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         throw std::invalid_argument{"initial and switched playout devices must differ"};
     }
     if (arguments.recording_device_id.has_value() && !arguments.publish_audio &&
-        !arguments.ptt_duration.has_value())
+        !arguments.ptt_duration.has_value() && !arguments.transport_ptt_cycles.has_value())
     {
         throw std::invalid_argument{"--recording-device requires --publish-audio or --ptt"};
     }
@@ -655,6 +680,94 @@ void print_scope_probe_failures(const Arguments& arguments,
                       << "]: no second participant appeared before the timeout.\n";
         }
     }
+}
+
+auto runTransportPttStress(const Arguments& arguments) -> int
+{
+    hvc::livekit::LiveKitVoiceTransport transport;
+    if (arguments.recording_device_id.has_value())
+    {
+        const auto selected = transport.selectRecordingDevice(*arguments.recording_device_id);
+        if (!selected)
+        {
+            throw std::runtime_error{"recording device selection failed: " + selected.message};
+        }
+    }
+
+    hvc::client::VoiceClient client{transport};
+    const std::array grants{
+        hvc::client::VoiceRoomGrant{hvc::domain::VoiceScope::team, arguments.url,
+                                    arguments.team_token},
+        hvc::client::VoiceRoomGrant{hvc::domain::VoiceScope::specialization, arguments.url,
+                                    arguments.specialization_token},
+        hvc::client::VoiceRoomGrant{hvc::domain::VoiceScope::group, arguments.url,
+                                    arguments.group_token},
+    };
+    const auto connected = client.connect(grants);
+    if (!connected)
+    {
+        throw std::runtime_error{"transport connection failed: " + connected.message};
+    }
+
+    const std::array scopes{
+        hvc::domain::VoiceScope::team,
+        hvc::domain::VoiceScope::specialization,
+        hvc::domain::VoiceScope::group,
+    };
+    const auto cycles = *arguments.transport_ptt_cycles;
+    for (const auto scope : scopes)
+    {
+        auto maximum_cycle_latency = std::chrono::milliseconds{0};
+        for (std::size_t cycle = 0; cycle < cycles; ++cycle)
+        {
+            const auto cycle_started = std::chrono::steady_clock::now();
+            hvc::client::VoiceTransportResult start_result;
+            hvc::client::VoiceTransportResult stop_result;
+            std::jthread starter{[&] { start_result = client.pressPushToTalk(scope); }};
+            while (client.microphonePublicationState() ==
+                   hvc::client::MicrophonePublicationState::idle)
+            {
+                std::this_thread::yield();
+            }
+            std::jthread stopper{[&] { stop_result = client.releasePushToTalk(); }};
+            starter.join();
+            stopper.join();
+
+            if (!stop_result ||
+                client.microphonePublicationState() !=
+                    hvc::client::MicrophonePublicationState::idle ||
+                client.activeTransmissionScope().has_value() ||
+                transport.activeTransmissionScope().has_value())
+            {
+                throw std::runtime_error{"rapid PTT cleanup failed at cycle " +
+                                         std::to_string(cycle + 1U) + ": " + stop_result.message};
+            }
+            if (!start_result &&
+                start_result.error != hvc::client::VoiceTransportError::invalid_state)
+            {
+                throw std::runtime_error{"rapid PTT start failed at cycle " +
+                                         std::to_string(cycle + 1U) + ": " + start_result.message};
+            }
+            const auto cycle_latency = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - cycle_started);
+            maximum_cycle_latency = std::max(maximum_cycle_latency, cycle_latency);
+            if (cycle_latency >= std::chrono::seconds{2})
+            {
+                throw std::runtime_error{"rapid PTT cycle exceeded the two-second latency gate"};
+            }
+        }
+        std::cout << "PASS: " << cycles << " rapid PTT cycles completed for scope "
+                  << static_cast<unsigned int>(scope) << "; maximum cycle latency was "
+                  << maximum_cycle_latency.count() << " ms.\n";
+    }
+
+    const auto disconnected = client.disconnect();
+    if (!disconnected)
+    {
+        throw std::runtime_error{"transport disconnect failed: " + disconnected.message};
+    }
+    std::cout << "PASS: native transport PTT stress completed without a pending publication.\n";
+    return EXIT_SUCCESS;
 }
 
 auto run_three_scope_probe(const Arguments& arguments) -> int
@@ -1036,6 +1149,10 @@ auto main(const int argc, char** argv) -> int
     try
     {
         const auto arguments = parse_arguments(argc, argv);
+        if (arguments.transport_ptt_cycles.has_value())
+        {
+            return runTransportPttStress(arguments);
+        }
         const LiveKitLifetime livekit_lifetime;
 
         std::optional<livekit::PlatformAudio> platform_audio;

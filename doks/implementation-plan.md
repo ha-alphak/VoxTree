@@ -52,28 +52,6 @@ Empfängerauswahl erzeugen.
 
 ## Phase 0: Stabilisieren und Verträge festlegen
 
-### PRE-01 – Kurze PTT-Impulse
-
-1. Eine deterministische Probe für Press/Release während einer noch
-   ausstehenden LiveKit-Publikation erstellen.
-2. Publikationszustände mindestens als `idle`, `starting`, `active` und
-   `stopping` modellieren.
-3. Ein Release während `starting` als Abbruchwunsch behandeln und den
-   serverseitigen Transmissionslebenszyklus genau einmal beenden.
-4. Verspätete Publish-Ergebnisse durch eine Generation/Korrelation verwerfen
-   und gegebenenfalls unmittelbar unpublizieren.
-5. Sendestatus erst nach bestätigter lokaler Publikation anzeigen.
-6. Schnelle Impulse, Disconnect, Rechteentzug und Gerätefehler als
-   Regressionstests abdecken.
-
-Abnahme:
-
-- 100 schnelle PTT-Zyklen je Scope ohne `publish time out`, hängenden Track,
-  doppeltes Ende oder verbleibendes Publish-Recht;
-- normale PTT-Latenz und bestehende Sicherheitsgates bleiben bestanden;
-- Fehler werden mit Scope, Zustandsübergang und Korrelations-ID diagnostizierbar
-  protokolliert.
-
 ### UX-01 – Präsentations- und Fensterarchitektur
 
 1. `main.cpp` in App-/Fensterkoordination, Präsentationsmodelle und

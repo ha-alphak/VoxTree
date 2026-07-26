@@ -1,6 +1,6 @@
 # Zustandsautomaten
 
-**Stand:** 25. Juli 2026
+**Stand:** 26. Juli 2026
 
 Die Zustandsautomaten sind Teil von `hvc-domain` und hängen weder vom gewählten
 Voice-Transport noch von einer Benutzeroberfläche ab. Ungültige oder veraltete
@@ -50,3 +50,31 @@ gelöscht. Der ausgewählte lokale Scope bleibt für die Bedienoberfläche erhal
 erzeugt nach dem Reconnect aber keine neue Transmission. Dafür ist immer eine
 neue explizite Push-to-Talk-Anfrage mit einer neuen `ClientTransmissionId`
 erforderlich.
+
+## Lokale Mikrofonpublikation
+
+Die lokale Medienpublikation besitzt zusätzlich zum serverseitigen
+Transmissionszustand einen eigenen, transportnahen Lebenszyklus:
+
+```text
+Idle
+  -> Starting
+  -> Active
+  -> Stopping
+  -> Idle
+```
+
+- Jede angenommene PTT-Anfrage erhält eine strikt steigende
+  Publikationsgeneration.
+- `Starting` endet erst, wenn LiveKit eine nicht leere Publication-SID liefert
+  und dieselbe SID in der lokalen Publication-Map des verbundenen Raums
+  sichtbar ist.
+- Ein Release in `Starting` setzt einen Abbruchwunsch. Das Startergebnis darf
+  dann nicht mehr nach `Active` wechseln; ein verspätet bestätigter Track wird
+  sofort wieder unpubliziert.
+- Der autorisierte Client beendet die zur Generation gehörende
+  Control-Plane-Transmission genau einmal. Erst danach wird `Idle` erreicht.
+- Disconnect, Reconnect, Membership- oder Rechteänderung verwenden denselben
+  Abbruchpfad und nehmen die Publikation nie automatisch wieder auf.
+- Fehlerdiagnosen nennen Scope, Zustandsübergang, Generation und die
+  `ClientTransmissionId` als Korrelations-ID.

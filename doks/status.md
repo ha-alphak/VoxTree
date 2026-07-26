@@ -16,15 +16,16 @@ Desktop-Client für Debian 13 mit KDE Plasma ist neu in den verbindlichen
 Vor-Release-Umfang aufgenommen und noch nicht implementiert.
 
 Vor Abschnitt 10.3 müssen die Clientoberfläche, das Identitäts- und
-Verwaltungsmodell sowie die Clientdiagnose vervollständigt werden. Außerdem ist
-der beim Zwei-Client-Test beobachtete LiveKit-Publikationsfehler bei sehr kurzen
-PTT-Impulsen zu beseitigen.
+Verwaltungsmodell sowie die Clientdiagnose vervollständigt werden. Der zuvor
+beobachtete LiveKit-Publikationsfehler bei sehr kurzen PTT-Impulsen ist mit
+PRE-01 behoben und als plattformneutrale sowie native Regression gesichert.
 
 Der ausführliche historische Fortschritt und die vollständige frühere
 Validierung sind archiviert:
 
 - [Projektstatus bis Abschnitt 10.2](archive/status-through-10.2-2026-07-26.md)
 - [Umsetzungsplan bis Abschnitt 10.2](archive/implementation-plan-through-10.2-2026-07-26.md)
+- [PRE-01: Kurze PTT-Impulse](archive/pre-01-short-ptt-2026-07-26.md)
 - [Last- und Sicherheitstests](load-and-security-tests.md)
 
 ## Belastbarer Ausgangsstand
@@ -33,7 +34,7 @@ Validierung sind archiviert:
 |---|---|
 | Domäne und Routing | Datengetriebene Hierarchie, Rollenrechte, atomare Membership-Versionen und Isolation implementiert |
 | Control Plane | Mehrbenutzersitzungen, Memberships, Transmissionen, Moderation, Sprecherlimits, Audit, Jobs und Metriken implementiert |
-| Voice | Drei getrennte LiveKit-Scope-Räume, servergesteuerte Publish-Rechte, Opus-Aufnahme und XAudio2-Wiedergabe implementiert |
+| Voice | Drei getrennte LiveKit-Scope-Räume, servergesteuerte Publish-Rechte, bestätigungsgebundene PTT-Publikation, Opus-Aufnahme und XAudio2-Wiedergabe implementiert |
 | Last und Sicherheit | Reproduzierbarer 200-Spieler-Lauf und native Sicherheitsproben bestanden |
 | Eingabe | Globale Tastatur-, Maus- und generische HID-/HOTAS-Eingaben implementiert |
 | Client-Core | UI-unabhängige Bibliothek sowie versionierte C-ABI und C++-Schnittstelle implementiert |
@@ -42,18 +43,6 @@ Validierung sind archiviert:
 | Auslieferung | Docker-Grundlage vorhanden; signiertes MSIX, Debian-Clientpaket, Produktbetrieb und Release-Dokumentation noch offen |
 
 ## Festgestellte Lücken und Probleme
-
-### PRE-01: Sehr kurze PTT-Impulse
-
-Beim Windows-Zwei-Client-Test protokollierte LiveKit achtmal
-`publish time out`. Betroffen waren sehr kurze PTT-Start-/Endfolgen, bei denen
-das Publikationsrecht bereits wieder entzogen wurde, bevor die
-Track-Publikation vollständig ausgehandelt war. Erfolgreiche normale
-Opus-Publikationen zeigen, dass der grundsätzliche Medienpfad funktioniert.
-
-Release-Kriterium: Schnelles Drücken und Loslassen muss deterministisch
-abgebrochen werden, ohne ausstehende Publikation, Server-Timeout oder
-zurückbleibendes Publish-Recht.
 
 ### UX-01: Hauptoberfläche
 
@@ -180,19 +169,17 @@ Diagnose- und Integrationsdokumentation sind nicht abgeschlossen.
 Nicht mit Abschnitt 10.3 beginnen. Zuerst Phase 0 des
 [aktuellen Umsetzungsplans](implementation-plan.md) abschließen:
 
-1. PRE-01 reproduzierbar machen, korrigieren und als Regressionstest sichern.
-2. Ziel-Informationsarchitektur und Zustandsmodelle für Hauptansicht,
+1. UX-01: Ziel-Informationsarchitektur und Zustandsmodelle für Hauptansicht,
    Einstellungen, Administration und Diagnose festschreiben.
-3. Das Debian-/KDE-Quality-Gate für LiveKit, PipeWire, Wayland und globale
+2. Das Debian-/KDE-Quality-Gate für LiveKit, PipeWire, Wayland und globale
    PTT-Eingaben ausführen.
-4. Verzeichnis-, Presence-, Account- und Verwaltungsverträge spezifizieren,
+3. Verzeichnis-, Presence-, Account- und Verwaltungsverträge spezifizieren,
    bevor die neue UI darauf aufgebaut wird.
 
 ## Release-Gates
 
 Der Wechsel zu Abschnitt 10.3 ist erst zulässig, wenn:
 
-- PRE-01 ohne verbleibende LiveKit-Publish-Timeouts bestanden ist;
 - Kanalbaum und Teilnehmerzustände mit zwei realen Windows-Clients
   Ende-zu-Ende funktionieren;
 - ein Debian/KDE-Client unter Wayland denselben sicheren Verbindungs-, PTT-,
@@ -212,7 +199,6 @@ Der Wechsel zu Abschnitt 10.3 ist erst zulässig, wenn:
 
 | Risiko | Auswirkung | Behandlung |
 |---|---|---|
-| LiveKit-Publikationsrennen bei kurzem PTT | Medienfehler und irreführender Sendestatus | PRE-01 vor UI-Ausbau beheben und mit Stressprobe absichern |
 | Fehlender Directory-/Presence-Vertrag | Kanalansicht kann keine vollständigen Teilnehmer zeigen | DIR-01 vor der Teilnehmer-UI implementieren |
 | Statische Identity-Datei | Kein sicherer Account-Lebenszyklus im Produktbetrieb | IAM-01 mit versioniertem Vertrag und administrativer Provisionierung |
 | Verwaltungs-API nur teilweise vorhanden | Rechteoberfläche wäre unvollständig oder unsicher | ADM-01 serverseitig vervollständigen, danach UI anbinden |
