@@ -35,6 +35,13 @@ Release-Build und Tests:
 .\scripts\build-windows.cmd -Preset windows-msvc-release
 ```
 
+API-Dokumentation mit der unter
+`C:\Program Files\doxygen\bin` installierten Doxygen-Version:
+
+```powershell
+.\scripts\build-windows.cmd -Preset windows-msvc-documentation
+```
+
 Der Wrapper startet das PowerShell-Buildskript unabhängig von der lokalen
 PowerShell-Ausführungsrichtlinie. Das Skript verwendet CMake aus dem `PATH` oder
 findet die mit Visual Studio installierte Version über `vswhere.exe`.

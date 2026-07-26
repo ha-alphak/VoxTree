@@ -355,12 +355,10 @@ apt-get install doxygen
 Die HTML-Ausgabe liegt anschließend unter
 `out/build/linux-documentation/documentation/html/`.
 
-Die Doxygen-Konfiguration behandelt fehlerhafte Tags, nicht auflösbare
-Verweise, falsch benannte Parameter und andere Dokumentationsfehler als
-Buildfehler. Der bestehende undokumentierte Altbestand wird schrittweise
-überarbeitet; bis diese Migration abgeschlossen ist, wird fehlende
-Dokumentation zusätzlich im Review geprüft und noch nicht allein durch Doxygen
-zum Buildfehler gemacht.
+Die Doxygen-Konfiguration behandelt fehlende Dokumentation, fehlerhafte Tags,
+nicht auflösbare Verweise, falsch benannte Parameter und andere
+Dokumentationsfehler als Buildfehler. Damit werden neue und bestehende
+öffentliche oder geschützte Schnittstellen nach denselben Regeln geprüft.
 
 ### Review-Checkliste
 
@@ -381,4 +379,3 @@ zum Buildfehler gemacht.
 
 - [LSST DM Developer Guide: Documenting C++ Code](https://developer.lsst.io/cpp/api-docs.html)
 - [Doxygen Manual](https://www.doxygen.nl/manual/)
-

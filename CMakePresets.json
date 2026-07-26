@@ -54,6 +54,16 @@
       }
     },
     {
+      "name": "windows-msvc-documentation",
+      "displayName": "Windows x64 - C++ API documentation",
+      "description": "Generate the C++ API reference with the locally installed Doxygen",
+      "inherits": "windows-msvc",
+      "cacheVariables": {
+        "HVC_BUILD_DOCUMENTATION": "ON",
+        "HVC_BUILD_TESTS": "OFF"
+      }
+    },
+    {
       "name": "linux-gcc-debug",
       "displayName": "Debian/Linux GCC - Debug",
       "inherits": "base",
@@ -146,6 +156,15 @@
       "configuration": "Debug",
       "targets": [
         "hvc_windows_client"
+      ],
+      "jobs": 0
+    },
+    {
+      "name": "windows-msvc-documentation",
+      "configurePreset": "windows-msvc-documentation",
+      "configuration": "Release",
+      "targets": [
+        "hvc_documentation"
       ],
       "jobs": 0
     },
@@ -278,6 +297,19 @@
         {
           "type": "build",
           "name": "windows-msvc-client"
+        }
+      ]
+    },
+    {
+      "name": "windows-msvc-documentation",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "windows-msvc-documentation"
+        },
+        {
+          "type": "build",
+          "name": "windows-msvc-documentation"
         }
       ]
     },

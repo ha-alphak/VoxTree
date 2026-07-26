@@ -148,6 +148,13 @@ Build the opt-in WinUI 3 client with the native LiveKit transport:
 .\scripts\build-windows.cmd -Preset windows-msvc-client
 ```
 
+Validate and build the C++ API documentation with Doxygen installed under
+`C:\Program Files\doxygen\bin`:
+
+```powershell
+.\scripts\build-windows.cmd -Preset windows-msvc-documentation
+```
+
 ### Linux
 
 Run a Debug build with AddressSanitizer and UndefinedBehaviorSanitizer:

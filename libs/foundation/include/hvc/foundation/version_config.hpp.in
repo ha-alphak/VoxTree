@@ -5,6 +5,7 @@
 namespace hvc::foundation::build
 {
 
+/// Semantic project version injected by CMake when the header is generated.
 inline constexpr std::string_view version{"@PROJECT_VERSION@"};
 
 } // namespace hvc::foundation::build

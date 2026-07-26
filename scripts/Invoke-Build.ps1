@@ -4,7 +4,8 @@ param(
         'windows-msvc-debug',
         'windows-msvc-release',
         'windows-msvc-livekit-quality-gate',
-        'windows-msvc-client'
+        'windows-msvc-client',
+        'windows-msvc-documentation'
     )]
     [string] $Preset = 'windows-msvc-debug'
 )
@@ -58,7 +59,20 @@ function Find-CMake {
     return $bundledCMake
 }
 
+function Add-DoxygenToProcessPath {
+    if ($null -ne (Get-Command doxygen -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    $doxygenDirectory = Join-Path $env:ProgramFiles 'doxygen\bin'
+    $doxygenExecutable = Join-Path $doxygenDirectory 'doxygen.exe'
+    if (Test-Path -LiteralPath $doxygenExecutable) {
+        $env:Path = "$doxygenDirectory;$env:Path"
+    }
+}
+
 Repair-ProcessPath
+Add-DoxygenToProcessPath
 $cmake = Find-CMake
 Write-Host "Using CMake: $cmake"
 & $cmake --workflow --preset $Preset

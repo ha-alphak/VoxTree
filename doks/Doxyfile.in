@@ -28,20 +28,21 @@ HIDE_UNDOC_MEMBERS     = NO
 HIDE_UNDOC_CLASSES     = NO
 
 WARNINGS               = YES
-WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_UNDOCUMENTED   = YES
 WARN_IF_DOC_ERROR      = YES
 WARN_IF_INCOMPLETE_DOC = YES
+WARN_IF_UNDOC_ENUM_VAL = YES
 WARN_NO_PARAMDOC       = YES
 WARN_AS_ERROR          = YES
 
 INPUT                  = "@HVC_DOC_SOURCE_DIR@/libs" \
+                         "@HVC_DOC_SOURCE_DIR@/apps" \
                          "@HVC_DOC_SOURCE_DIR@/doks/CodeDocumentation.md"
 INPUT_ENCODING         = UTF-8
 FILE_PATTERNS          = *.hpp \
                          *.hpp.in \
                          *.md
 RECURSIVE              = YES
-EXCLUDE_PATTERNS       = */src/*
 
 SOURCE_BROWSER         = YES
 INLINE_SOURCES         = NO
@@ -60,6 +61,5 @@ GENERATE_XML           = NO
 GENERATE_MAN           = NO
 GENERATE_RTF           = NO
 
-QUIET                  = NO
+QUIET                  = YES
 HAVE_DOT               = NO
-

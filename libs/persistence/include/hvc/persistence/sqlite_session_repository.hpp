@@ -4,5 +4,6 @@
 
 namespace hvc::persistence
 {
+/// Backward-compatible name for the unified SQLite control-plane repository.
 using SqliteSessionRepository = SqliteControlPlaneRepository;
 } // namespace hvc::persistence
