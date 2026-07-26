@@ -79,6 +79,22 @@ set_target_properties(hvc_client_ptt_input_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME client.ptt_input COMMAND hvc_client_ptt_input_tests)
 
+add_executable(
+  hvc_presentation_tests
+  presentation/desktop_model_tests.cpp
+)
+
+target_link_libraries(
+  hvc_presentation_tests
+  PRIVATE
+    hvc::presentation
+    hvc::project_options
+)
+
+set_target_properties(hvc_presentation_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME presentation.desktop_model COMMAND hvc_presentation_tests)
+
 add_executable(hvc_client_core_tests client/client_core_tests.cpp)
 
 target_link_libraries(

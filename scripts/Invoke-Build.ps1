@@ -23,8 +23,14 @@ function Repair-ProcessPath {
     }
 
     $canonicalPath = $env:Path
-    [Environment]::SetEnvironmentVariable('PATH', $null, 'Process')
-    [Environment]::SetEnvironmentVariable('Path', $canonicalPath, 'Process')
+    foreach ($pathVariable in $pathVariables) {
+        [Environment]::SetEnvironmentVariable(
+            [string] $pathVariable.Key,
+            $null,
+            'Process'
+        )
+    }
+    [Environment]::SetEnvironmentVariable('PATH', $canonicalPath, 'Process')
 }
 
 function Find-CMake {
@@ -71,9 +77,9 @@ function Add-DoxygenToProcessPath {
     }
 }
 
-Repair-ProcessPath
 Add-DoxygenToProcessPath
 $cmake = Find-CMake
+Repair-ProcessPath
 Write-Host "Using CMake: $cmake"
 & $cmake --workflow --preset $Preset
 

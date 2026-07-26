@@ -20,6 +20,7 @@ Communication**.
 | [audio-engine.md](audio-engine.md) | Stream-Admission, Ducking, lokale Empfangsregeln und native Lautstärke |
 | [input-system.md](input-system.md) | Windows-Raw-Input, PTT-Aktionen und Bindings |
 | [windows-client.md](windows-client.md) | WinUI-Clientschale, Anmeldung und Bereitschaftszustand |
+| [presentation-architecture.md](presentation-architecture.md) | Gemeinsame Präsentationszustände, Fensterbesitz und Threading |
 | [debian-kde-client.md](debian-kde-client.md) | Geplanter nativer Debian-Client für KDE Plasma und Wayland |
 | [server-runtime.md](server-runtime.md) | Mehrbenutzerbetrieb, LiveKit-Control, Jobs, HTTP und Container |
 | [load-and-security-tests.md](load-and-security-tests.md) | Reproduzierbarer 200-Spieler-Last-, Ausfall- und Sicherheitsnachweis |

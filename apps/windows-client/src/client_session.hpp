@@ -10,6 +10,7 @@
 #include <hvc/client/win_raw_input.hpp>
 #include <hvc/livekit/livekit_voice_transport.hpp>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -72,7 +73,9 @@ struct ConnectResult final
  * Own one Windows client's control-plane, voice, and input session.
  *
  * The session constructs platform transports lazily during `connect()` and
- * reports asynchronous state through a callback supplied by the UI.
+ * reports asynchronous state through a callback supplied by the UI. Public
+ * operations are serialized internally; callbacks may arrive on transport or
+ * worker threads and must be queued by the shell without blocking.
  */
 class ClientSession final : private client::IClientIdentifierGenerator,
                             private client::IVoiceClientObserver,
@@ -208,8 +211,10 @@ class ClientSession final : private client::IClientIdentifierGenerator,
     [[nodiscard]] static auto voiceSessionMessage(const client::VoiceSessionResult& result)
         -> std::string;
     [[nodiscard]] static auto disconnectedResult() -> client::VoiceTransportResult;
+    void resetServicesLocked() noexcept;
 
     EventCallback event_callback_;
+    mutable std::mutex services_mutex_;
     std::unique_ptr<client::WinHttpTransport> http_transport_;
     std::unique_ptr<client::ControlPlaneClient> control_plane_;
     std::unique_ptr<livekit::LiveKitVoiceTransport> livekit_transport_;

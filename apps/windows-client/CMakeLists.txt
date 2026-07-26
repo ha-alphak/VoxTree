@@ -18,11 +18,21 @@ add_executable(
   resources/windows-client.rc
   src/client_session.cpp
   src/client_session.hpp
+  src/application.cpp
+  src/application.hpp
+  src/diagnostics_window.cpp
+  src/diagnostics_window.hpp
   src/localized_text.cpp
   src/localized_text.hpp
   src/login_dialog.cpp
   src/login_dialog.hpp
   src/main.cpp
+  src/main_window.cpp
+  src/main_window.hpp
+  src/settings_window.cpp
+  src/settings_window.hpp
+  src/view_helpers.cpp
+  src/view_helpers.hpp
 )
 
 target_compile_features(hvc_windows_client PRIVATE cxx_std_20)
@@ -41,8 +51,20 @@ target_link_libraries(
     hvc::client_win_raw_input
     hvc::client_winhttp
     hvc::livekit_transport
+    hvc::presentation
     ole32
     shell32
+)
+
+add_custom_command(
+  TARGET hvc_windows_client
+  PRE_BUILD
+  COMMAND
+    "${CMAKE_COMMAND}"
+    "-DRESOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/resources/windows-client.rc"
+    -P "${PROJECT_SOURCE_DIR}/cmake/VerifyWin32StringTableParity.cmake"
+  COMMENT "Checking English and German Windows client resource parity"
+  VERBATIM
 )
 
 set_target_properties(

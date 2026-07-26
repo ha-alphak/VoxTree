@@ -78,6 +78,7 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
 
     try
     {
+        const std::scoped_lock services_lock{services_mutex_};
         if (authorized_client_ != nullptr)
         {
             return {false, "The client is already connected.", std::nullopt};
@@ -97,7 +98,7 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
         if (!connected)
         {
             const auto message = voiceSessionMessage(connected);
-            disconnect();
+            resetServicesLocked();
             return {false, message, std::nullopt};
         }
 
@@ -108,7 +109,7 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
         const auto bindings_set = binding_engine_.setBindings(bindings);
         if (!bindings_set)
         {
-            disconnect();
+            resetServicesLocked();
             return {false, "The default push-to-talk bindings could not be activated.",
                     std::nullopt};
         }
@@ -118,7 +119,7 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
         if (!input_started)
         {
             const auto message = "Raw Input could not be started: " + input_started.message;
-            disconnect();
+            resetServicesLocked();
             return {false, message, std::nullopt};
         }
 
@@ -132,6 +133,11 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
             while (!stop_token.stop_requested())
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds{500});
+                if (stop_token.stop_requested())
+                {
+                    return;
+                }
+                const std::scoped_lock refresh_lock{services_mutex_};
                 if (stop_token.stop_requested() || authorized_client_ == nullptr)
                 {
                     return;
@@ -161,7 +167,8 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
     }
     catch (const std::exception& error)
     {
-        disconnect();
+        const std::scoped_lock services_lock{services_mutex_};
+        resetServicesLocked();
         return {false, error.what(), std::nullopt};
     }
 }
@@ -173,6 +180,12 @@ void ClientSession::disconnect() noexcept
     {
         membership_refresh_.join();
     }
+    const std::scoped_lock services_lock{services_mutex_};
+    resetServicesLocked();
+}
+
+void ClientSession::resetServicesLocked() noexcept
+{
     if (raw_input_ != nullptr)
     {
         raw_input_->stop();
@@ -203,12 +216,14 @@ void ClientSession::disconnect() noexcept
 
 auto ClientSession::recordingDevices() const -> std::vector<client::AudioDevice>
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return livekit_transport_ == nullptr ? std::vector<client::AudioDevice>{}
                                          : livekit_transport_->recordingDevices();
 }
 
 auto ClientSession::playoutDevices() const -> std::vector<client::AudioDevice>
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return livekit_transport_ == nullptr ? std::vector<client::AudioDevice>{}
                                          : livekit_transport_->playoutDevices();
 }
@@ -216,6 +231,7 @@ auto ClientSession::playoutDevices() const -> std::vector<client::AudioDevice>
 auto ClientSession::selectRecordingDevice(const std::string& device_id)
     -> client::VoiceTransportResult
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return livekit_transport_ == nullptr ? disconnectedResult()
                                          : livekit_transport_->selectRecordingDevice(device_id);
 }
@@ -223,6 +239,7 @@ auto ClientSession::selectRecordingDevice(const std::string& device_id)
 auto ClientSession::selectPlayoutDevice(const std::string& device_id)
     -> client::VoiceTransportResult
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return livekit_transport_ == nullptr ? disconnectedResult()
                                          : livekit_transport_->selectPlayoutDevice(device_id);
 }
@@ -230,12 +247,14 @@ auto ClientSession::selectPlayoutDevice(const std::string& device_id)
 auto ClientSession::setAudioEngineConfig(const client::AudioEngineConfig& config)
     -> client::VoiceTransportResult
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return voice_client_ == nullptr ? disconnectedResult()
                                     : voice_client_->setAudioEngineConfig(config);
 }
 
 auto ClientSession::audioEngineConfig() const noexcept -> client::AudioEngineConfig
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return voice_client_ == nullptr ? client::AudioEngineConfig{}
                                     : voice_client_->audioEngineConfig();
 }
@@ -243,22 +262,26 @@ auto ClientSession::audioEngineConfig() const noexcept -> client::AudioEngineCon
 auto ClientSession::setBindings(std::span<const client::InputBinding> bindings)
     -> client::InputBindingResult
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return binding_engine_.setBindings(bindings);
 }
 
 auto ClientSession::bindings() const -> std::vector<client::InputBinding>
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return binding_engine_.bindings();
 }
 
 auto ClientSession::inputDevices() const -> std::vector<client::InputDeviceProfile>
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return binding_engine_.devices();
 }
 
 auto ClientSession::setParticipantVolume(const std::string& participant_id, float volume)
     -> client::VoiceTransportResult
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return voice_client_ == nullptr ? disconnectedResult()
                                     : voice_client_->setParticipantVolume(participant_id, volume);
 }
@@ -266,6 +289,7 @@ auto ClientSession::setParticipantVolume(const std::string& participant_id, floa
 auto ClientSession::setParticipantMuted(const std::string& participant_id, bool muted)
     -> client::VoiceTransportResult
 {
+    const std::scoped_lock services_lock{services_mutex_};
     return voice_client_ == nullptr ? disconnectedResult()
                                     : voice_client_->setParticipantMuted(participant_id, muted);
 }

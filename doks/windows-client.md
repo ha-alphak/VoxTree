@@ -9,10 +9,13 @@ WinUI 3 mit C++/WinRT und baut die Oberfläche vollständig aus C++ auf. Das
 bestehende CMake-Projekt bleibt dadurch die einzige Buildquelle; ein separates,
 manuell gepflegtes Visual-Studio-Projekt ist nicht erforderlich.
 
-Der aktuelle Stand ist ein technischer Funktionsprototyp. Nahezu alle
-Bedienelemente werden in einer einzigen langen Scrollansicht in `main.cpp`
-erzeugt. Diese Struktur bestätigt die Integration von Control Plane, LiveKit,
-Audio und Raw Input, ist aber nicht die Zieloberfläche für die Auslieferung.
+`main.cpp` enthält nur noch den Prozesseinstieg. `App` koordiniert den Start,
+`MainWindow` die Hauptansicht und die aktive `ClientSession`. Einstellungen und
+Diagnose besitzen mit `SettingsWindow` und `DiagnosticsWindow` eigene
+nicht-modale Fenster. Wiederverwendbare WinUI-Helfer sind von den
+UI-unabhängigen Zuständen in `hvc::presentation` getrennt. Der verbindliche
+Zustands-, Befehls-, Validierungs-, Besitz- und Threadingvertrag steht in
+[presentation-architecture.md](presentation-architecture.md).
 
 Die statischen Oberflächentexte liegen als englische und deutsche
 Win32-Stringtable-Ressourcen unter `apps/windows-client/resources`. Die Auswahl
@@ -55,11 +58,16 @@ sind, wechselt die Oberfläche in den verbundenen Zustand.
 
 ## Aktuelle verbundene Ansicht
 
-Die verbundene Ansicht stellt die aktuelle Hierarchie vollständig dar:
+Die verbundene Ansicht verwendet eine moderne, Voice-zentrierte Fensterschale:
 
-- Spieler, Group, Specialization und Team;
-- alle eigenen Rollen;
-- autoritative Membership-Version.
+- eine kompakte Titelleiste zeigt Produkt und Verbindungszustand;
+- die linke Seitenleiste zeigt den eigenen Spieler, öffentliche Rollen sowie
+  Group, Specialization und Team als auswählbare Bereiche;
+- die Hauptfläche zeigt den ausgewählten Scope, den eigenen Teilnehmer und
+  aktive Remote-Sprecher dieses Scopes;
+- die dauerhaft sichtbare Voice-Leiste zeigt Team-, Specialization- und
+  Group-PTT samt aktueller Belegung sowie den bestätigten Sendescope;
+- Einstellungen und Diagnose bleiben unabhängige, nicht-modale Fenster.
 
 Verbindung, Senden, Empfang und letzter Fehler besitzen getrennte Textzustände.
 Der Sendestatus wechselt erst nach einer erfolgreichen, korrelierten
@@ -99,19 +107,20 @@ aktiver Sprecher bleiben oberhalb als Entscheidungsgrundlage sichtbar.
 Serverseitige Moderationsbefugnisse werden weiterhin ausschließlich von der
 Control Plane geprüft.
 
-Nicht sprechende Teilnehmer sind derzeit nicht sichtbar. Der eigene
-Membership-Endpunkt liefert keine Gruppenliste, und
+Nicht sprechende entfernte Teilnehmer sind derzeit nicht sichtbar. Die
+Hauptfläche kennzeichnet diese Grenze ausdrücklich und erfindet keine
+Presence-Daten. Der eigene Membership-Endpunkt liefert keine Gruppenliste, und
 Remote-Participant-Connect/-Disconnect-Ereignisse werden noch nicht bis zur
 Oberfläche weitergereicht. Die geplante Kanal- und Teilnehmeransicht benötigt
 deshalb zuerst den in `implementation-plan.md` beschriebenen
 Directory-/Presence-Vertrag.
 
-## Aktuell eingebettete Einstellungen
+## Eigenständiges Einstellungsfenster
 
 Die nachfolgend beschriebenen Steuerelemente sind technisch verdrahtet, liegen
-aber derzeit noch als großer Abschnitt in der verbundenen Hauptansicht. Sie
-werden nicht persistent gespeichert. Im Zielzustand werden sie vollständig in
-ein separates, nicht-modales Einstellungsfenster verschoben.
+in einem eigenständigen, nicht-modalen Einstellungsfenster. Sie werden noch
+nicht persistent gespeichert; Versionierung, Migration und atomare Speicherung
+folgen mit SET-01.
 
 ### Audio
 
@@ -175,10 +184,9 @@ Auslieferungsphase.
 Der verbindliche offene Umfang steht im
 [Umsetzungsplan vor der Auslieferungsreife](implementation-plan.md):
 
-- neue Hauptansicht mit navigierbarem Kanalbaum und vollständigen sichtbaren
-  Teilnehmern;
+- Erweiterung der vorhandenen navigierbaren Hauptansicht um den vollständigen
+  serverdefinierten Kanalbaum und alle sichtbaren Teilnehmer;
 - getrennte Zustände für Presence, Audioverfügbarkeit und Sprechen;
-- eigenständiges Einstellungs- und Diagnosefenster;
 - persistente, nicht geheime Benutzerkonfiguration;
 - direkte Lernansicht für Tastatur, Maus und HID-/HOTAS-Buttons;
 - Account-, Membership-, Rollen- und Moderationsoberflächen;
