@@ -188,6 +188,16 @@ request, ensure that the relevant build, tests, formatting checks, and static
 analysis pass. More detailed contribution guidelines will be added as the
 public API and development workflow stabilize.
 
+Local-only documentation, environment files, deployment secrets, private keys,
+and credential containers must never be committed. Enable the repository's
+commit and push guards once after cloning:
+
+```powershell
+./scripts/Enable-GitGuards.ps1
+```
+
+The same sensitive-content policy is enforced in GitHub Actions.
+
 ## License
 
 No open-source license has been selected yet. Until a license is added, all
