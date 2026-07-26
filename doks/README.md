@@ -8,7 +8,7 @@ Communication**.
 | Dokument | Inhalt |
 |---|---|
 | [spec.md](spec.md) | Ursprüngliche Software Feature Specification |
-| [implementation-plan.md](implementation-plan.md) | Abgestimmter Umsetzungsplan |
+| [implementation-plan.md](implementation-plan.md) | Aktueller Plan der noch offenen Vor-Release-Arbeiten |
 | [architecture-decisions.md](architecture-decisions.md) | Aktuell verbindliche Architekturentscheidungen |
 | [state-machines.md](state-machines.md) | Verbindungs- und Transmission-Zustandsautomaten |
 | [control-plane.md](control-plane.md) | Anwendungsschicht und Control-Plane-Schnittstellen |
@@ -20,14 +20,21 @@ Communication**.
 | [audio-engine.md](audio-engine.md) | Stream-Admission, Ducking, lokale Empfangsregeln und native Lautstärke |
 | [input-system.md](input-system.md) | Windows-Raw-Input, PTT-Aktionen und Bindings |
 | [windows-client.md](windows-client.md) | WinUI-Clientschale, Anmeldung und Bereitschaftszustand |
+| [debian-kde-client.md](debian-kde-client.md) | Geplanter nativer Debian-Client für KDE Plasma und Wayland |
 | [server-runtime.md](server-runtime.md) | Mehrbenutzerbetrieb, LiveKit-Control, Jobs, HTTP und Container |
 | [load-and-security-tests.md](load-and-security-tests.md) | Reproduzierbarer 200-Spieler-Last-, Ausfall- und Sicherheitsnachweis |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |
 | [CodeDocumentation.md](CodeDocumentation.md) | Verbindliche Regeln für C++-API-Dokumentation und Code-Kommentare |
 | [status.md](status.md) | Laufender Projektstatus |
+| [archive/README.md](archive/README.md) | Abgeschlossene und abgelöste Status- und Planungsstände |
 
 ## Ablageregel
 
 Spezifikationen, Pläne, Architekturentscheidungen, technische Dokumentationen
 und Statusberichte werden ausschließlich in diesem Ordner abgelegt und mit Git
 versioniert.
+
+`status.md` enthält nur den aktuellen belastbaren Stand und die aktiven
+Release-Blocker. `implementation-plan.md` enthält nur offene Arbeitspakete.
+Ausführliche abgeschlossene Listen werden im Unterordner `archive` bewahrt,
+damit laufende Arbeit nicht durch historische Aufgaben überlagert wird.

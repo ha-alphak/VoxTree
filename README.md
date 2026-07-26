@@ -11,10 +11,12 @@ support future integration into games and other applications.
 
 > [!IMPORTANT]
 > This project is under active development and is not ready for production use.
-> The domain model, control plane, native voice path, complete WinUI 3 client,
-> versioned client-core integration DLL, and reproducible 200-player load and
-> security validation are implemented. Packaging and other release-quality work
-> remain.
+> The domain model, control plane, native voice path, versioned client-core
+> integration DLL, and reproducible 200-player load and security validation are
+> implemented. The current WinUI 3 application is a technical client prototype.
+> A native Debian/KDE client is planned but not yet implemented. Product UI,
+> account and permission administration, diagnostics, packaging, and other
+> release-quality work remain.
 
 ## Core concepts
 
@@ -65,8 +67,11 @@ The project uses C++20 and CMake.
 - **Network layer** — versioned HTTP boundary for the Linux control plane
 - **Voice transport** — self-hosted LiveKit integration behind the internal
   `IVoiceTransport` abstraction; Mumble remains the fallback option
-- **Windows client** — WinUI 3 application using C++/WinRT; the initial
-  server, sign-in, connected, speaker, and settings views are implemented
+- **Windows client** — WinUI 3 application using C++/WinRT; the technical
+  prototype connects all runtime components, while the product UI and
+  administration workflows are being rebuilt
+- **Debian/KDE client** — planned C++20/Qt 6 application for KDE Plasma and
+  Wayland, sharing the client core and presentation models with Windows
 - **Integration SDK** — `hvc-client-core` shared library with a versioned C ABI,
   C++20 RAII wrapper, and host-supplied voice-transport table
 
@@ -102,11 +107,16 @@ Implemented foundations include:
 - separate Team, Specialization, and Group PTT bindings;
 - focus-independent Windows keyboard, mouse, gamepad, joystick, and HOTAS
   button capture through Win32 Raw Input and generic HID reports; and
-- a complete WinUI 3 client that connects the control plane, authorized LiveKit
-  rooms, Raw Input, speaker views, and configurable audio/input settings.
+- a WinUI 3 technical prototype that connects the control plane, authorized
+  LiveKit rooms, Raw Input, active-speaker views, and configurable audio/input
+  settings.
 
 See
 [the project status](doks/status.md) for the detailed implementation progress.
+The [current implementation plan](doks/implementation-plan.md) lists the
+release-blocking Windows/KDE UI, account, administration, diagnostics, and PTT
+work. The [Debian/KDE client plan](doks/debian-kde-client.md) documents its
+platform boundaries and quality gates.
 
 ## Requirements
 

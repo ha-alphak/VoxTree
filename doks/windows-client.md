@@ -9,6 +9,11 @@ WinUI 3 mit C++/WinRT und baut die Oberfläche vollständig aus C++ auf. Das
 bestehende CMake-Projekt bleibt dadurch die einzige Buildquelle; ein separates,
 manuell gepflegtes Visual-Studio-Projekt ist nicht erforderlich.
 
+Der aktuelle Stand ist ein technischer Funktionsprototyp. Nahezu alle
+Bedienelemente werden in einer einzigen langen Scrollansicht in `main.cpp`
+erzeugt. Diese Struktur bestätigt die Integration von Control Plane, LiveKit,
+Audio und Raw Input, ist aber nicht die Zieloberfläche für die Auslieferung.
+
 Die statischen Oberflächentexte liegen als englische und deutsche
 Win32-Stringtable-Ressourcen unter `apps/windows-client/resources`. Die Auswahl
 erfolgt über die Windows-UI-Sprache. IDs, Gerätebezeichnungen, Rollennamen und
@@ -48,7 +53,7 @@ dieser Reihenfolge:
 Erst wenn Control Plane, alle autorisierten Voice-Räume und Raw Input bereit
 sind, wechselt die Oberfläche in den verbundenen Zustand.
 
-## Verbundene Ansicht
+## Aktuelle verbundene Ansicht
 
 Die verbundene Ansicht stellt die aktuelle Hierarchie vollständig dar:
 
@@ -68,7 +73,7 @@ Funktionstasten können in der Eingabeansicht unabhängig neu belegt werden. Der
 aktuell tatsächlich sendende Scope wird zusätzlich als Text angezeigt und ist
 damit nicht ausschließlich über Farbe erkennbar.
 
-## Sprecheransicht
+## Aktuelle Sprecheransicht
 
 Die Sprecheransicht wird durch strukturierte `ClientSession`-Ereignisse
 aktualisiert und zeigt für jede aktive Remote-Spur:
@@ -91,7 +96,19 @@ aktiver Sprecher bleiben oberhalb als Entscheidungsgrundlage sichtbar.
 Serverseitige Moderationsbefugnisse werden weiterhin ausschließlich von der
 Control Plane geprüft.
 
-## Einstellungen
+Nicht sprechende Teilnehmer sind derzeit nicht sichtbar. Der eigene
+Membership-Endpunkt liefert keine Gruppenliste, und
+Remote-Participant-Connect/-Disconnect-Ereignisse werden noch nicht bis zur
+Oberfläche weitergereicht. Die geplante Kanal- und Teilnehmeransicht benötigt
+deshalb zuerst den in `implementation-plan.md` beschriebenen
+Directory-/Presence-Vertrag.
+
+## Aktuell eingebettete Einstellungen
+
+Die nachfolgend beschriebenen Steuerelemente sind technisch verdrahtet, liegen
+aber derzeit noch als großer Abschnitt in der verbundenen Hauptansicht. Sie
+werden nicht persistent gespeichert. Im Zielzustand werden sie vollständig in
+ein separates, nicht-modales Einstellungsfenster verschoben.
 
 ### Audio
 
@@ -150,11 +167,17 @@ Der Entwicklungsbuild ist eine selbstenthaltende, nicht paketierte
 Windows-App-SDK-Anwendung. Das signierte MSIX-Paket bleibt Bestandteil der
 Auslieferungsphase.
 
-## Verbleibende spätere Arbeiten
+## Geplanter Neuaufbau
 
-- stabile lokale Geräteidentität und persistente, nicht geheime
-  Server-/UI-Einstellungen;
-- Membership- und Voice-Grant-Refresh bei Ablauf oder Reconnect;
-- direkte HID-Button-Lernansicht zusätzlich zur vorhandenen
-  Funktionstasten-Konfiguration;
-- signierte MSIX-Paketierung.
+Der verbindliche offene Umfang steht im
+[Umsetzungsplan vor der Auslieferungsreife](implementation-plan.md):
+
+- neue Hauptansicht mit navigierbarem Kanalbaum und vollständigen sichtbaren
+  Teilnehmern;
+- getrennte Zustände für Presence, Audioverfügbarkeit und Sprechen;
+- eigenständiges Einstellungs- und Diagnosefenster;
+- persistente, nicht geheime Benutzerkonfiguration;
+- direkte Lernansicht für Tastatur, Maus und HID-/HOTAS-Buttons;
+- Account-, Membership-, Rollen- und Moderationsoberflächen;
+- strukturierte, rotierende Laufzeitlogs und redigierter Support-Bundle-Export;
+- signierte MSIX-Paketierung erst nach den Vor-Release-Gates.

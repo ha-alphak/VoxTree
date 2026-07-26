@@ -30,6 +30,29 @@
   WinHTTP und unterstützt HTTP für geschützte lokale Entwicklung sowie HTTPS
   für produktive, TLS-terminierte Endpunkte.
 
+## Debian/KDE-Client
+
+- Der Debian-Desktop-Client gehört zum Vor-Release-Umfang.
+- Zielplattform ist Debian 13 x64 mit KDE Plasma; Wayland ist der primäre
+  Sitzungsweg.
+- Die Oberfläche verwendet C++20 und Qt 6. Die Entscheidung zwischen Qt
+  Widgets und Qt Quick/Kirigami fällt nach einem technischen Quality-Gate.
+- WinUI und Qt verwenden dieselben UI-unabhängigen Präsentationsmodelle,
+  Netzwerkverträge und Fehlercodes.
+- Aufnahme und Wiedergabe werden über ein PipeWire-Backend an den gemeinsamen
+  Voice-Transport angebunden.
+- Globale Tastatur-PTT-Aktionen verwenden unter Wayland das
+  XDG-Global-Shortcuts-Portal. Der Client umgeht Compositor-Sicherheitsgrenzen
+  nicht durch privilegiertes Eingabeabgreifen.
+- Gamepads, Joysticks und HOTAS werden über einen unprivilegierten,
+  hot-plug-fähigen Linux-HID-Adapter integriert.
+- Das erste Auslieferungsformat ist ein versioniertes Debian-Paket mit
+  signierten Repository-/Release-Metadaten. Eine Flatpak-Auslieferung erfordert
+  eine gesonderte Packaging-Entscheidung.
+- Vor der Produktoberfläche muss ein Debian-Quality-Gate LiveKit, PipeWire,
+  Wayland-PTT, Gerätewechsel, Reconnect und Windows-Interoperabilität
+  nachweisen.
+
 ## Server
 
 - Eigene Serverkomponenten werden in C++20 entwickelt.
@@ -122,7 +145,8 @@
 ## Voice-Transport
 
 - LiveKit wird als selbst betriebene WebRTC-SFU eingesetzt.
-- Der Windows-Client verwendet das offizielle native LiveKit-C++-SDK.
+- Die Desktop-Clients verwenden das offizielle native LiveKit-C++-SDK, sofern
+  das Debian-Quality-Gate dessen Linux-Eignung bestätigt.
 - LiveKit wird ausschließlich über eine interne `IVoiceTransport`-Abstraktion
   angebunden.
 - Die Fachlogik darf nicht direkt von LiveKit-Typen abhängen.
@@ -169,7 +193,7 @@
   korreliert, damit verspätete Antworten keine neue Transmission aktivieren.
 - Membership-Änderungen müssen eine höhere Version besitzen, beenden aktive
   Transmissionen und erfordern erneut angewendete Empfangsabonnements.
-- Der Windows-Client publiziert das Mikrofon erst nach einer erfolgreichen,
+- Der Desktop-Client publiziert das Mikrofon erst nach einer erfolgreichen,
   korrelierten Startautorisierung der Control Plane.
 - Schlägt die lokale Publikation danach fehl, beendet der Client die bereits
   autorisierte Servertransmission unmittelbar als Rollback.
