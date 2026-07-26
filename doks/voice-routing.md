@@ -14,8 +14,11 @@ Grant für:
 
 Raumnamen sind keine Clientberechtigung. Verbindlich ist ausschließlich das
 serverseitig signierte, kurzlebige JWT mit genau einem festgelegten Raum.
-`canPublish` und `canSubscribe` werden unabhängig aus Rollenrichtlinie,
-Membership, Voice-Ban, Transmit-Mute und Empfangsstatus abgeleitet. Ein reines
+`canSubscribe` und die Berechtigung, später `canPublish` zu erhalten, werden
+unabhängig aus Rollenrichtlinie, Membership, Voice-Ban, Transmit-Mute und
+Empfangsstatus abgeleitet. Das Token startet immer mit `canPublish=false`; erst
+eine aktive serverautorisierte Transmission schaltet den exakten Raum über
+RoomService frei. Ein reines
 Senderecht bleibt deshalb auch bei gesperrtem Empfang nutzbar; ein reines
 Empfangsrecht erteilt kein Publikationsrecht.
 
@@ -56,7 +59,8 @@ Grund:
 Jeder erzwungene Abbruch erzeugt ein korreliertes Audit-Event ohne
 Empfänger-IDs. Grant-Tokens sind kurzlebig und an Membership-Version sowie
 Geräte-ID gebunden; neue Grants werden nur aus dem aktuellen Snapshot
-ausgestellt. Der native Security-Nachweis bestätigt zusätzlich, dass LiveKit
+ausgestellt. Der produktive Lifecycle-Hook entzieht das Publikationsrecht für
+alle Abbruchgründe. Der native Security-Nachweis bestätigt zusätzlich, dass LiveKit
 ein serverseitig entzogenes Publikationsrecht und den aktiven Track unmittelbar
 entfernt.
 

@@ -1,0 +1,82 @@
+services:
+  control-plane:
+    build:
+      context: .
+    command:
+      - --database
+      - /var/lib/hvc/control-plane.db
+      - --listen
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --http-workers
+      - "8"
+      - --http-queue-capacity
+      - "64"
+      - --identity-file
+      - /run/hvc-secrets/hvc-identities
+      - --livekit-url
+      - wss://localhost:7880
+      - --livekit-control-url
+      - ws://livekit:7880
+      - --livekit-api-key
+      - hvc
+      - --livekit-api-secret-file
+      - /run/hvc-secrets/livekit-api-secret
+    depends_on:
+      livekit:
+        condition: service_healthy
+    volumes:
+      - control-plane-data:/var/lib/hvc
+    tmpfs:
+      - /run/hvc-secrets:mode=0700,uid=999,gid=999
+    secrets:
+      - hvc-identities
+      - livekit-api-secret
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+    restart: unless-stopped
+
+  livekit:
+    build:
+      context: .
+      dockerfile: deploy/livekit.Dockerfile
+    volumes:
+      - ./deploy/livekit.yaml:/etc/livekit.yaml:ro
+    secrets:
+      - livekit-api-secret
+    ports:
+      - "7881:7881"
+      - "7882:7882/udp"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:7880"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2.10.0-alpine
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    ports:
+      - "8443:8443"
+      - "7880:7880"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    restart: unless-stopped
+
+volumes:
+  control-plane-data:
+  caddy-data:
+
+secrets:
+  hvc-identities:
+    file: ./deploy/secrets/hvc-identities.tsv
+  livekit-api-secret:
+    file: ./deploy/secrets/livekit-api-secret

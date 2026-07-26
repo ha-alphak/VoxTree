@@ -1,0 +1,9 @@
+https://localhost:8443 {
+	tls internal
+	reverse_proxy control-plane:8080
+}
+
+https://localhost:7880 {
+	tls internal
+	reverse_proxy livekit:7880
+}

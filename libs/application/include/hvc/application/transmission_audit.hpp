@@ -79,7 +79,11 @@ enum class TransmissionAuditRejectionReason : std::uint8_t
     /// The actor lacks administrative authorization.
     not_authorized,
     /// The operation exceeded its configured rate limit.
-    rate_limited
+    rate_limited,
+    /// The addressed hierarchy node reached its configured speaker limit.
+    speaker_limit_reached,
+    /// The external voice service rejected publication-right activation.
+    voice_control_unavailable
 };
 
 /**

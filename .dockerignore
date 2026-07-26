@@ -1,0 +1,7 @@
+.git
+.github
+out
+livekit_*
+deploy/secrets
+CMakeUserPresets.json
+ToolChains.md

@@ -5,16 +5,24 @@
 #include <cerrno>
 #include <charconv>
 #include <chrono>
+#include <condition_variable>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <deque>
+#include <mutex>
 #include <netdb.h>
+#include <optional>
+#include <poll.h>
 #include <stdexcept>
 #include <string>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <system_error>
+#include <thread>
 #include <unistd.h>
 #include <variant>
+#include <vector>
 
 namespace hvc::control_plane
 {
@@ -22,6 +30,12 @@ namespace
 {
 constexpr std::size_t maximum_header_bytes{std::size_t{16U} * 1024U};
 constexpr std::size_t maximum_body_bytes{std::size_t{64U} * 1024U};
+volatile std::sig_atomic_t shutdown_requested{};
+
+extern "C" void requestShutdown(int) noexcept
+{
+    shutdown_requested = 1;
+}
 
 class Socket final
 {
@@ -148,6 +162,8 @@ class AddressInfo final
         return "Internal Server Error";
     case 502:
         return "Bad Gateway";
+    case 503:
+        return "Service Unavailable";
     default:
         return "Error";
     }
@@ -200,6 +216,22 @@ void sendResponse(int descriptor, const network::HttpResponse& response)
         "content-length: " + std::to_string(response.body.size()) + "\r\nconnection: close\r\n\r\n";
     sendAll(descriptor, header);
     sendAll(descriptor, response.body);
+}
+
+void sendOverloadResponse(int descriptor)
+{
+    // The accept loop deliberately does not parse an overloaded request. Discarding the
+    // unread receive side before closing prevents Linux from replacing the HTTP response
+    // with a TCP reset.
+    if (::shutdown(descriptor, SHUT_RD) != 0 && errno != ENOTCONN)
+    {
+        throw std::system_error{errno, std::generic_category(), "shutdown read"};
+    }
+    sendResponse(descriptor, protocolError(503, "server_overloaded"));
+    if (::shutdown(descriptor, SHUT_WR) != 0 && errno != ENOTCONN)
+    {
+        throw std::system_error{errno, std::generic_category(), "shutdown write"};
+    }
 }
 
 [[nodiscard]] auto readRequest(int descriptor)
@@ -379,18 +411,98 @@ void setClientTimeouts(int descriptor)
         throw std::system_error{errno, std::generic_category(), "setsockopt timeout"};
     }
 }
+
+void processClient(Socket client, network::IHttpRequestHandler& handler) noexcept
+{
+    try
+    {
+        setClientTimeouts(client.get());
+        auto request = readRequest(client.get());
+        if (std::holds_alternative<network::HttpResponse>(request))
+        {
+            sendResponse(client.get(), std::get<network::HttpResponse>(request));
+            return;
+        }
+        const auto response =
+            handler.handle(std::get<network::HttpRequest>(request), application::Clock::now());
+        sendResponse(client.get(), response);
+    }
+    catch (const std::exception& error)
+    {
+        std::fprintf(stderr,
+                     "{\"level\":\"error\",\"event\":\"http_request_failed\","
+                     "\"message\":\"%s\"}\n",
+                     error.what());
+    }
+}
 } // namespace
 
 auto runLinuxHttpServer(std::string_view bind_address, std::uint16_t port,
-                        network::IHttpRequestHandler& handler) -> int
+                        network::IHttpRequestHandler& handler, LinuxHttpServerOptions options)
+    -> int
 {
-    const auto listener = createListeningSocket(bind_address, port);
-    std::printf("hvc-control-plane: listening on %.*s:%u (HTTP API v1)\n",
-                static_cast<int>(bind_address.size()), bind_address.data(),
-                static_cast<unsigned int>(port));
-
-    while (true)
+    if (options.worker_count == 0 || options.maximum_queued_connections == 0)
     {
+        throw std::invalid_argument{"HTTP worker and queue limits must be positive."};
+    }
+    const auto listener = createListeningSocket(bind_address, port);
+    std::signal(SIGINT, requestShutdown);
+    std::signal(SIGTERM, requestShutdown);
+    std::printf("{\"level\":\"info\",\"event\":\"http_listening\",\"address\":\"%.*s\","
+                "\"port\":%u,\"workers\":%zu,\"queue_capacity\":%zu}\n",
+                static_cast<int>(bind_address.size()), bind_address.data(),
+                static_cast<unsigned int>(port), options.worker_count,
+                options.maximum_queued_connections);
+
+    std::mutex queue_mutex;
+    std::condition_variable queue_changed;
+    std::deque<Socket> queue;
+    bool stopping{};
+    std::vector<std::thread> workers;
+    workers.reserve(options.worker_count);
+    for (std::size_t worker_index = 0; worker_index < options.worker_count; ++worker_index)
+    {
+        workers.emplace_back([&] {
+            while (true)
+            {
+                std::optional<Socket> client;
+                {
+                    std::unique_lock lock{queue_mutex};
+                    queue_changed.wait(lock, [&] { return stopping || !queue.empty(); });
+                    if (queue.empty())
+                    {
+                        return;
+                    }
+                    client.emplace(std::move(queue.front()));
+                    queue.pop_front();
+                }
+                processClient(std::move(*client), handler);
+            }
+        });
+    }
+
+    int server_result{};
+    while (shutdown_requested == 0)
+    {
+        pollfd readiness{listener.get(), POLLIN, 0};
+        const int poll_result = ::poll(&readiness, 1, 500);
+        if (poll_result < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            std::fprintf(stderr,
+                         "{\"level\":\"error\",\"event\":\"http_poll_failed\","
+                         "\"error\":%d}\n",
+                         errno);
+            server_result = 1;
+            break;
+        }
+        if (poll_result == 0)
+        {
+            continue;
+        }
         const int descriptor = ::accept(listener.get(), nullptr, nullptr);
         if (descriptor < 0)
         {
@@ -398,27 +510,52 @@ auto runLinuxHttpServer(std::string_view bind_address, std::uint16_t port,
             {
                 continue;
             }
-            throw std::system_error{errno, std::generic_category(), "accept"};
+            std::fprintf(stderr,
+                         "{\"level\":\"error\",\"event\":\"http_accept_failed\","
+                         "\"error\":%d}\n",
+                         errno);
+            server_result = 1;
+            break;
         }
-
-        try
+        Socket client{descriptor};
+        bool queued{};
         {
-            const Socket client{descriptor};
-            setClientTimeouts(client.get());
-            auto request = readRequest(client.get());
-            if (std::holds_alternative<network::HttpResponse>(request))
+            std::scoped_lock lock{queue_mutex};
+            if (queue.size() < options.maximum_queued_connections)
             {
-                sendResponse(client.get(), std::get<network::HttpResponse>(request));
-                continue;
+                queue.push_back(std::move(client));
+                queued = true;
             }
-            const auto response =
-                handler.handle(std::get<network::HttpRequest>(request), application::Clock::now());
-            sendResponse(client.get(), response);
         }
-        catch (const std::exception& error)
+        if (queued)
         {
-            std::fprintf(stderr, "hvc-control-plane: request failed: %s\n", error.what());
+            queue_changed.notify_one();
+        }
+        else
+        {
+            std::fputs("{\"level\":\"warning\",\"event\":\"http_queue_overloaded\"}\n", stderr);
+            try
+            {
+                sendOverloadResponse(client.get());
+            }
+            catch (const std::exception&)
+            {
+                std::fputs("{\"level\":\"warning\",\"event\":\"http_overload_response_failed\"}\n",
+                           stderr);
+            }
         }
     }
+
+    {
+        std::scoped_lock lock{queue_mutex};
+        stopping = true;
+    }
+    queue_changed.notify_all();
+    for (auto& worker : workers)
+    {
+        worker.join();
+    }
+    std::fputs("{\"level\":\"info\",\"event\":\"http_stopped\"}\n", stdout);
+    return server_result;
 }
 } // namespace hvc::control_plane

@@ -201,7 +201,10 @@ Session, der aktuellen Membership-Version und der serverseitigen Rollenrichtlini
 ab. Die Laufzeit ist konfigurierbar und wird zusätzlich durch das Session-Ende
 begrenzt. Der `hvc-livekit`-Adapter signiert daraus pro autorisiertem Scope ein
 kurzlebiges HS256-JWT. Team, Specialization und Group werden auf getrennte Räume
-abgebildet; `canPublish` und `canSubscribe` werden unabhängig und nach dem
+abgebildet. Ein Senderecht macht den Scope-Grant verbindbar, das initiale Token
+enthält jedoch stets `canPublish=false`. Die Control Plane erteilt das
+Publikationsrecht erst nach erfolgreicher atomarer Transmission-Aktivierung
+über LiveKit RoomService. `canSubscribe` wird unabhängig davon nach dem
 Least-Privilege-Prinzip gesetzt. Geräte-ID und Membership-Version stehen als
 signierte Participant-Metadaten zur Verfügung.
 
@@ -275,7 +278,8 @@ Antwort `201 Created`:
 
 Autorisierungs- und Konfliktfehler verwenden dieselben stabilen Codes wie die
 Anwendungsschicht, darunter `voice_scope_not_authorized`,
-`voice_membership_stale`, `sender_already_transmitting` und `rate_limited`.
+`voice_membership_stale`, `sender_already_transmitting`,
+`speaker_limit_reached`, `voice_control_unavailable` und `rate_limited`.
 
 ## Transmission beenden
 
@@ -333,3 +337,11 @@ hvc-control-plane \
 
 Eine gestartete Transmission bleibt absichtlich flüchtig. Nach einem
 Prozessneustart wird sie nicht wiederhergestellt.
+
+## Betriebsmetriken
+
+### `GET /api/v1/metrics`
+
+Der nicht authentifizierte, nur im internen Betriebsnetz bereitzustellende
+Endpunkt liefert Prometheus-Text für HTTP-Requests und -Fehler, aktive
+Transmissionen, LiveKit-Control-Fehler und verworfene Audit-Events.

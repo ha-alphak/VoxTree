@@ -44,7 +44,7 @@ class SqliteControlPlaneRepository final
 {
   public:
     /// Latest schema version understood by this binary.
-    static constexpr std::uint32_t latest_schema_version{3};
+    static constexpr std::uint32_t latest_schema_version{4};
 
     /**
      * Open or create a control-plane database.
@@ -75,6 +75,15 @@ class SqliteControlPlaneRepository final
     void upsert(application::AuthenticatedSession session) override;
     /// @copydoc application::IMutableSessionRepository::erase
     [[nodiscard]] auto erase(const domain::SessionId& session_id) -> bool override;
+    /**
+     * Read a bounded batch of sessions that are no longer active.
+     *
+     * @param now Authoritative expiration boundary.
+     * @param limit Maximum number of identifiers to return.
+     * @returns Expired session identifiers ordered by expiration time.
+     */
+    [[nodiscard]] auto expiredSessionIds(application::TimePoint now, std::size_t limit) const
+        -> std::vector<domain::SessionId>;
 
     /// @copydoc application::IAuthoritativeMembershipProvider::currentFor
     [[nodiscard]] auto currentFor(const domain::PlayerId& player_id) const

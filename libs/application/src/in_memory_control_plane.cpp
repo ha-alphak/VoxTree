@@ -14,6 +14,37 @@ void discardExpiredRequests(std::deque<TimePoint>& requests, TimePoint now,
         requests.pop_front();
     }
 }
+
+[[nodiscard]] auto sameScopeNode(const domain::VoiceMembership& left,
+                                 const domain::VoiceMembership& right,
+                                 domain::VoiceScope scope) noexcept -> bool
+{
+    switch (scope)
+    {
+    case domain::VoiceScope::team:
+        return left.team_id == right.team_id;
+    case domain::VoiceScope::specialization:
+        return left.specialization_id == right.specialization_id;
+    case domain::VoiceScope::group:
+        return left.group_id == right.group_id;
+    }
+    return false;
+}
+
+[[nodiscard]] auto scopeNodeId(const domain::VoiceMembership& membership, domain::VoiceScope scope)
+    -> std::string
+{
+    switch (scope)
+    {
+    case domain::VoiceScope::team:
+        return std::string{membership.team_id.value()};
+    case domain::VoiceScope::specialization:
+        return std::string{membership.specialization_id.value()};
+    case domain::VoiceScope::group:
+        return std::string{membership.group_id.value()};
+    }
+    return {};
+}
 } // namespace
 
 MembershipUpdateResult::MembershipUpdateResult(
@@ -40,24 +71,28 @@ auto MembershipUpdateResult::rejected(MembershipUpdateError update_error) -> Mem
 }
 
 InMemoryControlPlaneStore::InMemoryControlPlaneStore(
-    ITransmissionAuditEventSink* audit_events) noexcept
-    : audit_events_(audit_events)
+    ITransmissionAuditEventSink* audit_events,
+    ITransmissionLifecycleObserver* lifecycle_observer) noexcept
+    : audit_events_(audit_events), lifecycle_observer_(lifecycle_observer)
 {
 }
 
 InMemoryControlPlaneStore::InMemoryControlPlaneStore(
     IMutableAuthoritativeMembershipRepository& persistent_memberships,
-    ITransmissionAuditEventSink* audit_events) noexcept
-    : audit_events_(audit_events), persistent_memberships_(&persistent_memberships)
+    ITransmissionAuditEventSink* audit_events,
+    ITransmissionLifecycleObserver* lifecycle_observer) noexcept
+    : audit_events_(audit_events), lifecycle_observer_(lifecycle_observer),
+      persistent_memberships_(&persistent_memberships)
 {
 }
 
 InMemoryControlPlaneStore::InMemoryControlPlaneStore(
     const ISessionRepository& persistent_sessions,
     IMutableAuthoritativeMembershipRepository& persistent_memberships,
-    ITransmissionAuditEventSink* audit_events) noexcept
-    : audit_events_(audit_events), persistent_sessions_(&persistent_sessions),
-      persistent_memberships_(&persistent_memberships)
+    ITransmissionAuditEventSink* audit_events,
+    ITransmissionLifecycleObserver* lifecycle_observer) noexcept
+    : audit_events_(audit_events), lifecycle_observer_(lifecycle_observer),
+      persistent_sessions_(&persistent_sessions), persistent_memberships_(&persistent_memberships)
 {
 }
 
@@ -75,16 +110,17 @@ auto InMemoryControlPlaneStore::removeSession(const domain::SessionId& session_i
     std::vector<EndedTransmission> interrupted;
     {
         std::scoped_lock lock{mutex_};
-        const auto session = sessions_.find(session_id);
-        if (session == sessions_.end())
+        const auto session = currentSessionLocked(session_id);
+        if (!session)
         {
             return {};
         }
 
-        sessions_.erase(session);
+        sessions_.erase(session_id);
         interrupted = interruptForSessionLocked(
             session_id, domain::TransmissionStopReason::disconnected, now, correlation_id);
     }
+    notifyEnded(interrupted);
     recordForcedInterruptions(interrupted, TransmissionAuditOperation::session_lifecycle);
     return interrupted;
 }
@@ -135,6 +171,7 @@ auto InMemoryControlPlaneStore::updateMembership(const domain::PlayerId& player_
                                 : domain::TransmissionStopReason::membership_changed;
         interrupted = interruptForPlayerLocked(player_id, reason, now, correlation_id);
     }
+    notifyEnded(interrupted);
     recordForcedInterruptions(interrupted, TransmissionAuditOperation::membership_change);
     return MembershipUpdateResult::updated(std::move(interrupted));
 }
@@ -167,6 +204,7 @@ auto InMemoryControlPlaneStore::removeMembership(const domain::PlayerId& player_
         interrupted = interruptForPlayerLocked(
             player_id, domain::TransmissionStopReason::membership_changed, now, correlation_id);
     }
+    notifyEnded(interrupted);
     recordForcedInterruptions(interrupted, TransmissionAuditOperation::membership_change);
     return interrupted;
 }
@@ -199,6 +237,44 @@ auto InMemoryControlPlaneStore::activate(AuthorizedTransmission transmission,
             TransmissionActivationError::membership_changed);
     }
 
+    const auto* sender_membership = membership->snapshot->find(transmission.sender_player_id);
+    const auto* scope_definition = membership->snapshot->hierarchy().findScope(transmission.scope);
+    if (sender_membership == nullptr || scope_definition == nullptr)
+    {
+        return TransmissionActivationResult::rejected(
+            TransmissionActivationError::membership_changed);
+    }
+    if (scope_definition->max_concurrent_speakers)
+    {
+        std::size_t matching_speakers{};
+        for (const auto& [id, active_transmission] : active_transmissions_)
+        {
+            static_cast<void>(id);
+            if (active_transmission.authorization.scope != transmission.scope)
+            {
+                continue;
+            }
+            const auto active_context =
+                currentMembershipLocked(active_transmission.authorization.sender_player_id);
+            if (!active_context)
+            {
+                continue;
+            }
+            const auto* active_membership =
+                active_context->snapshot->find(active_transmission.authorization.sender_player_id);
+            if (active_membership != nullptr &&
+                sameScopeNode(*sender_membership, *active_membership, transmission.scope))
+            {
+                ++matching_speakers;
+            }
+        }
+        if (matching_speakers >= *scope_definition->max_concurrent_speakers)
+        {
+            return TransmissionActivationResult::rejected(
+                TransmissionActivationError::speaker_limit_reached);
+        }
+    }
+
     for (const auto& [id, active_transmission] : active_transmissions_)
     {
         static_cast<void>(id);
@@ -217,8 +293,20 @@ auto InMemoryControlPlaneStore::activate(AuthorizedTransmission transmission,
 
     ActiveTransmission active_transmission{std::move(transmission), session_id, device_id,
                                            started_at};
+    active_transmission.scope_node_id =
+        scopeNodeId(*sender_membership, active_transmission.authorization.scope);
+    active_transmission.scope_can_subscribe =
+        sender_membership->can_receive_voice &&
+        membership->role_policy->canReceive(sender_membership->role_ids,
+                                            active_transmission.authorization.scope);
     active_transmissions_.emplace(active_transmission.authorization.transmission_id,
                                   active_transmission);
+    if (lifecycle_observer_ != nullptr && !lifecycle_observer_->onStarted(active_transmission))
+    {
+        active_transmissions_.erase(active_transmission.authorization.transmission_id);
+        return TransmissionActivationResult::rejected(
+            TransmissionActivationError::voice_control_failed);
+    }
     return TransmissionActivationResult::activated(std::move(active_transmission));
 }
 
@@ -229,24 +317,27 @@ auto InMemoryControlPlaneStore::end(const domain::TransmissionId& transmission_i
                                     const domain::CorrelationId& correlation_id)
     -> TransmissionEndRepositoryResult
 {
-    std::scoped_lock lock{mutex_};
-    const auto transmission = active_transmissions_.find(transmission_id);
-    if (transmission == active_transmissions_.end())
     {
-        return TransmissionEndRepositoryResult::rejected(
-            TransmissionEndRepositoryError::transmission_not_found);
-    }
-    if (transmission->second.session_id != session_id ||
-        transmission->second.device_id != device_id)
-    {
-        return TransmissionEndRepositoryResult::rejected(
-            TransmissionEndRepositoryError::transmission_not_owned);
-    }
+        std::scoped_lock lock{mutex_};
+        const auto transmission = active_transmissions_.find(transmission_id);
+        if (transmission == active_transmissions_.end())
+        {
+            return TransmissionEndRepositoryResult::rejected(
+                TransmissionEndRepositoryError::transmission_not_found);
+        }
+        if (transmission->second.session_id != session_id ||
+            transmission->second.device_id != device_id)
+        {
+            return TransmissionEndRepositoryResult::rejected(
+                TransmissionEndRepositoryError::transmission_not_owned);
+        }
 
-    EndedTransmission ended_transmission{transmission->second, stop_reason, ended_at,
-                                         correlation_id};
-    active_transmissions_.erase(transmission);
-    return TransmissionEndRepositoryResult::ended(std::move(ended_transmission));
+        EndedTransmission ended_transmission{transmission->second, stop_reason, ended_at,
+                                             correlation_id};
+        active_transmissions_.erase(transmission);
+        notifyEnded(ended_transmission);
+        return TransmissionEndRepositoryResult::ended(std::move(ended_transmission));
+    }
 }
 
 auto InMemoryControlPlaneStore::interrupt(const domain::TransmissionId& transmission_id,
@@ -255,18 +346,21 @@ auto InMemoryControlPlaneStore::interrupt(const domain::TransmissionId& transmis
                                           const domain::CorrelationId& correlation_id)
     -> TransmissionEndRepositoryResult
 {
-    std::scoped_lock lock{mutex_};
-    const auto transmission = active_transmissions_.find(transmission_id);
-    if (transmission == active_transmissions_.end())
     {
-        return TransmissionEndRepositoryResult::rejected(
-            TransmissionEndRepositoryError::transmission_not_found);
-    }
+        std::scoped_lock lock{mutex_};
+        const auto transmission = active_transmissions_.find(transmission_id);
+        if (transmission == active_transmissions_.end())
+        {
+            return TransmissionEndRepositoryResult::rejected(
+                TransmissionEndRepositoryError::transmission_not_found);
+        }
 
-    EndedTransmission ended_transmission{transmission->second, stop_reason, ended_at,
-                                         correlation_id};
-    active_transmissions_.erase(transmission);
-    return TransmissionEndRepositoryResult::ended(std::move(ended_transmission));
+        EndedTransmission ended_transmission{transmission->second, stop_reason, ended_at,
+                                             correlation_id};
+        active_transmissions_.erase(transmission);
+        notifyEnded(ended_transmission);
+        return TransmissionEndRepositoryResult::ended(std::move(ended_transmission));
+    }
 }
 
 auto InMemoryControlPlaneStore::expireTimedOut(std::chrono::milliseconds maximum_duration,
@@ -274,21 +368,24 @@ auto InMemoryControlPlaneStore::expireTimedOut(std::chrono::milliseconds maximum
                                                const domain::CorrelationId& correlation_id)
     -> std::vector<EndedTransmission>
 {
-    std::scoped_lock lock{mutex_};
     std::vector<EndedTransmission> expired;
-    for (auto transmission = active_transmissions_.begin();
-         transmission != active_transmissions_.end();)
     {
-        if (now - transmission->second.started_at < maximum_duration)
+        std::scoped_lock lock{mutex_};
+        for (auto transmission = active_transmissions_.begin();
+             transmission != active_transmissions_.end();)
         {
-            ++transmission;
-            continue;
-        }
+            if (now - transmission->second.started_at < maximum_duration)
+            {
+                ++transmission;
+                continue;
+            }
 
-        expired.emplace_back(transmission->second, domain::TransmissionStopReason::timed_out, now,
-                             correlation_id);
-        transmission = active_transmissions_.erase(transmission);
+            expired.emplace_back(transmission->second, domain::TransmissionStopReason::timed_out,
+                                 now, correlation_id);
+            transmission = active_transmissions_.erase(transmission);
+        }
     }
+    notifyEnded(expired);
     return expired;
 }
 
@@ -407,6 +504,23 @@ void InMemoryControlPlaneStore::recordForcedInterruptions(
         event.recipient_count = active.authorization.recipients.size();
         event.stop_reason = ended.stop_reason;
         audit_events_->record(event);
+    }
+}
+
+void InMemoryControlPlaneStore::notifyEnded(
+    const std::vector<EndedTransmission>& transmissions) const noexcept
+{
+    for (const auto& transmission : transmissions)
+    {
+        notifyEnded(transmission);
+    }
+}
+
+void InMemoryControlPlaneStore::notifyEnded(const EndedTransmission& transmission) const noexcept
+{
+    if (lifecycle_observer_ != nullptr)
+    {
+        lifecycle_observer_->onEnded(transmission);
     }
 }
 

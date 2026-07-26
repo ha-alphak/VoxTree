@@ -13,6 +13,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 /// Assemble the Windows UI shell and its client-side service graph.
@@ -31,6 +32,8 @@ enum class SessionEventKind : std::uint8_t
     transmission_started,
     /// The local transmission stopped.
     transmission_stopped,
+    /// A newer authoritative membership and grant set was applied.
+    membership_updated,
     /// A session operation failed.
     error
 };
@@ -50,6 +53,8 @@ struct SessionEvent final
     std::string error_code;
     /// Diagnostic detail supplied by the underlying subsystem.
     std::string diagnostic;
+    /// Refreshed membership associated with a membership event.
+    std::optional<client::MembershipView> membership;
 };
 
 /// Hold the outcome and membership established by a UI connection attempt.
@@ -213,5 +218,6 @@ class ClientSession final : private client::IClientIdentifierGenerator,
     client::PushToTalkBindingEngine binding_engine_;
     std::unique_ptr<client::AuthorizedPushToTalkInput> ptt_input_;
     std::unique_ptr<client::WinRawInputSource> raw_input_;
+    std::jthread membership_refresh_;
 };
 } // namespace hvc::windows_client

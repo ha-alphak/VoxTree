@@ -134,6 +134,25 @@ auto sessionCanBeReplacedAndErased() -> bool
            !repository.find(domain::SessionId{"session-1"}).has_value();
 }
 
+auto expiredSessionsAreReturnedInBoundedOrder() -> bool
+{
+    TemporaryDatabase database;
+    persistence::SqliteControlPlaneRepository repository{database.path()};
+    repository.upsert({domain::SessionId{"session-later"}, domain::PlayerId{"player-2"},
+                       domain::DeviceId{"device-2"},
+                       application::TimePoint{std::chrono::seconds{20}}});
+    repository.upsert({domain::SessionId{"session-first"}, domain::PlayerId{"player-1"},
+                       domain::DeviceId{"device-1"},
+                       application::TimePoint{std::chrono::seconds{10}}});
+    const auto first_page =
+        repository.expiredSessionIds(application::TimePoint{std::chrono::seconds{20}}, 1);
+    const auto all =
+        repository.expiredSessionIds(application::TimePoint{std::chrono::seconds{20}}, 10);
+    return first_page.size() == 1 && first_page.front() == domain::SessionId{"session-first"} &&
+           all.size() == 2 && all[0] == domain::SessionId{"session-first"} &&
+           all[1] == domain::SessionId{"session-later"};
+}
+
 auto membershipContextSurvivesRepositoryRestart() -> bool
 {
     TemporaryDatabase database;
@@ -350,7 +369,7 @@ auto newerSchemaIsRejected() -> bool
 
     // SQLite stores PRAGMA user_version as a four-byte big-endian value at header offset 60.
     std::fstream file{database.path(), std::ios::binary | std::ios::in | std::ios::out};
-    const std::array<char, 4> unsupported_version{0, 0, 0, 4};
+    const std::array<char, 4> unsupported_version{0, 0, 0, 5};
     file.seekp(60);
     file.write(unsupported_version.data(),
                static_cast<std::streamsize>(unsupported_version.size()));
@@ -374,6 +393,7 @@ auto main() -> int
     {
         return initialMigrationIsAppliedOnce() && sessionSurvivesRepositoryRestart() &&
                        sessionCanBeReplacedAndErased() &&
+                       expiredSessionsAreReturnedInBoundedOrder() &&
                        membershipContextSurvivesRepositoryRestart() &&
                        membershipVersionsOnlyMoveForward() &&
                        persistedUpdateInterruptsTransmissionAtomically() &&

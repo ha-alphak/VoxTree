@@ -435,6 +435,10 @@ void skipWhitespace(std::string_view input, std::size_t& position) noexcept
         return "membership_changed_during_start";
     case application::StartTransmissionError::sender_already_transmitting:
         return "sender_already_transmitting";
+    case application::StartTransmissionError::speaker_limit_reached:
+        return "speaker_limit_reached";
+    case application::StartTransmissionError::voice_control_unavailable:
+        return "voice_control_unavailable";
     case application::StartTransmissionError::transmission_id_conflict:
         return "transmission_id_conflict";
     case application::StartTransmissionError::rate_limited:
@@ -464,8 +468,11 @@ void skipWhitespace(std::string_view input, std::size_t& position) noexcept
     case application::StartTransmissionError::session_changed_during_start:
     case application::StartTransmissionError::membership_changed_during_start:
     case application::StartTransmissionError::sender_already_transmitting:
+    case application::StartTransmissionError::speaker_limit_reached:
     case application::StartTransmissionError::transmission_id_conflict:
         return 409;
+    case application::StartTransmissionError::voice_control_unavailable:
+        return 502;
     }
     return 500;
 }

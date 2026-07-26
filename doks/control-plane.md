@@ -231,12 +231,19 @@ ausschließlich aus einer Datei gelesen. Ohne vollständige LiveKit-Konfiguratio
 bleiben die übrigen Control-Plane-Endpunkte verfügbar, während
 `POST /api/v1/voice-grants` explizit `503` liefert.
 
-## Noch nicht enthalten
+## Server-Laufzeit
 
-- konkrete produktive Account-/Identity-Provider-Anbindung und dauerhafte
-  Account- oder Geräte-Persistenz
-- produktionsfähige kryptografische Tokenprüfung und kurzlebige Voice-Grants
-- autorisierte administrative HTTP-Endpunkte für Membership-Änderungen
-- dauerhafte Rate-Limit- und Moderationsrichtlinien
-- Scheduler für die regelmäßige Timeout-Prüfung
-- LiveKit-Anbindung
+Der Entry-Point unterstützt einen dateibasierten Mehrbenutzer-Identity-Adapter
+mit Geräte-Whitelist. Administrative Membership- und Moderationsrechte werden
+aus der jeweils aktuellen autoritativen Rollenbelegung abgeleitet.
+
+LiveKit-Grants beginnen ohne Publikationsrecht. Der atomare
+Transmissionslebenszyklus erteilt und entzieht das Recht über RoomService,
+während der Store gleichzeitig die konfigurierten Sprecherlimits pro
+Hierarchieknoten durchsetzt. Timeout-, Session- und Audit-Retention-Jobs laufen
+im Serverprozess.
+
+Der Linux-Listener verarbeitet Requests mit einem begrenzten Worker-Pool,
+Überlastschutz und geordnetem Signal-Shutdown. Readiness, Prometheus-Metriken,
+strukturierte Betriebsereignisse sowie Docker-/Compose-Auslieferung sind in
+[`server-runtime.md`](server-runtime.md) beschrieben.

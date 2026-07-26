@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 26. Juli 2026
-**Phase:** Integrationsschnittstelle abgeschlossen – Server-Laufzeit als Nächstes<br>
+**Phase:** Server-Laufzeit abgeschlossen – Last- und Sicherheitstests als Nächstes<br>
 **Gesamtstatus:** Gelb
 
 ## Abgeschlossen
@@ -315,37 +315,57 @@
 - DLL, Importbibliothek, C-/C++-Header und das CMake-Ziel
   `hvc::client_core` in Installation und Paketexport aufgenommen.
 
+- Dateibasierten Mehrbenutzer-Identity-Adapter mit Geräte-Whitelist und
+  zeitkonstantem Credentialvergleich an den Linux-Entry-Point angebunden.
+- Membership-Administration und Moderationsabbrüche über die aktuelle
+  autoritative `administrator`-/`moderator`-Rollenbelegung freigeschaltet.
+- LiveKit-Grants auf initial `canPublish=false` umgestellt und
+  RoomService-Control für atomaren Start sowie jeden terminalen Endpfad
+  verdrahtet.
+- Sprecherlimits pro konkretem Team-, Specialization- und Group-Knoten unter
+  demselben Store-Lock wie die Aktivierung durchgesetzt.
+- Scheduler für 250-ms-Transmission-Timeouts, Session-Bereinigung und
+  30-tägige Audit-Aufbewahrung in den Serverprozess integriert.
+- Membership-Polling im Windows-Client mit 500-ms-Intervall ergänzt; neue
+  Versionen erneuern Grants, Raumverbindungen, Empfangsabonnements und UI ohne
+  automatische Fortsetzung einer Transmission.
+- Linux-HTTP-Listener durch begrenzten Worker-Pool mit Queue-Überlastschutz,
+  Signal-Shutdown und Drain ersetzt.
+- Readiness, Prometheus-Metriken und strukturierte Betriebsereignisse für HTTP,
+  aktive Transmissionen, LiveKit und SQLite ergänzt.
+- Reproduzierbare Debian-13-Docker- und Compose-Auslieferung mit LiveKit
+  `1.13.4`, persistenten Daten, Compose-Secrets und Caddy-TLS angelegt.
+- Server-Laufzeit, Konfiguration, Sicherheitslebenszyklus, Jobs und Betrieb in
+  `server-runtime.md` dokumentiert.
+
 ## Aktueller Stand
 
 - Das technische Projektfundament, der transportunabhängige Domänenkern, der
   In-Memory-Transmissionslebenszyklus sowie die dauerhafte Session-,
   Membership- und Audit-Ablage sind vorhanden und lokal validiert.
 - Der erste versionierte Control-Plane-Netzwerkadapter ist implementiert. Der
-  plattformunabhängige Vertrag und Dispatcher sind unter Windows lokal
-  validiert; der Linux-spezifische Socketpfad wurde durch Debian-CI erfolgreich
-  gebaut. Der aktuelle Linux-Listener verarbeitet Verbindungen jedoch
-  sequenziell und ist noch nicht für parallele Last ausgelegt.
-- Der Anwendungskern ist für einen produktiven OIDC-/Account-Adapter
-  vorbereitet. Der Linux-Entry-Point verwendet weiterhin einen
-  Ein-Spieler-Bootstrap-Provider und verweigert administrative Membership- und
-  Moderationsoperationen. Ein realer Mehrbenutzerbetrieb ist damit noch nicht
-  hergestellt.
-- Die LiveKit-Tokenausstellung sowie die native Client- und Audioanbindung sind
-  vorhanden. Die Tokens gewähren berechtigten Scopes derzeit bereits beim
-  Verbindungsaufbau das Publikationsrecht. Der produktive Server koppelt
-  LiveKit `UpdateParticipant` noch nicht an Start, Ende, Timeout, Disconnect,
-  Moderation oder Membership- und Rechteänderungen. Der bestehende
-  Rechteentzugsnachweis ist ein isoliertes Quality Gate.
-- Transmission-Timeout, erzwungener Abbruch und Auditierung sind im
-  Anwendungskern implementiert und getestet. Im Serverprozess fehlen der
-  regelmäßige Timeout-Scheduler, Session-Bereinigung und
-  Audit-Aufbewahrungsjobs.
-- Sprecherlimits sind im Domänenmodell und in der Persistenz enthalten, werden
-  bei der serverseitigen Transmissionsaktivierung aber noch nicht pro
-  Voice-Scope durchgesetzt.
-- Der Windows-Client lädt Membership und Voice-Grants beim Verbindungsaufbau.
-  Eine laufende Push- oder Polling-Strecke für Membership- und Rechteänderungen
-  innerhalb des Ein-Sekunden-Ziels fehlt.
+  plattformunabhängige Vertrag und Dispatcher sind unter Windows validiert.
+  Der begrenzte Linux-Worker-Pool, Queue-Überlastschutz und Signal-Shutdown
+  wurden auf Debian 13 in Debug und Release gebaut und durch einen realen
+  Socket-Smoke-Test sowie ein dauerhaftes CTest-Regressions-Gate geprüft.
+- Der Linux-Entry-Point unterstützt einen dateibasierten
+  Mehrbenutzer-Identity-Adapter mit Gerätebindung und autorisiert
+  administrative sowie moderierende Operationen aus der aktuellen Membership.
+  Der Ein-Spieler-Bootstrap bleibt ausschließlich als lokaler Entwicklungsweg
+  erhalten.
+- LiveKit-Tokens starten publish-gesperrt. Der Server koppelt
+  `UpdateParticipant` atomar an Start und alle terminalen Endpfade; ein
+  fehlgeschlagener Control-Aufruf rollt die Aktivierung zurück.
+- Transmission-Timeout, Session-Bereinigung und Audit-Aufbewahrung laufen als
+  begrenzte periodische Jobs im Serverprozess. Sprecherlimits werden atomar pro
+  konkretem Voice-Scope-Knoten durchgesetzt.
+- Der Windows-Client erkennt Membership-Versionen durch 500-ms-Polling,
+  beendet eine lokale Publikation und erneuert Grants, Raumverbindungen und
+  Empfangsabonnements ohne automatische Fortsetzung.
+- Dockerfile und Compose-Topologie sind implementiert. Native Builds sowie der
+  vollständige Container-/Compose-Lauf sind auf Debian 13 bestanden,
+  einschließlich TLS, Healthchecks, nicht-root Serverprozess, Secret-Staging
+  und persistenter Session nach Container-Neuerstellung.
 - Der UI-unabhängige Windows-Client-Core, die Control-Plane-Clientanbindung, der
   WinHTTP-Adapter, das globale Tastatur-/Maus-Eingabesystem und der native
   LiveKit-Transportadapter sind vorhanden. Generische HID-Controller sind für
@@ -391,21 +411,7 @@
 
 ## Nächster Schritt
 
-Mit Abschnitt 10.1 „Server-Laufzeit vervollständigen“ fortfahren:
-
-1. Mehrbenutzer-Identity, Membership-Verwaltung und Moderationsautorisierung im
-   Linux-Entry-Point verdrahten.
-2. Einen LiveKit-Control-Adapter anbinden, der Publikationsrechte ausschließlich
-   für aktive, serverautorisierte Transmissionen erteilt und sie bei jedem
-   terminalen Ereignis einschließlich Timeout und Membership-Wechsel entzieht.
-3. Sprecherlimits atomar durchsetzen sowie Timeout-, Session- und
-   Aufbewahrungsjobs ausführen.
-4. Membership-Änderungen an verbundene Clients propagieren und deren Grants
-   sowie Empfangsabonnements aktualisieren.
-5. Den HTTP-Server begrenzt parallelisieren und Betriebsmetriken, Readiness,
-   geordnetes Herunterfahren sowie Docker-/Compose-Auslieferung ergänzen.
-
-Danach mit Abschnitt 10.2 einen Headless-Lasttreiber aufbauen und mindestens
+Mit Abschnitt 10.2 einen Headless-Lasttreiber aufbauen und mindestens
 200 virtuelle Spieler auf wenigen Lastgenerator-Rechnern prüfen. Reale
 Windows-PCs werden nur ergänzend für Audiohardware, Raw Input und den
 Ende-zu-Ende-Nachweis benötigt.
@@ -418,6 +424,11 @@ Ende-zu-Ende-Nachweis benötigt.
 | Windows MSVC Release | Bestanden |
 | CTest Debug | 14 von 14 Tests bestanden |
 | CTest Release | 14 von 14 Tests bestanden |
+| Linux GCC Debug auf Debian 13 | 14 von 14 Tests bestanden, einschließlich Sanitizer |
+| Linux GCC Release auf Debian 13 | 14 von 14 Tests bestanden |
+| Linux-Server-Laufzeit-Smoke | Bestanden: Readiness, Metriken, Mehrbenutzer-Authentifizierung, Gerätebindung, SQLite-Migration und Signal-Shutdown |
+| Linux-Queue-Überlastpfad | Bestanden: vollständige `503 server_overloaded`-Antwort ohne TCP-Reset |
+| Docker-/Compose-Lauf | Bestanden auf Debian 13: Images, Healthchecks, TLS-Proxy, nicht-root PID 1, `0400`-Secrets und persistente Session |
 | Client-Core-DLL und exportierte C-Symbole | Bestanden |
 | Client-Core C-ABI `1.0` und C11-Header-Compile-Gate | Bestanden |
 | Client-Core C++20-Wrapper und Beispielintegration | Bestanden |
@@ -439,12 +450,12 @@ Ende-zu-Ende-Nachweis benötigt.
 | Nativer Aufnahmegerätewechsel bei aktiver Opus-Publikation | Bestanden |
 | Nativer Wiedergabegerätewechsel mit kontrolliertem Raum-Reconnect | Bestanden |
 | LiveKit-Publish-Rechteentzug im isolierten Quality Gate | Bestanden |
-| Control-Plane-gesteuerter LiveKit-Publish-Lebenszyklus | Offen |
-| Mehrbenutzer-Identity und autorisierte Membership-Verwaltung | Offen |
-| Automatischer Transmission-Timeout im Serverprozess | Offen |
-| Serverseitige Sprecherlimits pro Scope | Offen |
-| Membership-Propagation an verbundene Clients | Offen |
-| Parallele, überlastgeschützte Linux-HTTP-Verarbeitung | Offen |
+| Control-Plane-gesteuerter LiveKit-Publish-Lebenszyklus | Bestanden, Adapter- und Lifecycle-Tests |
+| Mehrbenutzer-Identity und autorisierte Membership-Verwaltung | Bestanden |
+| Automatischer Transmission-Timeout im Serverprozess | Bestanden |
+| Serverseitige Sprecherlimits pro Scope | Bestanden |
+| Membership-Propagation an verbundene Clients | Bestanden, 500-ms-Polling |
+| Parallele, überlastgeschützte Linux-HTTP-Verarbeitung | Bestanden auf Debian 13, einschließlich CTest-Regression und realem Socket-Smoke-Test |
 | Headless-Lasttreiber und 200-Spieler-Ende-zu-Ende-Test | Offen |
 | Verhinderung nicht autorisierter LiveKit-Track-Abonnements | Bestanden |
 | LiveKit-Cross-Room-Isolation | Bestanden |
@@ -473,10 +484,10 @@ Ende-zu-Ende-Nachweis benötigt.
 | Risiko | Status | Maßnahme |
 |---|---|---|
 | Reife und Integration des LiveKit-C++-SDK | Beobachten | Quality Gate bestanden; bekannte Geräte- und Publication-Handle-Einschränkungen im Adapter kapseln |
-| LiveKit-Publikation ohne aktive Control-Plane-Transmission | Offen, release-blockierend | Publikationsrecht erst beim autorisierten Start erteilen und bei allen terminalen Ereignissen serverseitig entziehen |
-| Linux-Server nur als Ein-Spieler-Bootstrap und mit sequenziellem HTTP-Listener | Offen, release-blockierend | Mehrbenutzer-Adapter anbinden und begrenzte parallele Request-Verarbeitung implementieren |
-| Fehlende Laufzeitjobs und Membership-Propagation | Offen, release-blockierend | Timeout-, Session- und Retention-Scheduler sowie Push- oder Polling-Refresh ergänzen |
-| Sprecherlimits nur modelliert, nicht serverseitig erzwungen | Offen, release-blockierend | Aktivierungen atomar pro Scope und Hierarchieknoten begrenzen |
+| LiveKit-Publikation ohne aktive Control-Plane-Transmission | Abgeschlossen | Initiale Tokens bleiben publish-gesperrt; Lifecycle-Hook steuert den exakten Raum |
+| Linux-Server nur als Ein-Spieler-Bootstrap und mit sequenziellem HTTP-Listener | Abgeschlossen | Mehrbenutzer-Adapter und begrenzter Worker-Pool sind Standard im Deployment |
+| Laufzeitjobs und Membership-Propagation | Abgeschlossen | Scheduler und 500-ms-Client-Polling sind verdrahtet |
+| Sprecherlimits | Abgeschlossen | Aktivierungen werden atomar pro Scope und Hierarchieknoten begrenzt |
 | Autoritative Isolation im Shared-Room-Modell | Zurückgestellt | Getrennte, erfolgreich isolierte Räume verwenden |
 | Hintergrund-PTT für unterschiedliche HID-Geräte | Abgeschlossen | Tastatur/Maus und generische HID-Buttons umgesetzt; realer HOTAS-Button bei Fremdfokus über `RIM_INPUTSINK` bestätigt |
 | Windows 10 außerhalb des regulären Supports | Akzeptiert | Build 19045 unterstützen und Windows 11 mittesten |

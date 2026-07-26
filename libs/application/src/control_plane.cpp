@@ -138,6 +138,10 @@ auto mapActivationError(TransmissionActivationError error) -> StartTransmissionE
         return StartTransmissionError::membership_changed_during_start;
     case TransmissionActivationError::sender_already_transmitting:
         return StartTransmissionError::sender_already_transmitting;
+    case TransmissionActivationError::speaker_limit_reached:
+        return StartTransmissionError::speaker_limit_reached;
+    case TransmissionActivationError::voice_control_failed:
+        return StartTransmissionError::voice_control_unavailable;
     case TransmissionActivationError::transmission_id_conflict:
         return StartTransmissionError::transmission_id_conflict;
     }
@@ -175,6 +179,10 @@ auto mapAuditRejection(StartTransmissionError error) -> TransmissionAuditRejecti
         return TransmissionAuditRejectionReason::membership_changed_during_start;
     case StartTransmissionError::sender_already_transmitting:
         return TransmissionAuditRejectionReason::sender_already_transmitting;
+    case StartTransmissionError::speaker_limit_reached:
+        return TransmissionAuditRejectionReason::speaker_limit_reached;
+    case StartTransmissionError::voice_control_unavailable:
+        return TransmissionAuditRejectionReason::voice_control_unavailable;
     case StartTransmissionError::transmission_id_conflict:
         return TransmissionAuditRejectionReason::transmission_id_conflict;
     case StartTransmissionError::rate_limited:

@@ -27,6 +27,7 @@ AuthorizedVoiceClient::AuthorizedVoiceClient(ControlPlaneClient& control_plane,
 
 auto AuthorizedVoiceClient::connect(std::string_view external_credential) -> VoiceSessionResult
 {
+    const std::scoped_lock lock{mutex_};
     if (membership_.has_value() || voice_client_.state() != VoiceTransportState::disconnected)
     {
         return VoiceSessionResult::failure({VoiceSessionErrorSource::client_state,
@@ -67,6 +68,7 @@ auto AuthorizedVoiceClient::connect(std::string_view external_credential) -> Voi
 
 auto AuthorizedVoiceClient::disconnect() -> VoiceSessionResult
 {
+    const std::scoped_lock lock{mutex_};
     if (active_transmission_.has_value())
     {
         auto ended = releasePushToTalk();
@@ -86,8 +88,69 @@ auto AuthorizedVoiceClient::disconnect() -> VoiceSessionResult
     return VoiceSessionResult::success();
 }
 
+auto AuthorizedVoiceClient::refreshAuthorization() -> VoiceSessionResult
+{
+    const std::scoped_lock lock{mutex_};
+    if (!membership_.has_value() || voice_client_.state() == VoiceTransportState::disconnected)
+    {
+        return VoiceSessionResult::failure({VoiceSessionErrorSource::client_state, "not_connected",
+                                            "membership refresh requires a connected voice session",
+                                            0});
+    }
+    auto current_membership = control_plane_.membership();
+    if (!current_membership)
+    {
+        return controlPlaneFailure(*current_membership.error);
+    }
+    if (current_membership.value->version == membership_->version)
+    {
+        return VoiceSessionResult::success();
+    }
+    if (current_membership.value->version < membership_->version)
+    {
+        return VoiceSessionResult::failure(
+            {VoiceSessionErrorSource::control_plane, "voice_membership_stale",
+             "the server returned an obsolete membership version", 0});
+    }
+    auto grants = control_plane_.voiceGrants();
+    if (!grants)
+    {
+        return controlPlaneFailure(*grants.error);
+    }
+    if (grants.value->membership_version != current_membership.value->version)
+    {
+        return VoiceSessionResult::failure(
+            {VoiceSessionErrorSource::control_plane, "voice_membership_stale",
+             "voice grants do not match the refreshed membership version", 0});
+    }
+
+    if (voice_client_.activeTransmissionScope().has_value())
+    {
+        static_cast<void>(voice_client_.releasePushToTalk());
+    }
+    if (active_transmission_.has_value())
+    {
+        static_cast<void>(control_plane_.endTransmission(active_transmission_->transmission_id));
+        active_transmission_.reset();
+    }
+    auto disconnected = voice_client_.disconnect();
+    if (!disconnected)
+    {
+        return transportFailure(disconnected);
+    }
+    auto connected = voice_client_.connect(grants.value->room_grants);
+    if (!connected)
+    {
+        membership_.reset();
+        return transportFailure(connected);
+    }
+    membership_ = std::move(*current_membership.value);
+    return VoiceSessionResult::success();
+}
+
 auto AuthorizedVoiceClient::pressPushToTalk(domain::VoiceScope scope) -> VoiceSessionResult
 {
+    const std::scoped_lock lock{mutex_};
     if (!membership_.has_value() || voice_client_.state() != VoiceTransportState::connected)
     {
         return VoiceSessionResult::failure(
@@ -128,6 +191,7 @@ auto AuthorizedVoiceClient::pressPushToTalk(domain::VoiceScope scope) -> VoiceSe
 
 auto AuthorizedVoiceClient::releasePushToTalk() -> VoiceSessionResult
 {
+    const std::scoped_lock lock{mutex_};
     if (!active_transmission_.has_value())
     {
         return VoiceSessionResult::failure({VoiceSessionErrorSource::client_state,
@@ -160,6 +224,7 @@ auto AuthorizedVoiceClient::releasePushToTalk() -> VoiceSessionResult
 
 auto AuthorizedVoiceClient::endInterruptedTransmission() -> VoiceSessionResult
 {
+    const std::scoped_lock lock{mutex_};
     if (!active_transmission_.has_value())
     {
         return VoiceSessionResult::success();
@@ -175,11 +240,13 @@ auto AuthorizedVoiceClient::endInterruptedTransmission() -> VoiceSessionResult
 
 auto AuthorizedVoiceClient::membership() const -> std::optional<MembershipView>
 {
+    const std::scoped_lock lock{mutex_};
     return membership_;
 }
 
 auto AuthorizedVoiceClient::activeTransmission() const -> std::optional<StartedTransmission>
 {
+    const std::scoped_lock lock{mutex_};
     return active_transmission_;
 }
 

@@ -33,6 +33,7 @@ coverage/
 .env
 .env.*
 !.env.example
+/.codex-local/
 
 # Local LiveKit server distribution
 /livekit_1.13.4_windows_amd64/

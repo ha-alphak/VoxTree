@@ -222,8 +222,8 @@ auto auditRejectionFromInteger(sqlite3_int64 value) -> application::Transmission
 {
     if (value < static_cast<sqlite3_int64>(
                     application::TransmissionAuditRejectionReason::session_not_found) ||
-        value >
-            static_cast<sqlite3_int64>(application::TransmissionAuditRejectionReason::rate_limited))
+        value > static_cast<sqlite3_int64>(
+                    application::TransmissionAuditRejectionReason::voice_control_unavailable))
     {
         throw PersistenceError{"The audit database contains an invalid rejection reason."};
     }
@@ -460,6 +460,44 @@ CREATE TABLE transmission_audit_events (
     CHECK(membership_version IS NULL OR length(membership_version) > 0),
     CHECK(recipient_count IS NULL OR length(recipient_count) > 0)
 );
+CREATE INDEX transmission_audit_events_by_time
+    ON transmission_audit_events(occurred_at_unix_ms, sequence);
+)sql",
+    },
+    Migration{
+        4,
+        "extend_transmission_audit_rejections",
+        R"sql(
+ALTER TABLE transmission_audit_events RENAME TO transmission_audit_events_v3;
+CREATE TABLE transmission_audit_events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type INTEGER NOT NULL CHECK(event_type BETWEEN 0 AND 3),
+    operation INTEGER NOT NULL CHECK(operation BETWEEN 0 AND 5),
+    occurred_at_unix_ms INTEGER NOT NULL,
+    correlation_id TEXT NOT NULL CHECK(length(correlation_id) > 0),
+    session_id TEXT,
+    device_id TEXT,
+    client_transmission_id TEXT,
+    transmission_id TEXT,
+    actor_player_id TEXT,
+    sender_player_id TEXT,
+    scope INTEGER CHECK(scope BETWEEN 0 AND 2),
+    membership_version TEXT,
+    recipient_count TEXT,
+    stop_reason INTEGER CHECK(stop_reason BETWEEN 0 AND 9),
+    rejection_reason INTEGER CHECK(rejection_reason BETWEEN 0 AND 19),
+    CHECK(session_id IS NULL OR length(session_id) > 0),
+    CHECK(device_id IS NULL OR length(device_id) > 0),
+    CHECK(client_transmission_id IS NULL OR length(client_transmission_id) > 0),
+    CHECK(transmission_id IS NULL OR length(transmission_id) > 0),
+    CHECK(actor_player_id IS NULL OR length(actor_player_id) > 0),
+    CHECK(sender_player_id IS NULL OR length(sender_player_id) > 0),
+    CHECK(membership_version IS NULL OR length(membership_version) > 0),
+    CHECK(recipient_count IS NULL OR length(recipient_count) > 0)
+);
+INSERT INTO transmission_audit_events
+SELECT * FROM transmission_audit_events_v3;
+DROP TABLE transmission_audit_events_v3;
 CREATE INDEX transmission_audit_events_by_time
     ON transmission_audit_events(occurred_at_unix_ms, sequence);
 )sql",
@@ -1102,6 +1140,36 @@ auto SqliteControlPlaneRepository::erase(const domain::SessionId& session_id) ->
         throwDatabaseError(implementation_->database.get(), "Could not erase the session");
     }
     return sqlite3_changes(implementation_->database.get()) != 0;
+}
+
+auto SqliteControlPlaneRepository::expiredSessionIds(application::TimePoint now,
+                                                     std::size_t limit) const
+    -> std::vector<domain::SessionId>
+{
+    if (limit == 0)
+    {
+        throw std::invalid_argument{"The expired-session query limit must be positive."};
+    }
+    std::scoped_lock lock{implementation_->mutex};
+    auto statement = prepare(implementation_->database.get(),
+                             "SELECT session_id FROM sessions WHERE expires_at_unix_ms <= ?1 "
+                             "ORDER BY expires_at_unix_ms, session_id LIMIT ?2;");
+    bindInteger(implementation_->database.get(), statement.get(), 1, toUnixMilliseconds(now));
+    bindInteger(implementation_->database.get(), statement.get(), 2, limitToInteger(limit));
+    std::vector<domain::SessionId> identifiers;
+    while (true)
+    {
+        const auto result = sqlite3_step(statement.get());
+        if (result == SQLITE_DONE)
+        {
+            return identifiers;
+        }
+        if (result != SQLITE_ROW)
+        {
+            throwDatabaseError(implementation_->database.get(), "Could not query expired sessions");
+        }
+        identifiers.emplace_back(readText(statement.get(), 0));
+    }
 }
 
 auto SqliteControlPlaneRepository::currentFor(const domain::PlayerId& player_id) const

@@ -2,6 +2,7 @@
 
 #include <hvc/client/control_plane_client.hpp>
 #include <hvc/client/voice_client.hpp>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -129,6 +130,15 @@ class AuthorizedVoiceClient final : public IPushToTalkTarget
      *     cleared.
      */
     [[nodiscard]] auto disconnect() -> VoiceSessionResult;
+    /**
+     * Apply a newer membership and replace all room grants and subscriptions.
+     *
+     * A changed membership first stops local publication and never restores an
+     * interrupted transmission. Unchanged versions are a no-op.
+     *
+     * @returns Refresh outcome or the first control-plane/transport failure.
+     */
+    [[nodiscard]] auto refreshAuthorization() -> VoiceSessionResult;
     /// @copydoc IPushToTalkTarget::pressPushToTalk
     [[nodiscard]] auto pressPushToTalk(domain::VoiceScope scope) -> VoiceSessionResult override;
     /// @copydoc IPushToTalkTarget::releasePushToTalk
@@ -165,5 +175,6 @@ class AuthorizedVoiceClient final : public IPushToTalkTarget
     VoiceClient& voice_client_;
     std::optional<MembershipView> membership_;
     std::optional<StartedTransmission> active_transmission_;
+    mutable std::recursive_mutex mutex_;
 };
 } // namespace hvc::client

@@ -215,6 +215,28 @@ set_target_properties(hvc_network_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME network.control_plane_http COMMAND hvc_network_tests)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_package(Threads REQUIRED)
+  add_executable(
+    hvc_linux_http_server_tests
+    control_plane/linux_http_server_tests.cpp
+    "${PROJECT_SOURCE_DIR}/apps/control-plane/src/linux_http_server.cpp"
+  )
+  target_include_directories(
+    hvc_linux_http_server_tests
+    PRIVATE "${PROJECT_SOURCE_DIR}/apps/control-plane/src"
+  )
+  target_link_libraries(
+    hvc_linux_http_server_tests
+    PRIVATE
+      hvc::network
+      hvc::project_options
+      Threads::Threads
+  )
+  set_target_properties(hvc_linux_http_server_tests PROPERTIES CXX_EXTENSIONS OFF)
+  add_test(NAME control_plane.linux_http_server COMMAND hvc_linux_http_server_tests)
+endif()
+
 add_executable(hvc_livekit_tests livekit/livekit_token_tests.cpp)
 target_link_libraries(
   hvc_livekit_tests

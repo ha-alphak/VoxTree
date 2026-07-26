@@ -203,6 +203,37 @@ constexpr std::array<std::uint32_t, 64> round_constants{
 {
     return std::ranges::find(scopes, scope) != scopes.end();
 }
+
+[[nodiscard]] auto publicationRoom(const application::ActiveTransmission& transmission)
+    -> std::string
+{
+    switch (transmission.authorization.scope)
+    {
+    case domain::VoiceScope::team:
+        return "team:" + transmission.scope_node_id;
+    case domain::VoiceScope::specialization:
+        return "specialization:" + transmission.scope_node_id;
+    case domain::VoiceScope::group:
+        return "group:" + transmission.scope_node_id;
+    }
+    throw std::invalid_argument{"unsupported voice scope"};
+}
+
+[[nodiscard]] auto roomServiceToken(const LiveKitCredentials& credentials,
+                                    std::string_view room_name) -> std::string
+{
+    const auto expiration =
+        std::chrono::duration_cast<std::chrono::seconds>(
+            (application::Clock::now() + std::chrono::seconds{30}).time_since_epoch())
+            .count();
+    const auto payload = "{\"iss\":" + jsonEscape(credentials.api_key) +
+                         ",\"sub\":\"hvc-control-plane\",\"exp\":" + std::to_string(expiration) +
+                         ",\"video\":{\"roomAdmin\":true,\"room\":" + jsonEscape(room_name) + "}}";
+    const auto signing_input =
+        base64Url(R"({"alg":"HS256","typ":"JWT"})") + '.' + base64Url(payload);
+    const auto signature = hmacSha256(credentials.api_secret, signing_input);
+    return signing_input + '.' + base64Url(signature.data(), signature.size());
+}
 } // namespace
 
 LiveKitCredentials::LiveKitCredentials(std::string key, std::string secret)
@@ -236,9 +267,9 @@ auto LiveKitTokenAdapter::issue(const application::VoiceGrantClaims& claims) con
     std::vector<SignedRoomGrant> grants;
     for (const auto scope : scopes)
     {
-        const auto can_publish = contains(claims.transmit_scopes, scope);
+        const auto can_transmit = contains(claims.transmit_scopes, scope);
         const auto can_subscribe = contains(claims.receive_scopes, scope);
-        if (!can_publish && !can_subscribe)
+        if (!can_transmit && !can_subscribe)
         {
             continue;
         }
@@ -246,13 +277,12 @@ auto LiveKitTokenAdapter::issue(const application::VoiceGrantClaims& claims) con
         const auto metadata =
             "{\"device_id\":" + jsonEscape(claims.device_id.value()) +
             ",\"membership_version\":" + std::to_string(claims.membership_version) + '}';
-        const auto payload = "{\"iss\":" + jsonEscape(credentials_.api_key) +
-                             ",\"sub\":" + jsonEscape(claims.player_id.value()) +
-                             ",\"exp\":" + std::to_string(expiration) +
-                             ",\"metadata\":" + jsonEscape(metadata) +
-                             ",\"video\":{\"roomJoin\":true,\"room\":" + jsonEscape(room) +
-                             ",\"canPublish\":" + (can_publish ? "true" : "false") +
-                             ",\"canSubscribe\":" + (can_subscribe ? "true" : "false") + "}}";
+        const auto payload =
+            "{\"iss\":" + jsonEscape(credentials_.api_key) +
+            ",\"sub\":" + jsonEscape(claims.player_id.value()) +
+            ",\"exp\":" + std::to_string(expiration) + ",\"metadata\":" + jsonEscape(metadata) +
+            ",\"video\":{\"roomJoin\":true,\"room\":" + jsonEscape(room) + ",\"canPublish\":false" +
+            ",\"canSubscribe\":" + (can_subscribe ? "true" : "false") + "}}";
         const auto signing_input =
             base64Url(R"({"alg":"HS256","typ":"JWT"})") + '.' + base64Url(payload);
         const auto signature = hmacSha256(credentials_.api_secret, signing_input);
@@ -260,5 +290,60 @@ auto LiveKitTokenAdapter::issue(const application::VoiceGrantClaims& claims) con
             {scope, room, signing_input + '.' + base64Url(signature.data(), signature.size())});
     }
     return grants;
+}
+
+LiveKitPublicationController::LiveKitPublicationController(LiveKitCredentials credentials,
+                                                           ILiveKitRoomServiceClient& room_service)
+    : credentials_(std::move(credentials)), room_service_(room_service)
+{
+}
+
+auto LiveKitPublicationController::onStarted(const application::ActiveTransmission& transmission)
+    -> bool
+{
+    try
+    {
+        const auto successful = update(transmission, true);
+        if (!successful)
+        {
+            failure_count_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return successful;
+    }
+    catch (...)
+    {
+        failure_count_.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+}
+
+void LiveKitPublicationController::onEnded(
+    const application::EndedTransmission& transmission) noexcept
+{
+    try
+    {
+        if (!update(transmission.transmission, false))
+        {
+            failure_count_.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+    catch (...)
+    {
+        failure_count_.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+auto LiveKitPublicationController::failureCount() const noexcept -> std::uint64_t
+{
+    return failure_count_.load(std::memory_order_relaxed);
+}
+
+auto LiveKitPublicationController::update(const application::ActiveTransmission& transmission,
+                                          bool can_publish) -> bool
+{
+    const auto room_name = publicationRoom(transmission);
+    return room_service_.updateParticipant(
+        room_name, transmission.authorization.sender_player_id.value(), can_publish,
+        transmission.scope_can_subscribe, roomServiceToken(credentials_, room_name));
 }
 } // namespace hvc::livekit

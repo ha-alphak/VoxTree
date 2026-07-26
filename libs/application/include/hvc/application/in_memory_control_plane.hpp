@@ -33,18 +33,22 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
      * Construct a purely in-memory store.
      *
      * @param audit_events Optional non-owning audit sink.
+     * @param lifecycle_observer Optional external voice lifecycle observer.
      */
     explicit InMemoryControlPlaneStore(
-        ITransmissionAuditEventSink* audit_events = nullptr) noexcept;
+        ITransmissionAuditEventSink* audit_events = nullptr,
+        ITransmissionLifecycleObserver* lifecycle_observer = nullptr) noexcept;
     /**
      * Construct a store backed by persistent memberships.
      *
      * @param persistent_memberships Repository that must outlive the store.
      * @param audit_events Optional non-owning audit sink.
+     * @param lifecycle_observer Optional external voice lifecycle observer.
      */
     explicit InMemoryControlPlaneStore(
         IMutableAuthoritativeMembershipRepository& persistent_memberships,
-        ITransmissionAuditEventSink* audit_events = nullptr) noexcept;
+        ITransmissionAuditEventSink* audit_events = nullptr,
+        ITransmissionLifecycleObserver* lifecycle_observer = nullptr) noexcept;
     /**
      * Construct a store backed by persistent sessions and memberships.
      *
@@ -52,10 +56,13 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
      * @param persistent_memberships Membership repository that must outlive the
      *     store.
      * @param audit_events Optional non-owning audit sink.
+     * @param lifecycle_observer Optional external voice lifecycle observer.
      */
-    InMemoryControlPlaneStore(const ISessionRepository& persistent_sessions,
-                              IMutableAuthoritativeMembershipRepository& persistent_memberships,
-                              ITransmissionAuditEventSink* audit_events = nullptr) noexcept;
+    InMemoryControlPlaneStore(
+        const ISessionRepository& persistent_sessions,
+        IMutableAuthoritativeMembershipRepository& persistent_memberships,
+        ITransmissionAuditEventSink* audit_events = nullptr,
+        ITransmissionLifecycleObserver* lifecycle_observer = nullptr) noexcept;
 
     /**
      * Insert or replace a cached authenticated session.
@@ -157,6 +164,8 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
         -> std::vector<EndedTransmission>;
     void recordForcedInterruptions(const std::vector<EndedTransmission>& interrupted_transmissions,
                                    TransmissionAuditOperation operation) const noexcept;
+    void notifyEnded(const std::vector<EndedTransmission>& transmissions) const noexcept;
+    void notifyEnded(const EndedTransmission& transmission) const noexcept;
     [[nodiscard]] auto currentMembershipLocked(const domain::PlayerId& player_id) const
         -> std::optional<AuthoritativeMembershipContext>;
     [[nodiscard]] auto currentSessionLocked(const domain::SessionId& session_id) const
@@ -164,6 +173,7 @@ class InMemoryControlPlaneStore final : public ISessionRepository,
 
     mutable std::mutex mutex_;
     ITransmissionAuditEventSink* audit_events_;
+    ITransmissionLifecycleObserver* lifecycle_observer_;
     const ISessionRepository* persistent_sessions_{nullptr};
     IMutableAuthoritativeMembershipRepository* persistent_memberships_{nullptr};
     std::map<domain::SessionId, AuthenticatedSession> sessions_;

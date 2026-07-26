@@ -13,6 +13,63 @@ namespace application = hvc::application;
 namespace domain = hvc::domain;
 namespace livekit = hvc::livekit;
 
+class RecordingRoomService final : public livekit::ILiveKitRoomServiceClient
+{
+  public:
+    [[nodiscard]] auto updateParticipant(std::string_view room_name,
+                                         std::string_view participant_identity, bool can_publish,
+                                         bool can_subscribe, std::string_view authorization_token)
+        -> bool override
+    {
+        room = room_name;
+        identity = participant_identity;
+        publishing = can_publish;
+        subscribing = can_subscribe;
+        token_present = !authorization_token.empty();
+        ++calls;
+        return true;
+    }
+
+    std::string room;
+    std::string identity;
+    bool publishing{};
+    bool subscribing{};
+    bool token_present{};
+    int calls{};
+};
+
+[[nodiscard]] auto tokenPayload(std::string_view token) -> std::string
+{
+    constexpr std::string_view alphabet{
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"};
+    const auto first_dot = token.find('.');
+    const auto second_dot = token.find('.', first_dot + 1U);
+    if (first_dot == std::string_view::npos || second_dot == std::string_view::npos)
+    {
+        return {};
+    }
+    const auto encoded = token.substr(first_dot + 1U, second_dot - first_dot - 1U);
+    std::string decoded;
+    std::uint32_t bits{};
+    int bit_count{};
+    for (const char character : encoded)
+    {
+        const auto value = alphabet.find(character);
+        if (value == std::string_view::npos)
+        {
+            return {};
+        }
+        bits = (bits << 6U) | static_cast<std::uint32_t>(value);
+        bit_count += 6;
+        if (bit_count >= 8)
+        {
+            bit_count -= 8;
+            decoded.push_back(static_cast<char>((bits >> bit_count) & 0xFFU));
+        }
+    }
+    return decoded;
+}
+
 [[nodiscard]] auto claimsFor(std::string group, std::string specialization, std::string team)
     -> application::VoiceGrantClaims
 {
@@ -47,13 +104,8 @@ namespace livekit = hvc::livekit;
 
     return grants.size() == 2 && grants[0].scope == domain::VoiceScope::team &&
            grants[0].room_name == "team:team-1" &&
-           grants[0].access_token ==
-               "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-               "eyJpc3MiOiJhcGkta2V5Iiwic3ViIjoicGxheWVyLTQyIiwiZXhwIjoxODAwMDAwMDAwLCJt"
-               "ZXRhZGF0YSI6IntcImRldmljZV9pZFwiOlwiZGV2aWNlLTFcIixcIm1lbWJlcnNoaXBfdmVy"
-               "c2lvblwiOjd9IiwidmlkZW8iOnsicm9vbUpvaW4iOnRydWUsInJvb20iOiJ0ZWFtOnRlYW0t"
-               "MSIsImNhblB1Ymxpc2giOnRydWUsImNhblN1YnNjcmliZSI6dHJ1ZX19."
-               "8Wds09PEqbprWxbrlmlmDd6xhXS-z_uhUSzsGjK8JAo" &&
+           tokenPayload(grants[0].access_token).find("\"canPublish\":false") != std::string::npos &&
+           tokenPayload(grants[0].access_token).find("\"canPublish\":true") == std::string::npos &&
            grants[1].scope == domain::VoiceScope::group && grants[1].room_name == "group:group-1";
 }
 
@@ -76,6 +128,33 @@ namespace livekit = hvc::livekit;
            alpha_team_one[0].access_token != alpha_team_two[0].access_token &&
            alpha_team_one[2].access_token != beta_team_one[2].access_token;
 }
+
+[[nodiscard]] auto controlsPublicationForTheExactActiveRoom() -> bool
+{
+    RecordingRoomService room_service;
+    livekit::LiveKitPublicationController controller{
+        livekit::LiveKitCredentials{"api-key", "api-secret"}, room_service};
+    application::AuthorizedTransmission authorization{domain::TransmissionId{"tx-1"},
+                                                      domain::ClientTransmissionId{"client-1"},
+                                                      domain::PlayerId{"player-42"},
+                                                      domain::VoiceScope::group,
+                                                      7,
+                                                      {domain::PlayerId{"recipient"}},
+                                                      domain::CorrelationId{"start"}};
+    application::ActiveTransmission active{std::move(authorization), domain::SessionId{"session-1"},
+                                           domain::DeviceId{"device-1"}, application::Clock::now()};
+    active.scope_node_id = "group-1";
+    active.scope_can_subscribe = true;
+    if (!controller.onStarted(active) || room_service.calls != 1 ||
+        room_service.room != "group:group-1" || room_service.identity != "player-42" ||
+        !room_service.publishing || !room_service.subscribing || !room_service.token_present)
+    {
+        return false;
+    }
+    controller.onEnded({active, domain::TransmissionStopReason::timed_out,
+                        application::Clock::now(), domain::CorrelationId{"timeout"}});
+    return room_service.calls == 2 && !room_service.publishing && controller.failureCount() == 0;
+}
 } // namespace
 
 auto main() noexcept -> int
@@ -83,7 +162,8 @@ auto main() noexcept -> int
     try
     {
         if (!signsOnlyAuthorizedRoomsWithLeastPrivilege() ||
-            !separatesTeamAndGroupRoomsAcrossMemberships())
+            !separatesTeamAndGroupRoomsAcrossMemberships() ||
+            !controlsPublicationForTheExactActiveRoom())
         {
             std::fputs("LiveKit token test failed\n", stderr);
             return 1;

@@ -8,6 +8,7 @@
 #include "client_session.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <objbase.h>
 #include <stdexcept>
@@ -122,6 +123,40 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
         }
 
         auto membership = authorized_client_->membership();
+        membership_refresh_ = std::jthread{[this](std::stop_token stop_token) {
+            std::uint64_t known_version{};
+            if (const auto current = authorized_client_->membership(); current)
+            {
+                known_version = current->version;
+            }
+            while (!stop_token.stop_requested())
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds{500});
+                if (stop_token.stop_requested() || authorized_client_ == nullptr)
+                {
+                    return;
+                }
+                const auto refreshed = authorized_client_->refreshAuthorization();
+                if (!refreshed)
+                {
+                    report(SessionEvent{SessionEventKind::error,
+                                        client::VoiceTransportState::connected,
+                                        std::nullopt,
+                                        {},
+                                        refreshed.error->code,
+                                        voiceSessionMessage(refreshed)});
+                    continue;
+                }
+                const auto current = authorized_client_->membership();
+                if (current && current->version > known_version)
+                {
+                    known_version = current->version;
+                    SessionEvent event{SessionEventKind::membership_updated};
+                    event.membership = current;
+                    report(std::move(event));
+                }
+            }
+        }};
         return {true, {}, std::move(membership)};
     }
     catch (const std::exception& error)
@@ -133,6 +168,11 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
 
 void ClientSession::disconnect() noexcept
 {
+    membership_refresh_.request_stop();
+    if (membership_refresh_.joinable())
+    {
+        membership_refresh_.join();
+    }
     if (raw_input_ != nullptr)
     {
         raw_input_->stop();

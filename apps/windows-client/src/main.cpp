@@ -707,6 +707,13 @@ class App : public ApplicationT<App>
             send_text_.Text(labeledValue(IDS_SEND, text(IDS_SEND_IDLE)));
             active_scope_text_.Text(labeledValue(IDS_ACTIVE_SCOPE, text(IDS_SCOPE_IDLE)));
             break;
+        case SessionEventKind::membership_updated:
+            if (event.membership.has_value())
+            {
+                membership_ = *event.membership;
+                populateConnectedView();
+            }
+            break;
         case SessionEventKind::error:
             error_status_text_.Text(labeledValue(IDS_ERROR, to_hstring(event.error_code)));
             diagnostics_text_.Text(to_hstring(event.diagnostic));

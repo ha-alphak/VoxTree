@@ -671,6 +671,10 @@ enum class TransmissionActivationError : std::uint8_t
     membership_changed,
     /// The sender already has an active transmission.
     sender_already_transmitting,
+    /// The configured concurrent-speaker limit for the addressed hierarchy node is full.
+    speaker_limit_reached,
+    /// The external voice service could not grant publication permission.
+    voice_control_failed,
     /// The server transmission identifier is already active.
     transmission_id_conflict
 };
@@ -701,6 +705,10 @@ struct ActiveTransmission final
     domain::DeviceId device_id;
     /// Authoritative activation time.
     TimePoint started_at;
+    /// Hierarchy-node identifier addressed by `authorization.scope`.
+    std::string scope_node_id;
+    /// Whether the participant may subscribe in the addressed scope.
+    bool scope_can_subscribe{};
 };
 
 /// Hold either an activated transmission or an activation rejection.
@@ -770,6 +778,34 @@ struct EndedTransmission final
     TimePoint ended_at;
     /// Correlation identifier of the terminating operation.
     domain::CorrelationId correlation_id;
+};
+
+/**
+ * Apply active transmission state to an external voice service.
+ *
+ * Implementations must make publication permission match the active
+ * server-side lifecycle. End notifications are best-effort and must not throw.
+ */
+class ITransmissionLifecycleObserver
+{
+  public:
+    /// Destroy the lifecycle-observer interface.
+    virtual ~ITransmissionLifecycleObserver() = default;
+
+    /**
+     * Grant publication for a newly active transmission.
+     *
+     * @param transmission Active server-authorized transmission.
+     * @returns `true` when publication is enabled for exactly its scope.
+     */
+    [[nodiscard]] virtual auto onStarted(const ActiveTransmission& transmission) -> bool = 0;
+
+    /**
+     * Revoke publication and remove any active track after termination.
+     *
+     * @param transmission Immutable terminal transmission record.
+     */
+    virtual void onEnded(const EndedTransmission& transmission) noexcept = 0;
 };
 
 /// Membership-write rejection exposed by administrative update operations.
@@ -994,6 +1030,10 @@ enum class StartTransmissionError : std::uint8_t
     membership_changed_during_start,
     /// The sender already has an active transmission.
     sender_already_transmitting,
+    /// The addressed hierarchy node already has its maximum number of speakers.
+    speaker_limit_reached,
+    /// The voice service rejected publication-right activation.
+    voice_control_unavailable,
     /// The generated server transmission identifier already exists.
     transmission_id_conflict,
     /// The participant exceeded the start-operation rate limit.

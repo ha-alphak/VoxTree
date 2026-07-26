@@ -99,6 +99,34 @@ class RecordingAuditEventSink final : public application::ITransmissionAuditEven
     bool recording_failed{};
 };
 
+class RecordingLifecycleObserver final : public application::ITransmissionLifecycleObserver
+{
+  public:
+    [[nodiscard]] auto onStarted(const application::ActiveTransmission& transmission)
+        -> bool override
+    {
+        started.push_back(transmission.authorization.transmission_id);
+        return allow_start;
+    }
+
+    void onEnded(const application::EndedTransmission& transmission) noexcept override
+    {
+        try
+        {
+            ended.push_back(transmission.transmission.authorization.transmission_id);
+        }
+        catch (...)
+        {
+            recording_failed = true;
+        }
+    }
+
+    bool allow_start{true};
+    bool recording_failed{};
+    std::vector<domain::TransmissionId> started;
+    std::vector<domain::TransmissionId> ended;
+};
+
 struct Fixture final
 {
     Fixture()
@@ -183,6 +211,74 @@ auto startsAndEndsAnActiveTransmission() -> bool
            ended.transmission->stop_reason ==
                domain::TransmissionStopReason::push_to_talk_released &&
            fixture.store.activeCount() == 0;
+}
+
+auto enforcesSpeakerLimitsAndVoiceLifecycle() -> bool
+{
+    RecordingLifecycleObserver lifecycle;
+    application::InMemoryControlPlaneStore store{nullptr, &lifecycle};
+    const auto now = application::TimePoint{std::chrono::seconds{2'000}};
+    for (const auto* player : {"sender", "other", "recipient"})
+    {
+        store.upsertSession(
+            {domain::SessionId{"session-" + std::string{player}}, domain::PlayerId{player},
+             domain::DeviceId{"device-" + std::string{player}}, now + std::chrono::minutes{5}});
+    }
+    auto snapshot = std::make_shared<const domain::MembershipSnapshot>(
+        1, makeHierarchy(),
+        std::vector<domain::VoiceMembership>{makeMember("sender", "leader"),
+                                             makeMember("other", "leader"),
+                                             makeMember("recipient", "leader")});
+    auto policy = std::make_shared<const domain::RolePolicy>(std::vector<domain::RolePermissions>{
+        {domain::RoleId{"leader"}, {domain::VoiceScope::group}, {domain::VoiceScope::group}}});
+    for (const auto* player : {"sender", "other", "recipient"})
+    {
+        const auto updated =
+            store.updateMembership(domain::PlayerId{player}, {snapshot, policy}, now,
+                                   domain::CorrelationId{"membership-" + std::string{player}},
+                                   application::AuthoritativeContextChange::membership_changed);
+        if (!updated.successful())
+        {
+            return false;
+        }
+    }
+    application::InMemoryTransmissionRateLimiter limiter{{100, std::chrono::seconds{10}},
+                                                         {100, std::chrono::seconds{10}}};
+    ModerationAuthorizer moderation;
+    TransmissionIdGenerator identifiers;
+    application::TransmissionApplicationService service{
+        store,
+        store,
+        identifiers,
+        store,
+        limiter,
+        moderation,
+        application::TransmissionLifecyclePolicy{std::chrono::seconds{30}}};
+    const auto start_for = [&](std::string player) {
+        return service.start(
+            {domain::SessionId{"session-" + player}, domain::DeviceId{"device-" + player},
+             domain::ClientTransmissionId{"client-" + player}, domain::VoiceScope::group, 1,
+             domain::CorrelationId{"start-" + player}},
+            now);
+    };
+    const auto first = start_for("sender");
+    const auto second = start_for("other");
+    const auto limited = start_for("recipient");
+    if (!first.successful() || !second.successful() ||
+        limited.error != application::StartTransmissionError::speaker_limit_reached ||
+        lifecycle.started.size() != 2)
+    {
+        return false;
+    }
+    const auto ended = service.end(
+        {domain::SessionId{"session-sender"}, domain::DeviceId{"device-sender"},
+         first.transmission->authorization.transmission_id, domain::CorrelationId{"end-sender"}},
+        now);
+    lifecycle.allow_start = false;
+    const auto voice_failure = start_for("recipient");
+    return ended.successful() && lifecycle.ended.size() == 1 &&
+           voice_failure.error == application::StartTransmissionError::voice_control_unavailable &&
+           store.activeCount() == 1 && !lifecycle.recording_failed;
 }
 
 auto membershipChangeAtomicallyInterruptsTransmission() -> bool
@@ -580,6 +676,7 @@ auto main() noexcept -> int
     try
     {
         const bool passed = startsAndEndsAnActiveTransmission() &&
+                            enforcesSpeakerLimitsAndVoiceLifecycle() &&
                             membershipChangeAtomicallyInterruptsTransmission() &&
                             permissionChangeAtomicallyInterruptsAndRevokes() &&
                             staleChangesCannotReplaceStateOrLeaveAStaleTransmission() &&

@@ -36,6 +36,10 @@
 - Primäre Zielplattform ist Debian 13 x64.
 - Ubuntu LTS kann als sekundäre Plattform unterstützt werden.
 - Der initiale Betrieb erfolgt containerisiert mit Docker und Compose.
+- Der Linux-HTTP-Adapter verwendet einen konfigurierbaren festen Worker-Pool
+  mit begrenzter Queue, Überlastantwort und geordnetem Signal-Shutdown.
+- Readiness und Prometheus-Metriken bleiben im internen Betriebsnetz; TLS wird
+  durch den vorgeschalteten Reverse Proxy terminiert.
 - Kubernetes wird erst bei nachgewiesenem Skalierungsbedarf eingeführt.
 
 ## Control-Plane-Anwendungsschicht
@@ -142,6 +146,9 @@
 - Der Client darf keine vertrauenswürdige Empfängerliste vorgeben.
 - Zugriffsrechte auf Voice-Räume sind kurzlebig und werden serverseitig
   ausgestellt.
+- Raumtokens starten ohne Publikationsrecht. Dieses wird ausschließlich für
+  eine atomar aktive Control-Plane-Transmission über LiveKit RoomService
+  erteilt und bei jedem terminalen Ereignis wieder entzogen.
 - Änderungen von Mitgliedschaft oder Berechtigungen beenden eine laufende
   Übertragung atomar.
 - Die erste sichere Ausbaustufe verwendet getrennte Voice-Räume für Group,
@@ -193,6 +200,10 @@ Alle Grenzwerte sind konfigurierbar. Die initialen Standardwerte sind:
 
 Die Priorität lautet Group, Specialization, Team. Priorisierung beeinflusst
 Ducking und Stream-Admission, niemals die Empfängerberechtigung.
+
+Die serverseitige Aktivierung zählt Sprecher atomar pro konkretem
+Hierarchieknoten. Das Limit ist damit auch bei parallelen Startanforderungen
+verbindlich.
 
 Der Client lässt innerhalb eines Scopes zuerst veröffentlichte Spuren zuerst
 zu. Höhere Scopes verdrängen niedrigere deterministisch. Standard-Ducking-Gains

@@ -1,13 +1,17 @@
 add_executable(hvc_control_plane src/main.cpp)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_package(Threads REQUIRED)
   target_sources(
     hvc_control_plane
     PRIVATE
       src/linux_http_server.cpp
       src/linux_http_server.hpp
+      src/livekit_room_service_client.cpp
+      src/livekit_room_service_client.hpp
   )
   target_compile_definitions(hvc_control_plane PRIVATE HVC_HAS_LINUX_HTTP_SERVER=1)
+  target_link_libraries(hvc_control_plane PRIVATE Threads::Threads)
 endif()
 
 target_compile_features(hvc_control_plane PRIVATE cxx_std_20)

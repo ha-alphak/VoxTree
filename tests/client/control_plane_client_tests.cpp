@@ -47,13 +47,17 @@ class ScriptedHttpTransport final : public client::IClientHttpTransport
         {
             return json(
                 200,
-                R"({"api_version":"v1","membership_version":42,"hierarchy_id":"hierarchy-1","player_id":"player-1","group_id":"group-1","specialization_id":"specialization-1","team_id":"team-1","role_ids":["speaker"],"connected":true,"can_receive_voice":true,"transmit_muted":false})");
+                R"({"api_version":"v1","membership_version":)" +
+                    std::to_string(membership_version) +
+                    R"(,"hierarchy_id":"hierarchy-1","player_id":"player-1","group_id":"group-1","specialization_id":"specialization-1","team_id":"team-1","role_ids":["speaker"],"connected":true,"can_receive_voice":true,"transmit_muted":false})");
         }
         if (request.target == "/api/v1/voice-grants")
         {
             return json(
                 201,
-                R"({"api_version":"v1","server_url":"ws://voice","membership_version":42,"expires_at_unix_ms":1030000,"grants":[{"scope":"team","room_name":"team:team-1","access_token":"team-token"},{"scope":"group","room_name":"group:group-1","access_token":"group-token"}]})");
+                R"({"api_version":"v1","server_url":"ws://voice","membership_version":)" +
+                    std::to_string(membership_version) +
+                    R"(,"expires_at_unix_ms":1030000,"grants":[{"scope":"team","room_name":"team:team-1","access_token":"team-token"},{"scope":"group","room_name":"group:group-1","access_token":"group-token"}]})");
         }
         if (request.target == "/api/v1/transmissions")
         {
@@ -96,6 +100,7 @@ class ScriptedHttpTransport final : public client::IClientHttpTransport
     bool start_authorized{false};
     int end_calls{0};
     int end_failures_remaining{0};
+    std::uint64_t membership_version{42};
 };
 
 class FakeVoiceTransport final : public client::IVoiceTransport
@@ -118,6 +123,7 @@ class FakeVoiceTransport final : public client::IVoiceTransport
     [[nodiscard]] auto connect(std::span<const client::VoiceRoomGrant> grants)
         -> client::VoiceTransportResult override
     {
+        ++connect_calls;
         grant_count = grants.size();
         state_ = client::VoiceTransportState::connected;
         if (observer_ != nullptr)
@@ -129,6 +135,7 @@ class FakeVoiceTransport final : public client::IVoiceTransport
 
     [[nodiscard]] auto disconnect() -> client::VoiceTransportResult override
     {
+        ++disconnect_calls;
         state_ = client::VoiceTransportState::disconnected;
         if (observer_ != nullptr)
         {
@@ -212,6 +219,8 @@ class FakeVoiceTransport final : public client::IVoiceTransport
     std::optional<domain::VoiceScope> active_scope_;
     std::size_t grant_count{0};
     int start_calls{0};
+    int connect_calls{0};
+    int disconnect_calls{0};
     bool fail_microphone_start{false};
 };
 
@@ -261,6 +270,26 @@ auto rollsBackAuthorizationWhenMicrophoneFails() -> bool
 
     return authorized.connect("external-credential") &&
            !authorized.pressPushToTalk(domain::VoiceScope::group) && http.end_calls == 1 &&
+           !authorized.activeTransmission().has_value();
+}
+
+auto refreshesChangedMembershipAndRoomSubscriptions() -> bool
+{
+    ScriptedHttpTransport http;
+    Identifiers identifiers;
+    client::ControlPlaneClient control{http, identifiers, domain::DeviceId{"device-1"}};
+    FakeVoiceTransport voice_transport{http};
+    client::VoiceClient voice{voice_transport};
+    client::AuthorizedVoiceClient authorized{control, voice};
+    if (!authorized.connect("external-credential"))
+    {
+        return false;
+    }
+    http.membership_version = 43;
+    const auto refreshed = authorized.refreshAuthorization();
+    const auto membership = authorized.membership();
+    return refreshed && membership && membership->version == 43 &&
+           voice_transport.connect_calls == 2 && voice_transport.disconnect_calls == 1 &&
            !authorized.activeTransmission().has_value();
 }
 
@@ -317,6 +346,7 @@ auto main() noexcept -> int
         if (!connectsAndAuthorizesBeforePublishing() ||
             !neverPublishesWhenAuthorizationIsRejected() ||
             !rollsBackAuthorizationWhenMicrophoneFails() ||
+            !refreshesChangedMembershipAndRoomSubscriptions() ||
             !retainsFailedRollbackForExplicitCleanup() || !rejectsMismatchedProtocolHeader())
         {
             std::fputs("A control-plane client assertion failed.\n", stderr);
