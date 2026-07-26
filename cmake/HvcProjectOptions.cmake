@@ -13,6 +13,10 @@ function(hvc_initialize_project_options)
   add_library(hvc::project_options ALIAS hvc_project_options)
 
   target_compile_features(hvc_project_options INTERFACE cxx_std_20)
+  target_compile_options(
+    hvc_project_options
+    INTERFACE "$<$<CXX_COMPILER_ID:MSVC>:/EHsc>"
+  )
 
   hvc_set_project_warnings(hvc_project_options "${HVC_WARNINGS_AS_ERRORS}")
   hvc_enable_sanitizers(hvc_project_options "${HVC_ENABLE_SANITIZERS}")

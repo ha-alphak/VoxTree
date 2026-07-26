@@ -11,9 +11,11 @@ Domänenkern, Control Plane, sicherer LiveKit-Transport, Windows-Eingabesystem,
 Audio-Engine, Client-Core-DLL sowie die reproduzierbaren Last- und
 Sicherheitstests bis einschließlich Abschnitt 10.2 sind vorhanden. Die
 technische Grundlage ist belastbar, der Windows-Client ist jedoch noch ein
-Funktionsprototyp und keine auslieferungsreife Produktoberfläche. Ein
-Desktop-Client für Debian 13 mit KDE Plasma ist neu in den verbindlichen
-Vor-Release-Umfang aufgenommen und noch nicht implementiert.
+Funktionsprototyp und keine auslieferungsreife Produktoberfläche. Seine
+Präsentations- und Fensterarchitektur ist mit UX-01 jedoch in getrennte,
+testbare Zustandsmodelle sowie Haupt-, Einstellungs- und Diagnosefenster
+überführt. Ein Desktop-Client für Debian 13 mit KDE Plasma ist in den
+verbindlichen Vor-Release-Umfang aufgenommen und noch nicht implementiert.
 
 Vor Abschnitt 10.3 müssen die Clientoberfläche, das Identitäts- und
 Verwaltungsmodell sowie die Clientdiagnose vervollständigt werden. Der zuvor
@@ -26,6 +28,7 @@ Validierung sind archiviert:
 - [Projektstatus bis Abschnitt 10.2](archive/status-through-10.2-2026-07-26.md)
 - [Umsetzungsplan bis Abschnitt 10.2](archive/implementation-plan-through-10.2-2026-07-26.md)
 - [PRE-01: Kurze PTT-Impulse](archive/pre-01-short-ptt-2026-07-26.md)
+- [UX-01: Präsentations- und Fensterarchitektur](archive/ux-01-presentation-and-window-architecture-2026-07-26.md)
 - [Last- und Sicherheitstests](load-and-security-tests.md)
 
 ## Belastbarer Ausgangsstand
@@ -38,21 +41,12 @@ Validierung sind archiviert:
 | Last und Sicherheit | Reproduzierbarer 200-Spieler-Lauf und native Sicherheitsproben bestanden |
 | Eingabe | Globale Tastatur-, Maus- und generische HID-/HOTAS-Eingaben implementiert |
 | Client-Core | UI-unabhängige Bibliothek sowie versionierte C-ABI und C++-Schnittstelle implementiert |
-| Windows-App | Anmeldung, Verbindung, PTT, aktive Sprecher und technische Einstellungen als WinUI-3-Prototyp verdrahtet |
+| Präsentation | Plattformneutrale Zustände, Befehle, Validierung und stabile Fehlercodes für Verbindung, Kanalwahl, Teilnehmer, Einstellungen, Administration und Diagnose implementiert und getestet |
+| Windows-App | Prozesseinstieg, App, Haupt-, Einstellungs- und Diagnosefenster getrennt; Anmeldung, Verbindung, PTT, aktive Sprecher und technische Einstellungen als WinUI-3-Prototyp verdrahtet |
 | Debian/KDE-App | Eingeplant; gemeinsamer Client-Core nutzbar, Linux-Transport-, Audio-, Eingabe- und UI-Adapter fehlen |
 | Auslieferung | Docker-Grundlage vorhanden; signiertes MSIX, Debian-Clientpaket, Produktbetrieb und Release-Dokumentation noch offen |
 
 ## Festgestellte Lücken und Probleme
-
-### UX-01: Hauptoberfläche
-
-Die aktuelle App erzeugt nahezu die gesamte Oberfläche in
-`apps/windows-client/src/main.cpp` und hängt Hierarchie, Status, Sprecher,
-Einstellungen und Moderationshinweis in eine einzige Scrollansicht. Sie besitzt
-keine belastbare Navigation und trennt die Bedienaufgaben nicht.
-
-Benötigt werden eine neu strukturierte Hauptansicht, eigenständige Fenster für
-Einstellungen und Diagnose sowie rollenabhängige Verwaltungsansichten.
 
 ### DIR-01: Kanäle und Teilnehmer
 
@@ -68,13 +62,12 @@ serverabgeleitete Scope-Ansicht und ist keine frei wählbare Sicherheitsgrenze.
 
 ### SET-01: Einstellungen
 
-Audio-, Eingabe- und Barrierefreiheitsoptionen sind in der Hauptansicht
-eingebettet und werden nicht persistent gespeichert. HID-Buttons können
-technisch verarbeitet, aber noch nicht komfortabel angelernt werden.
+Audio-, Eingabe- und Barrierefreiheitsoptionen liegen im eigenständigen
+Einstellungsfenster, werden aber noch nicht persistent gespeichert. HID-Buttons
+können technisch verarbeitet, aber noch nicht komfortabel angelernt werden.
 
-Benötigt werden ein separates Einstellungsfenster, validierte persistente
-Benutzereinstellungen, Gerätewechsel, vollständiges Binding-Lernen,
-Rücksetzen/Übernehmen und eine verständliche Fehleranzeige.
+Benötigt werden validierte persistente Benutzereinstellungen, vollständiges
+Binding-Lernen, Rücksetzen/Übernehmen und eine verständliche Fehleranzeige.
 
 ### KDE-01: Debian-Client für KDE Plasma
 
@@ -169,11 +162,9 @@ Diagnose- und Integrationsdokumentation sind nicht abgeschlossen.
 Nicht mit Abschnitt 10.3 beginnen. Zuerst Phase 0 des
 [aktuellen Umsetzungsplans](implementation-plan.md) abschließen:
 
-1. UX-01: Ziel-Informationsarchitektur und Zustandsmodelle für Hauptansicht,
-   Einstellungen, Administration und Diagnose festschreiben.
-2. Das Debian-/KDE-Quality-Gate für LiveKit, PipeWire, Wayland und globale
+1. KDE-00: Das Debian-/KDE-Quality-Gate für LiveKit, PipeWire, Wayland und globale
    PTT-Eingaben ausführen.
-3. Verzeichnis-, Presence-, Account- und Verwaltungsverträge spezifizieren,
+2. Verzeichnis-, Presence-, Account- und Verwaltungsverträge spezifizieren,
    bevor die neue UI darauf aufgebaut wird.
 
 ## Release-Gates
@@ -203,7 +194,6 @@ Der Wechsel zu Abschnitt 10.3 ist erst zulässig, wenn:
 | Statische Identity-Datei | Kein sicherer Account-Lebenszyklus im Produktbetrieb | IAM-01 mit versioniertem Vertrag und administrativer Provisionierung |
 | Verwaltungs-API nur teilweise vorhanden | Rechteoberfläche wäre unvollständig oder unsicher | ADM-01 serverseitig vervollständigen, danach UI anbinden |
 | Unzureichende Clientlogs | Feldprobleme sind nicht reproduzierbar | DIA-01 früh als Querschnittsfunktion einführen |
-| Monolithische WinUI-Datei | Änderungen sind schwer testbar und regressionsanfällig | Präsentationsmodell und Fensterkomponenten vor Funktionsausbau trennen |
 | LiveKit-C++-SDK unter Debian nicht qualifiziert | Linux-Medienpfad könnte Adapterarbeit oder Transportentscheidung erzwingen | KDE-00-Quality-Gate vor dem Bau der Oberfläche |
 | Globale PTT-Eingaben unter Wayland sind absichtlich eingeschränkt | Nicht alle Windows-Bindingtypen lassen sich identisch abbilden | XDG-Portal für Tastatur, separater HID-Adapter und explizite Capability-Anzeige |
 | Unterschiedliche Audio-Backends | Abweichungen bei Geräten, AEC und Reconnect | Gemeinsame Audio-Verträge, PipeWire-Adapter und plattformübergreifende Abnahmematrix |

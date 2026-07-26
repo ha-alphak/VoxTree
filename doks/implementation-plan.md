@@ -52,27 +52,6 @@ Empfängerauswahl erzeugen.
 
 ## Phase 0: Stabilisieren und Verträge festlegen
 
-### UX-01 – Präsentations- und Fensterarchitektur
-
-1. `main.cpp` in App-/Fensterkoordination, Präsentationsmodelle und
-   wiederverwendbare Views aufteilen.
-2. Plattformneutrale Präsentationsmodelle so abgrenzen, dass WinUI und Qt
-   dieselben Zustände, Befehle, Validierungen und Fehlercodes verwenden.
-3. Besitz, Lebensdauer und Threadwechsel von `ClientSession` und
-   Dispatcher-Ereignissen dokumentieren.
-4. Zustandsmodelle für Verbindung, Kanalwahl, Teilnehmer, Einstellungen,
-   Administration und Diagnose definieren.
-5. Deutsche und englische Ressourcenparität für beide Oberflächen als
-   Build-Gate beibehalten.
-
-Abnahme:
-
-- Haupt-, Einstellungs- und Diagnosefenster besitzen getrennte
-  Verantwortlichkeiten;
-- Präsentationszustände sind ohne WinUI testbar;
-- Präsentationszustände enthalten weder WinUI- noch Qt-Typen;
-- keine Netzwerk- oder LiveKit-Operation blockiert den UI-Thread.
-
 ### KDE-00 – Technisches Debian-/KDE-Quality-Gate
 
 Vor dem Bau der Qt-Oberfläche:
@@ -222,8 +201,8 @@ Abnahme Phase 1:
 
 ### SET-01 – Einstellungen und Persistenz
 
-1. Einstellungen aus den Hauptansichten entfernen und je Plattform in einem
-   eigenen nicht-modalen Fenster öffnen.
+1. Das unter WinUI vorhandene eigenständige Einstellungsfenster beibehalten
+   und für Qt ein gleichwertiges nicht-modales Fenster umsetzen.
 2. Kategorien für Audio, Eingabe/PTT, Benachrichtigungen,
    Barrierefreiheit und Erweitert bereitstellen.
 3. Aufnahme- und Wiedergabegeräte mit Test-/Pegelrückmeldung auswählen.
