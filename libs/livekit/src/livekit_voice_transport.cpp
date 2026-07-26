@@ -1,5 +1,7 @@
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <hvc/livekit/livekit_voice_transport.hpp>
@@ -8,9 +10,14 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
+#include <windows.h>
+#include <wrl/client.h>
+#include <xaudio2.h>
 
 namespace hvc::livekit
 {
@@ -18,6 +25,7 @@ namespace
 {
 constexpr std::uint64_t opus_bitrate = 64'000;
 constexpr std::size_t voice_scope_count = 3;
+constexpr std::uint32_t maximum_queued_audio_frames = 12;
 
 struct LiveKitGlobalState final
 {
@@ -78,6 +86,280 @@ class LiveKitLifetime final
     }
     return result;
 }
+
+class XAudio2Engine final
+{
+  public:
+    XAudio2Engine()
+    {
+        IXAudio2* engine = nullptr;
+        if (FAILED(XAudio2Create(&engine)))
+        {
+            throw std::runtime_error{"XAudio2 initialization failed"};
+        }
+        engine_.Attach(engine);
+        if (FAILED(engine_->CreateMasteringVoice(&mastering_voice_)))
+        {
+            throw std::runtime_error{"XAudio2 mastering voice initialization failed"};
+        }
+    }
+
+    ~XAudio2Engine()
+    {
+        if (mastering_voice_ != nullptr)
+        {
+            mastering_voice_->DestroyVoice();
+        }
+    }
+
+    XAudio2Engine(const XAudio2Engine&) = delete;
+    auto operator=(const XAudio2Engine&) -> XAudio2Engine& = delete;
+    XAudio2Engine(XAudio2Engine&&) = delete;
+    auto operator=(XAudio2Engine&&) -> XAudio2Engine& = delete;
+
+    [[nodiscard]] auto engine() const noexcept -> IXAudio2*
+    {
+        return engine_.Get();
+    }
+
+    void selectDevice(const std::string& device_id)
+    {
+        const auto required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, device_id.data(),
+                                                  static_cast<int>(device_id.size()), nullptr, 0);
+        if (required <= 0)
+        {
+            throw std::runtime_error{"XAudio2 playout device ID is not valid UTF-8"};
+        }
+        std::wstring wide_id(static_cast<std::size_t>(required), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, device_id.data(),
+                                static_cast<int>(device_id.size()), wide_id.data(),
+                                required) != required)
+        {
+            throw std::runtime_error{"XAudio2 playout device ID conversion failed"};
+        }
+
+        if (mastering_voice_ != nullptr)
+        {
+            mastering_voice_->DestroyVoice();
+            mastering_voice_ = nullptr;
+        }
+        if (FAILED(engine_->CreateMasteringVoice(&mastering_voice_, XAUDIO2_DEFAULT_CHANNELS,
+                                                 XAUDIO2_DEFAULT_SAMPLERATE, 0, wide_id.c_str())))
+        {
+            static_cast<void>(engine_->CreateMasteringVoice(&mastering_voice_));
+            throw std::runtime_error{"XAudio2 playout device switch failed"};
+        }
+    }
+
+  private:
+    Microsoft::WRL::ComPtr<IXAudio2> engine_;
+    IXAudio2MasteringVoice* mastering_voice_{nullptr};
+};
+
+class RemoteTrackPlayout final : private IXAudio2VoiceCallback
+{
+  public:
+    RemoteTrackPlayout(XAudio2Engine& engine, const std::shared_ptr<::livekit::Track>& track,
+                       float gain)
+        : engine_(engine), stream_(::livekit::AudioStream::fromTrack(
+                               track, ::livekit::AudioStream::Options{8, {}, {}})),
+          gain_(gain)
+    {
+        if (stream_ == nullptr)
+        {
+            throw std::runtime_error{"LiveKit remote audio stream initialization failed"};
+        }
+        thread_ = std::jthread{[this](std::stop_token stop_token) { run(stop_token); }};
+    }
+
+    ~RemoteTrackPlayout()
+    {
+        stream_->close();
+        thread_.request_stop();
+        if (thread_.joinable())
+        {
+            thread_.join();
+        }
+        const std::scoped_lock lock{voice_mutex_};
+        if (voice_ != nullptr)
+        {
+            static_cast<void>(voice_->Stop());
+            static_cast<void>(voice_->FlushSourceBuffers());
+            voice_->DestroyVoice();
+            voice_ = nullptr;
+        }
+        releasePendingBuffers();
+    }
+
+    RemoteTrackPlayout(const RemoteTrackPlayout&) = delete;
+    auto operator=(const RemoteTrackPlayout&) -> RemoteTrackPlayout& = delete;
+    RemoteTrackPlayout(RemoteTrackPlayout&&) = delete;
+    auto operator=(RemoteTrackPlayout&&) -> RemoteTrackPlayout& = delete;
+
+    void setGain(float gain) noexcept
+    {
+        gain_.store(gain);
+        const std::scoped_lock lock{voice_mutex_};
+        if (voice_ != nullptr)
+        {
+            static_cast<void>(voice_->SetVolume(gain));
+        }
+    }
+
+  private:
+    void run(std::stop_token stop_token) noexcept
+    {
+        try
+        {
+            ::livekit::AudioFrameEvent event;
+            while (!stop_token.stop_requested() && stream_->read(event))
+            {
+                if (event.frame.totalSamples() == 0 || event.frame.sampleRate() <= 0 ||
+                    event.frame.numChannels() <= 0 ||
+                    !ensureVoice(event.frame.sampleRate(), event.frame.numChannels()))
+                {
+                    continue;
+                }
+                waitForQueue(stop_token);
+                if (stop_token.stop_requested())
+                {
+                    return;
+                }
+
+                auto samples = std::make_unique<std::vector<std::int16_t>>(event.frame.data());
+                auto* const samples_pointer = samples.get();
+                {
+                    const std::scoped_lock lock{buffers_mutex_};
+                    pending_buffers_.insert(samples_pointer);
+                }
+                static_cast<void>(samples.release());
+                XAUDIO2_BUFFER buffer{};
+                buffer.AudioBytes =
+                    static_cast<UINT32>(samples_pointer->size() * sizeof(std::int16_t));
+                buffer.pAudioData = reinterpret_cast<const BYTE*>(samples_pointer->data());
+                buffer.pContext = samples_pointer;
+
+                const std::scoped_lock lock{voice_mutex_};
+                if (voice_ == nullptr || FAILED(voice_->SubmitSourceBuffer(&buffer)))
+                {
+                    releaseBuffer(samples_pointer);
+                    return;
+                }
+            }
+        }
+        catch (...)
+        {
+            // Audio callback threads must never terminate the process on allocation/SDK failures.
+        }
+    }
+
+    [[nodiscard]] auto ensureVoice(int sample_rate, int channels) noexcept -> bool
+    {
+        const std::scoped_lock lock{voice_mutex_};
+        if (voice_ != nullptr)
+        {
+            return sample_rate_ == sample_rate && channels_ == channels;
+        }
+
+        WAVEFORMATEX format{};
+        format.wFormatTag = WAVE_FORMAT_PCM;
+        format.nChannels = static_cast<WORD>(channels);
+        format.nSamplesPerSec = static_cast<DWORD>(sample_rate);
+        format.wBitsPerSample = 16;
+        format.nBlockAlign = static_cast<WORD>(format.nChannels * (format.wBitsPerSample / 8U));
+        format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
+
+        if (FAILED(engine_.engine()->CreateSourceVoice(&voice_, &format, 0,
+                                                       XAUDIO2_DEFAULT_FREQ_RATIO, this)) ||
+            voice_ == nullptr)
+        {
+            return false;
+        }
+        sample_rate_ = sample_rate;
+        channels_ = channels;
+        if (FAILED(voice_->SetVolume(gain_.load())) || FAILED(voice_->Start()))
+        {
+            voice_->DestroyVoice();
+            voice_ = nullptr;
+            return false;
+        }
+        return true;
+    }
+
+    void waitForQueue(std::stop_token stop_token) const noexcept
+    {
+        while (!stop_token.stop_requested())
+        {
+            XAUDIO2_VOICE_STATE state{};
+            {
+                const std::scoped_lock lock{voice_mutex_};
+                if (voice_ == nullptr)
+                {
+                    return;
+                }
+                voice_->GetState(&state, XAUDIO2_VOICE_NOSAMPLESPLAYED);
+            }
+            if (state.BuffersQueued < maximum_queued_audio_frames)
+            {
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        }
+    }
+
+    void STDMETHODCALLTYPE OnVoiceProcessingPassStart(UINT32) noexcept override
+    {
+    }
+    void STDMETHODCALLTYPE OnVoiceProcessingPassEnd() noexcept override
+    {
+    }
+    void STDMETHODCALLTYPE OnStreamEnd() noexcept override
+    {
+    }
+    void STDMETHODCALLTYPE OnBufferStart(void*) noexcept override
+    {
+    }
+    void STDMETHODCALLTYPE OnBufferEnd(void* context) noexcept override
+    {
+        releaseBuffer(static_cast<std::vector<std::int16_t>*>(context));
+    }
+    void STDMETHODCALLTYPE OnLoopEnd(void*) noexcept override
+    {
+    }
+    void STDMETHODCALLTYPE OnVoiceError(void*, HRESULT) noexcept override
+    {
+    }
+
+    void releaseBuffer(std::vector<std::int16_t>* buffer) noexcept
+    {
+        const std::scoped_lock lock{buffers_mutex_};
+        if (pending_buffers_.erase(buffer) > 0)
+        {
+            delete buffer;
+        }
+    }
+
+    void releasePendingBuffers() noexcept
+    {
+        const std::scoped_lock lock{buffers_mutex_};
+        for (auto* buffer : pending_buffers_)
+        {
+            delete buffer;
+        }
+        pending_buffers_.clear();
+    }
+
+    XAudio2Engine& engine_;
+    std::shared_ptr<::livekit::AudioStream> stream_;
+    std::atomic<float> gain_{1.0F};
+    std::jthread thread_;
+    mutable std::mutex voice_mutex_;
+    IXAudio2SourceVoice* voice_{nullptr};
+    int sample_rate_{0};
+    int channels_{0};
+    std::mutex buffers_mutex_;
+    std::unordered_set<std::vector<std::int16_t>*> pending_buffers_;
+};
 } // namespace
 
 class LiveKitVoiceTransport::Impl final
@@ -107,8 +389,18 @@ class LiveKitVoiceTransport::Impl final
         {
             if (isOpusMicrophone(event.publication))
             {
-                owner_.remoteAudioStarted(scope_, event.publication->sid(),
+                owner_.remoteAudioStarted(scope_, event.publication->sid(), event.track,
                                           participantIdentity(event.participant));
+            }
+        }
+
+        void onTrackPublished(::livekit::Room&,
+                              const ::livekit::TrackPublishedEvent& event) override
+        {
+            if (isOpusMicrophone(event.publication))
+            {
+                owner_.remoteAudioAvailable(scope_, event.publication,
+                                            participantIdentity(event.participant));
             }
         }
 
@@ -129,6 +421,8 @@ class LiveKitVoiceTransport::Impl final
             {
                 owner_.remoteAudioStopped(scope_, event.publication->sid(),
                                           participantIdentity(event.participant));
+                owner_.remoteAudioUnavailable(scope_, event.publication->sid(),
+                                              participantIdentity(event.participant));
             }
         }
 
@@ -188,6 +482,15 @@ class LiveKitVoiceTransport::Impl final
         std::shared_ptr<::livekit::LocalAudioTrack> track;
     };
 
+    struct RemoteAudioPublication final
+    {
+        std::string publication_id;
+        std::shared_ptr<::livekit::RemoteTrackPublication> publication;
+        bool admitted{false};
+        float gain{0.0F};
+        std::shared_ptr<RemoteTrackPlayout> playout;
+    };
+
     Impl() = default;
 
     void setObserver(client::IVoiceTransportObserver* observer) noexcept
@@ -222,7 +525,9 @@ class LiveKitVoiceTransport::Impl final
             for (const auto& grant : grants)
             {
                 auto scope_room = std::make_shared<ScopeRoom>(*this, grant);
-                if (!scope_room->room.connect(grant.url, grant.token, ::livekit::RoomOptions{}))
+                ::livekit::RoomOptions room_options;
+                room_options.auto_subscribe = false;
+                if (!scope_room->room.connect(grant.url, grant.token, room_options))
                 {
                     static_cast<void>(disconnectRooms(new_rooms));
                     state_.store(client::VoiceTransportState::disconnected);
@@ -265,6 +570,7 @@ class LiveKitVoiceTransport::Impl final
         static_cast<void>(disconnectRooms(rooms));
         controlled_reconnect_.store(false);
         resetRemoteAudio();
+        resetRemotePublications();
         notifyState(client::VoiceTransportState::disconnected);
         return client::VoiceTransportResult::success();
     }
@@ -406,23 +712,63 @@ class LiveKitVoiceTransport::Impl final
             return failure(client::VoiceTransportError::invalid_argument,
                            "playout device ID must not be empty");
         }
+        if (state() == client::VoiceTransportState::connected)
+        {
+            return reconnectForPlayoutDevice(device_id);
+        }
         try
         {
             platform_audio_.setPlayoutDevice(device_id);
+            playout_engine_.selectDevice(device_id);
             return client::VoiceTransportResult::success();
-        }
-        catch (const ::livekit::PlatformAudioError&)
-        {
-            if (state() != client::VoiceTransportState::connected)
-            {
-                return failure(client::VoiceTransportError::audio_device_switch_failed,
-                               "playout device switch failed while disconnected");
-            }
-            return reconnectForPlayoutDevice(device_id);
         }
         catch (const std::exception& error)
         {
             return failure(client::VoiceTransportError::audio_device_switch_failed, error.what());
+        }
+    }
+
+    [[nodiscard]] auto configureRemoteAudio(domain::VoiceScope scope,
+                                            const std::string& participant_id, bool admitted,
+                                            float gain) -> client::VoiceTransportResult
+    {
+        if (participant_id.empty() || !std::isfinite(gain) || gain < 0.0F || gain > 1.0F)
+        {
+            return failure(
+                client::VoiceTransportError::invalid_argument,
+                "remote audio policy requires a participant ID and gain from zero to one");
+        }
+
+        std::shared_ptr<::livekit::RemoteTrackPublication> publication;
+        {
+            const std::scoped_lock lock{remote_publications_mutex_};
+            auto& publications = remote_publications_[scopeIndex(scope)];
+            const auto iterator = publications.find(participant_id);
+            if (iterator == publications.end())
+            {
+                return failure(client::VoiceTransportError::invalid_state,
+                               "remote microphone publication is unavailable");
+            }
+            iterator->second.admitted = admitted;
+            iterator->second.gain = admitted ? gain : 0.0F;
+            if (iterator->second.playout != nullptr)
+            {
+                iterator->second.playout->setGain(iterator->second.gain);
+            }
+            publication = iterator->second.publication;
+        }
+
+        try
+        {
+            if (publication->subscribed() != admitted)
+            {
+                publication->setSubscribed(admitted);
+            }
+            return client::VoiceTransportResult::success();
+        }
+        catch (const std::exception& error)
+        {
+            return failure(client::VoiceTransportError::internal_error, error.what());
         }
     }
 
@@ -504,19 +850,59 @@ class LiveKitVoiceTransport::Impl final
         }
     }
 
-    void participantDisconnected(domain::VoiceScope scope, const std::string& participant_id) const
+    void participantDisconnected(domain::VoiceScope scope, const std::string& participant_id)
     {
         clearParticipantAudio(scope, participant_id);
+        std::shared_ptr<RemoteTrackPlayout> playout;
+        auto publication_removed = false;
+        {
+            const std::scoped_lock lock{remote_publications_mutex_};
+            auto& publications = remote_publications_[scopeIndex(scope)];
+            const auto publication = publications.find(participant_id);
+            if (publication != publications.end())
+            {
+                playout = std::move(publication->second.playout);
+                publications.erase(publication);
+                publication_removed = true;
+            }
+        }
+        playout.reset();
         auto* const observer = observer_.load();
         if (observer != nullptr)
         {
+            if (publication_removed)
+            {
+                observer->onRemoteAudioUnavailable(scope, participant_id);
+            }
             observer->onRemoteParticipantDisconnected(scope, participant_id);
         }
     }
 
     void remoteAudioStarted(domain::VoiceScope scope, const std::string& publication_id,
+                            const std::shared_ptr<::livekit::Track>& track,
                             const std::string& participant_id)
     {
+        {
+            const std::scoped_lock lock{remote_publications_mutex_};
+            auto& publications = remote_publications_[scopeIndex(scope)];
+            const auto publication = publications.find(participant_id);
+            if (publication == publications.end() ||
+                publication->second.publication_id != publication_id ||
+                !publication->second.admitted)
+            {
+                return;
+            }
+            try
+            {
+                publication->second.playout = std::make_shared<RemoteTrackPlayout>(
+                    playout_engine_, track, publication->second.gain);
+            }
+            catch (const std::exception& error)
+            {
+                notifyError(client::VoiceTransportError::audio_device_unavailable, error.what());
+                return;
+            }
+        }
         {
             const std::scoped_lock lock{remote_audio_mutex_};
             const auto [iterator, inserted] =
@@ -535,9 +921,50 @@ class LiveKitVoiceTransport::Impl final
         }
     }
 
+    void remoteAudioAvailable(domain::VoiceScope scope,
+                              const std::shared_ptr<::livekit::RemoteTrackPublication>& publication,
+                              const std::string& participant_id)
+    {
+        {
+            const std::scoped_lock lock{remote_publications_mutex_};
+            remote_publications_[scopeIndex(scope)].insert_or_assign(
+                participant_id,
+                RemoteAudioPublication{publication->sid(), publication, false, 0.0F, nullptr});
+        }
+        auto* const observer = observer_.load();
+        if (observer != nullptr)
+        {
+            observer->onRemoteAudioAvailable(scope, participant_id);
+        }
+    }
+
+    void remoteAudioUnavailable(domain::VoiceScope scope, const std::string& publication_id,
+                                const std::string& participant_id)
+    {
+        std::shared_ptr<RemoteTrackPlayout> playout;
+        {
+            const std::scoped_lock lock{remote_publications_mutex_};
+            auto& publications = remote_publications_[scopeIndex(scope)];
+            const auto iterator = publications.find(participant_id);
+            if (iterator == publications.end() || iterator->second.publication_id != publication_id)
+            {
+                return;
+            }
+            playout = std::move(iterator->second.playout);
+            publications.erase(iterator);
+        }
+        playout.reset();
+        auto* const observer = observer_.load();
+        if (observer != nullptr)
+        {
+            observer->onRemoteAudioUnavailable(scope, participant_id);
+        }
+    }
+
     void remoteAudioStopped(domain::VoiceScope scope, const std::string& publication_id,
                             const std::string& participant_id)
     {
+        std::shared_ptr<RemoteTrackPlayout> playout;
         {
             const std::scoped_lock lock{remote_audio_mutex_};
             if (remote_audio_tracks_[scopeIndex(scope)].erase(publication_id) == 0)
@@ -545,6 +972,17 @@ class LiveKitVoiceTransport::Impl final
                 return;
             }
         }
+        {
+            const std::scoped_lock lock{remote_publications_mutex_};
+            auto& publications = remote_publications_[scopeIndex(scope)];
+            const auto publication = publications.find(participant_id);
+            if (publication != publications.end() &&
+                publication->second.publication_id == publication_id)
+            {
+                playout = std::move(publication->second.playout);
+            }
+        }
+        playout.reset();
         auto* const observer = observer_.load();
         if (observer != nullptr)
         {
@@ -666,10 +1104,12 @@ class LiveKitVoiceTransport::Impl final
         }
         static_cast<void>(disconnectRooms(old_rooms));
         resetRemoteAudio();
+        resetRemotePublications();
 
         try
         {
             platform_audio_.setPlayoutDevice(device_id);
+            playout_engine_.selectDevice(device_id);
         }
         catch (const std::exception& error)
         {
@@ -759,6 +1199,15 @@ class LiveKitVoiceTransport::Impl final
         }
     }
 
+    void resetRemotePublications() noexcept
+    {
+        const std::scoped_lock lock{remote_publications_mutex_};
+        for (auto& publications : remote_publications_)
+        {
+            publications.clear();
+        }
+    }
+
     void clearParticipantAudio(domain::VoiceScope scope, const std::string& participant_id) const
     {
         const std::scoped_lock lock{remote_audio_mutex_};
@@ -777,6 +1226,7 @@ class LiveKitVoiceTransport::Impl final
     }
 
     LiveKitLifetime lifetime_;
+    XAudio2Engine playout_engine_;
     ::livekit::PlatformAudio platform_audio_;
     std::atomic<client::IVoiceTransportObserver*> observer_{nullptr};
     std::atomic<client::VoiceTransportState> state_{client::VoiceTransportState::disconnected};
@@ -788,6 +1238,9 @@ class LiveKitVoiceTransport::Impl final
     mutable std::mutex remote_audio_mutex_;
     mutable std::array<std::unordered_map<std::string, std::string>, voice_scope_count>
         remote_audio_tracks_;
+    mutable std::mutex remote_publications_mutex_;
+    std::array<std::unordered_map<std::string, RemoteAudioPublication>, voice_scope_count>
+        remote_publications_;
 };
 
 LiveKitVoiceTransport::LiveKitVoiceTransport() : impl_(std::make_unique<Impl>())
@@ -854,6 +1307,13 @@ auto LiveKitVoiceTransport::selectPlayoutDevice(const std::string& device_id)
     -> client::VoiceTransportResult
 {
     return impl_->selectPlayoutDevice(device_id);
+}
+
+auto LiveKitVoiceTransport::configureRemoteAudio(domain::VoiceScope scope,
+                                                 const std::string& participant_id, bool admitted,
+                                                 float gain) -> client::VoiceTransportResult
+{
+    return impl_->configureRemoteAudio(scope, participant_id, admitted, gain);
 }
 
 auto LiveKitVoiceTransport::remoteParticipantCount(domain::VoiceScope scope) const -> std::size_t

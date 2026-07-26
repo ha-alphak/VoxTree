@@ -190,6 +190,12 @@ class FakeVoiceTransport final : public client::IVoiceTransport
         return client::VoiceTransportResult::success();
     }
 
+    [[nodiscard]] auto configureRemoteAudio(domain::VoiceScope, const std::string&, bool, float)
+        -> client::VoiceTransportResult override
+    {
+        return client::VoiceTransportResult::success();
+    }
+
     [[nodiscard]] auto remoteParticipantCount(domain::VoiceScope) const -> std::size_t override
     {
         return 0;

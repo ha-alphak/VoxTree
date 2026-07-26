@@ -193,3 +193,9 @@ Alle Grenzwerte sind konfigurierbar. Die initialen Standardwerte sind:
 
 Die Priorität lautet Group, Specialization, Team. Priorisierung beeinflusst
 Ducking und Stream-Admission, niemals die Empfängerberechtigung.
+
+Der Client lässt innerhalb eines Scopes zuerst veröffentlichte Spuren zuerst
+zu. Höhere Scopes verdrängen niedrigere deterministisch. Standard-Ducking-Gains
+sind `0,50` für Team unter Specialization, `0,25` für Team unter Group und
+`0,50` für Specialization unter Group. Teilnehmerlautstärke und Ducking werden
+als lineare Faktoren zwischen `0,0` und `1,0` multipliziert.

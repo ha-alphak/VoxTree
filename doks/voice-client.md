@@ -49,6 +49,19 @@ Aus dem bestandenen Quality Gate wurden folgende Pfade übernommen:
 Der kontrollierte Wiedergabe-Reconnect verwendet nur die bereits
 autorisierten Grants und startet keine zuvor aktive Mikrofonpublikation neu.
 
+## Audio-Policy und natives Playout
+
+Remote-Mikrofonspuren werden zunächst nur als verfügbare Kandidaten an den
+`VoiceClient` gemeldet. Seine Audio-Policy entscheidet mit Scope-Priorität,
+globalen und scopebezogenen Limits, lokalem Mute/Block, Teilnehmerlautstärke
+und Ducking über Admission und effektiven Gain.
+
+Der LiveKit-Adapter verwendet deshalb kein Auto-Subscribe. Zugelassene Spuren
+werden selektiv abonniert, als dekodierte PCM-Frames über `AudioStream` gelesen
+und je Sprecher durch eine eigene XAudio2 Source Voice wiedergegeben. Die
+vollständigen Regeln und Standardwerte stehen in
+[audio-engine.md](audio-engine.md).
+
 ## Control-Plane-Client
 
 `ControlPlaneClient` bildet den HTTP-v1-Vertrag typisiert auf Session,
@@ -111,6 +124,7 @@ Die Client-Tests verwenden Fake-HTTP-, Fake-Voice- und Fake-PTT-Ziele. Sie prüf
 Scope-Grant-Validierung, den exklusiven PTT-Lebenszyklus, die Reihenfolge
 „Autorisierung vor Mikrofon“, Ablehnungen ohne Publikation, den Rollback bei
 Audiofehlern und den Abbruch ohne automatische Wiederaufnahme nach einem
-Reconnect. Zusätzlich prüfen sie Bindings, Kombinationen und die drei separaten
+Reconnect. Zusätzlich prüfen sie Stream-Admission, Ducking, Mute/Block,
+Teilnehmerlautstärke, Bindings, Kombinationen und die drei separaten
 Eingabeaktionen. Das native Quality-Gate bleibt als unabhängiger
 Ende-zu-Ende-Nachweis der verwendeten SDK-Operationen erhalten.

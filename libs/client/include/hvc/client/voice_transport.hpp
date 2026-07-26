@@ -142,6 +142,24 @@ class IVoiceTransportObserver
     virtual void onRemoteParticipantDisconnected(domain::VoiceScope scope,
                                                  const std::string& participant_id) = 0;
     /**
+     * Handle a remote microphone publication becoming available for admission.
+     *
+     * The publication is not decoded until `configureRemoteAudio()` admits it.
+     *
+     * @param scope Scope associated with the room.
+     * @param participant_id Transport participant identifier.
+     */
+    virtual void onRemoteAudioAvailable(domain::VoiceScope scope,
+                                        const std::string& participant_id) = 0;
+    /**
+     * Handle a remote microphone publication becoming unavailable.
+     *
+     * @param scope Scope associated with the room.
+     * @param participant_id Transport participant identifier.
+     */
+    virtual void onRemoteAudioUnavailable(domain::VoiceScope scope,
+                                          const std::string& participant_id) = 0;
+    /**
      * Handle the start of audible remote audio.
      *
      * @param scope Scope associated with the room.
@@ -266,6 +284,22 @@ class IVoiceTransport
      * @returns The outcome of applying the selection.
      */
     [[nodiscard]] virtual auto selectPlayoutDevice(const std::string& device_id)
+        -> VoiceTransportResult = 0;
+    /**
+     * Apply admission and gain to one available remote microphone stream.
+     *
+     * Non-admitted streams must not be decoded or played. The gain is linear:
+     * `0.0F` is silent and `1.0F` is unity gain.
+     *
+     * @param scope Scope associated with the room.
+     * @param participant_id Transport participant identifier.
+     * @param admitted Whether the stream may be decoded and played.
+     * @param gain Linear playout gain in the inclusive range `[0.0F, 1.0F]`.
+     * @returns The outcome of applying both values as one playback policy.
+     */
+    [[nodiscard]] virtual auto configureRemoteAudio(domain::VoiceScope scope,
+                                                    const std::string& participant_id,
+                                                    bool admitted, float gain)
         -> VoiceTransportResult = 0;
 
     /**

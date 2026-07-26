@@ -61,6 +61,10 @@ class LiveKitVoiceTransport final : public client::IVoiceTransport
     /// @copydoc client::IVoiceTransport::selectPlayoutDevice
     [[nodiscard]] auto selectPlayoutDevice(const std::string& device_id)
         -> client::VoiceTransportResult override;
+    /// @copydoc client::IVoiceTransport::configureRemoteAudio
+    [[nodiscard]] auto configureRemoteAudio(domain::VoiceScope scope,
+                                            const std::string& participant_id, bool admitted,
+                                            float gain) -> client::VoiceTransportResult override;
     /// @copydoc client::IVoiceTransport::remoteParticipantCount
     [[nodiscard]] auto remoteParticipantCount(domain::VoiceScope scope) const
         -> std::size_t override;

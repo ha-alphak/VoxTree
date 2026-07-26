@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 26. Juli 2026
-**Phase:** Voice-Routing – LiveKit-Transportintegration<br>
+**Phase:** Audio-Engine abgeschlossen – WinUI-Client als Nächstes<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -260,6 +260,20 @@
 - Explizite automatisierte Cross-Team- und Cross-Group-Raumisolation in den
   LiveKit-Token-Tests ergänzt und die Routingstufe in `voice-routing.md`
   dokumentiert.
+- Transportneutrale Audio-Policy mit globaler und scopebezogener
+  Stream-Admission sowie deterministischer Priorität Group, Specialization,
+  Team implementiert.
+- Konfigurierbares hierarchisches Ducking, lokales Mute/Block und individuelle
+  lineare Teilnehmerlautstärke mit sofortiger Neuberechnung aktiver
+  Remote-Spuren umgesetzt.
+- LiveKit-Räume auf selektive Subscription umgestellt, sodass nicht zugelassene
+  Spuren keinen lokalen Decoder belegen.
+- Dekodierte LiveKit-Opus-Spuren über getrennte XAudio2 Source Voices mit
+  unabhängigem Gain, begrenzten Puffern und eigenem Playout-Worker an den
+  nativen Windows-Ausgang angebunden.
+- Client-Core-Tests für Prioritätsverdrängung, Ducking-Beziehungen,
+  Mute/Block, individuelle Lautstärke und deterministische Wiederzulassung
+  ergänzt; Audio-Engine in `audio-engine.md` dokumentiert.
 
 ## Aktueller Stand
 
@@ -283,6 +297,10 @@
   HOTAS-Fremdfokus-Ereignisnachweis ist bestanden. Eine erste WinUI-3-Schale
   meldet sich an der Control Plane an, verbindet die autorisierten Voice-Räume,
   startet Raw Input und zeigt anschließend Membership und Bereitschaftsstatus.
+- Die Audio-Engine priorisiert verfügbare Group-, Specialization- und
+  Team-Spuren vor dem Dekodieren, wendet lokale Empfangsrestriktionen und
+  konfigurierbare Gains an und gibt zugelassene Remote-Spuren über getrennte
+  native XAudio2-Voices wieder.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
@@ -306,9 +324,9 @@
 
 ## Nächster Schritt
 
-Mit Abschnitt 6 „Audio-Engine“ fortfahren: Stream-Admission, konfigurierbares
-Ducking, lokales Mute/Block und individuelle Lautstärke auf dem bestehenden
-nativen Aufnahme-/Wiedergabepfad ergänzen.
+Mit Abschnitt 8 „WinUI-Client“ fortfahren: Hierarchie- und Sprecheransicht,
+Audio- und Eingabeeinstellungen sowie lokalisierbare Ressourcen auf der
+bestehenden Client-Core-, Audio- und Raw-Input-Basis ergänzen.
 
 ## Validierung
 
@@ -334,6 +352,8 @@ nativen Aufnahme-/Wiedergabepfad ergänzen.
 | LiveKit-Cross-Room-Isolation | Bestanden |
 | Automatisierte Cross-Team- und Cross-Group-Routingisolation | Bestanden |
 | Windows-Client-Core und Fake-Transport-Tests | Bestanden |
+| Audio-Engine: Admission, Ducking, Mute/Block und Lautstärke | Bestanden |
+| Nativer selektiver LiveKit-/XAudio2-Playout-Build | Bestanden |
 | Control-Plane-Client und autorisierte PTT-Koordination | Bestanden |
 | Windows-WinHTTP-Transport Debug/Release | Bestanden |
 | PTT-Bindings und separate Team-/Specialization-/Group-Aktionen | Bestanden |

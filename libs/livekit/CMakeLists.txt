@@ -53,6 +53,7 @@ if(TARGET LiveKit::livekit)
     PUBLIC hvc::client
     PRIVATE
       LiveKit::livekit
+      xaudio2
       "$<BUILD_INTERFACE:hvc_project_options>"
   )
   set_target_properties(
