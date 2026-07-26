@@ -24,6 +24,7 @@ option(
   "Build the Windows App SDK / WinUI 3 client"
   OFF
 )
+option(HVC_BUILD_EXAMPLES "Build documented SDK integration examples" "${PROJECT_IS_TOP_LEVEL}")
 option(HVC_BUILD_DOCUMENTATION "Build the C++ API documentation with Doxygen" OFF)
 
 if(HVC_BUILD_DOCUMENTATION)
@@ -59,6 +60,10 @@ add_subdirectory(libs/persistence)
 add_subdirectory(libs/network)
 add_subdirectory(libs/livekit)
 add_subdirectory(apps/control-plane)
+
+if(HVC_BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
 
 if(WIN32)
   add_subdirectory(apps/input-quality-gate)

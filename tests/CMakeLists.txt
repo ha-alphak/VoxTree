@@ -79,6 +79,53 @@ set_target_properties(hvc_client_ptt_input_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME client.ptt_input COMMAND hvc_client_ptt_input_tests)
 
+add_executable(hvc_client_core_tests client/client_core_tests.cpp)
+
+target_link_libraries(
+  hvc_client_core_tests
+  PRIVATE
+    hvc::client_core
+    hvc::project_options
+)
+
+set_target_properties(hvc_client_core_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+if(WIN32)
+  add_custom_command(
+    TARGET hvc_client_core_tests
+    POST_BUILD
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy_if_different
+      "$<TARGET_FILE:hvc_client_core>"
+      "$<TARGET_FILE_DIR:hvc_client_core_tests>"
+    VERBATIM
+  )
+endif()
+
+add_test(NAME client.client_core_abi COMMAND hvc_client_core_tests)
+
+if(MSVC)
+  add_custom_target(
+    hvc_client_core_c_header_check ALL
+    COMMAND
+      "${CMAKE_CXX_COMPILER}" /nologo /TC /Zs
+      "/I${PROJECT_SOURCE_DIR}/libs/client/include"
+      "${CMAKE_CURRENT_SOURCE_DIR}/client/client_core_c_abi_tests.c"
+    COMMENT "Checking the client-core ABI header with the C compiler"
+    VERBATIM
+  )
+else()
+  add_custom_target(
+    hvc_client_core_c_header_check ALL
+    COMMAND
+      "${CMAKE_CXX_COMPILER}" -x c -std=c11 -fsyntax-only
+      "-I${PROJECT_SOURCE_DIR}/libs/client/include"
+      "${CMAKE_CURRENT_SOURCE_DIR}/client/client_core_c_abi_tests.c"
+    COMMENT "Checking the client-core ABI header with the C compiler"
+    VERBATIM
+  )
+endif()
+
 if(WIN32)
   add_executable(hvc_client_win_raw_input_tests client/win_raw_input_tests.cpp)
 

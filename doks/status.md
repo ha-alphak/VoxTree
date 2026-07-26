@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 26. Juli 2026
-**Phase:** WinUI-Client abgeschlossen – Integrationsschnittstelle als Nächstes<br>
+**Phase:** Integrationsschnittstelle abgeschlossen – Qualität und Auslieferung als Nächstes<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -294,6 +294,26 @@
 - Reproduzierbaren WinUI-`TextBox`-/`PasswordBox`-Startfehler der
   selbstenthaltenen Windows-App-SDK-2.2.0-Runtime durch einen eng gekapselten,
   lokalisierten und passwortmaskierten nativen Anmeldedialog umgangen.
+- UI-unabhängigen Client-Core als `hvc-client-core` Shared Library mit opakem
+  Handle, expliziten Exporten und versionierter C-ABI `1.0` bereitgestellt.
+- Größenmarkierte, erweiterbare C-Strukturen und stabile Enum-/Fehlerwerte für
+  Scope-Grants, Memberships, Verbindung, Sprecher und Transportfehler
+  definiert.
+- Hostseitige Voice-Transportfunktionstabelle mit synchroner
+  Observer-Abmeldung, exklusiver Mikrofonpublikation sowie Stream-Admission und
+  Gain-Steuerung an den bestehenden `VoiceClient` angebunden.
+- Versionierte Membership-, Membership-Clear-, Verbindungs-, Sprecher- und
+  Fehlerereignisse mit pro Handle strikt steigender Sequenz implementiert.
+- Header-only C++20-RAII-Wrapper mit besitzenden Eventwerten und idiomatischen
+  Transport-, Membership- und Grant-Typen ergänzt.
+- C11-Header-Compile-Gate und DLL-Verbrauchertests für ABI-Versionierung,
+  Lebensdauer, Membership-Versionen, Reconnect-Invariante, PTT,
+  Speaker-Admission und Fehlerereignisse ergänzt.
+- Kompilierbare C++-Beispielintegration sowie verbindliche Dokumentation zu
+  ABI-Kompatibilität, Threading, Besitz, Deployment und der
+  Control-Plane-Autorisierung vor Audiopublikation erstellt.
+- DLL, Importbibliothek, C-/C++-Header und das CMake-Ziel
+  `hvc::client_core` in Installation und Paketexport aufgenommen.
 
 ## Aktueller Stand
 
@@ -326,6 +346,12 @@
   Accessibility-Einstellungen greifen direkt auf die vorhandenen
   Client-Core-, LiveKit- und Raw-Input-Grenzen zu. Statische Texte sind
   vollständig als deutsche und englische Ressourcen vorhanden.
+- Die Integrationsschnittstelle steht als installierbare Shared Library mit
+  C-ABI `1.0` und C++20-Wrapper zur Verfügung. Der Host kann einen konkreten
+  Voice-Transport ohne interne C++- oder LiveKit-Typen anbinden und erhält
+  versionierte Membership-, Verbindungs-, Sprecher- und Fehlerereignisse.
+  Control-Plane-Autorisierung bleibt als explizite vorgelagerte
+  Sicherheitsgrenze dokumentiert.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
@@ -349,10 +375,11 @@
 
 ## Nächster Schritt
 
-Mit Abschnitt 9 „Integrationsschnittstelle“ fortfahren: den UI-unabhängigen
-Client-Core als stabile DLL-Grenze mit versionierter C-ABI, C++-Wrapper,
-Membership-, Verbindungs-, Sprecher- und Fehlerereignissen sowie
-Beispielintegration dokumentieren und absichern.
+Mit Abschnitt 10 „Qualität und Auslieferung“ fortfahren: zuerst einen
+reproduzierbaren Lasttest mit mindestens 200 gleichzeitig verbundenen Spielern
+aufbauen und Group-Transmission, gleichzeitige Sprecher, Membership-Wechsel,
+Reconnect sowie Serverausfall unter Last gegen die festgelegten Latenz- und
+Isolationserwartungen messen.
 
 ## Validierung
 
@@ -360,8 +387,13 @@ Beispielintegration dokumentieren und absichern.
 |---|---|
 | Windows MSVC Debug | Bestanden |
 | Windows MSVC Release | Bestanden |
-| CTest Debug | 13 von 13 Tests bestanden |
-| CTest Release | 13 von 13 Tests bestanden |
+| CTest Debug | 14 von 14 Tests bestanden |
+| CTest Release | 14 von 14 Tests bestanden |
+| Client-Core-DLL und exportierte C-Symbole | Bestanden |
+| Client-Core C-ABI `1.0` und C11-Header-Compile-Gate | Bestanden |
+| Client-Core C++20-Wrapper und Beispielintegration | Bestanden |
+| Client-Core Membership-, Verbindungs-, Sprecher- und Fehlerereignisse | Bestanden |
+| Client-Core Reconnect ohne automatische Transmission | Bestanden |
 | WinUI-3-Client Debug-Build | Bestanden |
 | WinUI-3-Client Release-Build | Bestanden |
 | WinUI-3-Client Start-Smoke-Test | Bestanden |
@@ -395,7 +427,7 @@ Beispielintegration dokumentieren und absichern.
 | Domänen-Zustandsautomat: Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
-| CMake-Installation und Paketexport inklusive `hvc::domain` und `hvc::client` | Bestanden |
+| CMake-Installation und Paketexport inklusive `hvc::domain`, `hvc::client` und `hvc::client_core` | Bestanden |
 | Debian GCC Debug | Bestanden, 7 von 7 Tests |
 | Debian GCC Release | Bestanden, 7 von 7 Tests |
 | GitHub-CI-Gesamtlauf | Bestanden |

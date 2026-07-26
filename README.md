@@ -11,11 +11,9 @@ support future integration into games and other applications.
 
 > [!IMPORTANT]
 > This project is under active development and is not ready for production use.
-> The domain model and part of the server control plane are implemented; the
-> UI-independent Windows client core, control-plane client, WinHTTP transport,
-> and native LiveKit adapter are implemented. An initial WinUI 3 shell reaches
-> the connected ready state; the complete graphical client is still in
-> development.
+> The domain model, control plane, native voice path, complete WinUI 3 client,
+> and versioned client-core integration DLL are implemented. Packaging, load
+> validation, and other release-quality work remain.
 
 ## Core concepts
 
@@ -67,7 +65,9 @@ The project uses C++20 and CMake.
 - **Voice transport** — self-hosted LiveKit integration behind the internal
   `IVoiceTransport` abstraction; Mumble remains the fallback option
 - **Windows client** — WinUI 3 application using C++/WinRT; the initial
-  server, sign-in, and connected-ready shell is implemented
+  server, sign-in, connected, speaker, and settings views are implemented
+- **Integration SDK** — `hvc-client-core` shared library with a versioned C ABI,
+  C++20 RAII wrapper, and host-supplied voice-transport table
 
 The initial secure transport model uses separate rooms for group,
 specialization, and team scopes. A shared room with selective subscriptions is
@@ -94,13 +94,15 @@ Implemented foundations include:
 - typed control-plane client for sessions, membership, grants, and
   transmissions;
 - Windows WinHTTP transport plus authorization-before-audio PTT coordination;
+- versioned `hvc-client-core` DLL boundary with C and C++ integration APIs,
+  structured membership, connection, speaker, and error events;
 - separate Team, Specialization, and Group PTT bindings;
 - focus-independent Windows keyboard, mouse, gamepad, joystick, and HOTAS
   button capture through Win32 Raw Input and generic HID reports; and
-- an initial WinUI 3 shell that connects the control plane, authorized LiveKit
-  rooms, and Raw Input through the ready state.
+- a complete WinUI 3 client that connects the control plane, authorized LiveKit
+  rooms, Raw Input, speaker views, and configurable audio/input settings.
 
-The graphical client remains incomplete. See
+See
 [the project status](doks/status.md) for the detailed implementation progress.
 
 ## Requirements
@@ -195,6 +197,7 @@ Important starting points are:
 - [Implementation plan](doks/implementation-plan.md)
 - [State machines](doks/state-machines.md)
 - [Control-plane design](doks/control-plane.md)
+- [Client-core integration SDK](doks/client-core-integration.md)
 - [Development environment](doks/development.md)
 - [C++ code-documentation rules](doks/CodeDocumentation.md)
 - [Current project status](doks/status.md)

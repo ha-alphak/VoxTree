@@ -40,6 +40,7 @@ INPUT                  = "@HVC_DOC_SOURCE_DIR@/libs" \
                          "@HVC_DOC_SOURCE_DIR@/doks/CodeDocumentation.md"
 INPUT_ENCODING         = UTF-8
 FILE_PATTERNS          = *.hpp \
+                         *.h \
                          *.hpp.in \
                          *.md
 RECURSIVE              = YES

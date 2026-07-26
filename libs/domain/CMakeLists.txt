@@ -38,6 +38,7 @@ set_target_properties(
     CXX_EXTENSIONS OFF
     EXPORT_NAME domain
     OUTPUT_NAME hvc-domain
+    POSITION_INDEPENDENT_CODE ON
 )
 
 install(

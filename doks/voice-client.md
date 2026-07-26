@@ -108,6 +108,20 @@ Observer besitzen den Transport nicht. Der Aufrufer muss sie vor ihrer
 Zerstörung mit `setObserver(nullptr)` abmelden; `VoiceClient` erledigt dies
 automatisch.
 
+## Integrations-DLL
+
+Die öffentliche Shared-Library-Grenze `hvc::client_core` kapselt
+`VoiceClient` hinter der versionierten C-ABI in `hvc/client_core.h`. Ein
+Host stellt den konkreten Voice-Transport über eine C-Funktionstabelle bereit;
+interne HVC-, LiveKit- oder C++-Standardbibliothekstypen überschreiten die
+DLL-Grenze nicht.
+
+`hvc/client_core.hpp` ergänzt einen C++20-RAII-Wrapper mit besitzenden
+Membership- und Ereigniswerten. ABI-Versionierung, Threading,
+Control-Plane-Reihenfolge und Beispielintegration sind in
+[client-core-integration.md](client-core-integration.md) verbindlich
+dokumentiert.
+
 ## Build und Tests
 
 Der plattformunabhängige Client-Core gehört zu allen regulären Builds und wird
