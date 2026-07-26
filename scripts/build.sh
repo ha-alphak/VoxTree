@@ -5,7 +5,7 @@ set -euo pipefail
 preset="${1:-linux-gcc-debug}"
 
 case "${preset}" in
-  linux-gcc-debug|linux-gcc-release|linux-clang-analysis)
+  linux-gcc-debug|linux-gcc-release|linux-clang-analysis|linux-documentation)
     ;;
   *)
     echo "Unsupported preset: ${preset}" >&2

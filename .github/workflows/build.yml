@@ -66,6 +66,8 @@ jobs:
             clang-format \
             clang-tidy \
             cmake \
+            doxygen \
+            g++ \
             libsqlite3-dev \
             ninja-build
 
@@ -78,6 +80,9 @@ jobs:
             \( -name '*.cpp' -o -name '*.hpp' -o -name '*.hpp.in' -o -name '*.h' \) \
             -print0 |
             xargs --null clang-format --dry-run --Werror
+
+      - name: Build API documentation
+        run: ./scripts/build.sh linux-documentation
 
       - name: Configure, analyze, build, and test
         run: ./scripts/build.sh linux-clang-analysis

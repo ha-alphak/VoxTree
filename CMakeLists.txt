@@ -24,6 +24,27 @@ option(
   "Build the Windows App SDK / WinUI 3 client"
   OFF
 )
+option(HVC_BUILD_DOCUMENTATION "Build the C++ API documentation with Doxygen" OFF)
+
+if(HVC_BUILD_DOCUMENTATION)
+  find_package(Doxygen REQUIRED)
+
+  file(TO_CMAKE_PATH "${PROJECT_SOURCE_DIR}" HVC_DOC_SOURCE_DIR)
+  file(TO_CMAKE_PATH "${CMAKE_CURRENT_BINARY_DIR}/documentation" HVC_DOC_OUTPUT_DIR)
+  configure_file(
+    "${PROJECT_SOURCE_DIR}/doks/Doxyfile.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/Doxyfile"
+    @ONLY
+  )
+
+  add_custom_target(
+    hvc_documentation ALL
+    COMMAND "${DOXYGEN_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/Doxyfile"
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    COMMENT "Building C++ API documentation"
+    VERBATIM
+  )
+endif()
 
 if(HVC_BUILD_LIVEKIT_QUALITY_GATE OR HVC_BUILD_WINDOWS_CLIENT)
   include(HvcLiveKitSdk)

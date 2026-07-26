@@ -99,6 +99,23 @@
         "lhs": "${hostSystemName}",
         "rhs": "Linux"
       }
+    },
+    {
+      "name": "linux-documentation",
+      "displayName": "Debian/Linux - C++ API documentation",
+      "inherits": "base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "g++",
+        "HVC_BUILD_DOCUMENTATION": "ON",
+        "HVC_BUILD_TESTS": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
     }
   ],
   "buildPresets": [
@@ -145,6 +162,14 @@
     {
       "name": "linux-clang-analysis",
       "configurePreset": "linux-clang-analysis",
+      "jobs": 0
+    },
+    {
+      "name": "linux-documentation",
+      "configurePreset": "linux-documentation",
+      "targets": [
+        "hvc_documentation"
+      ],
       "jobs": 0
     }
   ],
@@ -304,6 +329,19 @@
         {
           "type": "test",
           "name": "linux-clang-analysis"
+        }
+      ]
+    },
+    {
+      "name": "linux-documentation",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "linux-documentation"
+        },
+        {
+          "type": "build",
+          "name": "linux-documentation"
         }
       ]
     }

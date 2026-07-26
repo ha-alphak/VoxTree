@@ -19,6 +19,7 @@ Communication**.
 | [input-system.md](input-system.md) | Windows-Raw-Input, PTT-Aktionen und Bindings |
 | [windows-client.md](windows-client.md) | WinUI-Clientschale, Anmeldung und Bereitschaftszustand |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |
+| [CodeDocumentation.md](CodeDocumentation.md) | Verbindliche Regeln für C++-API-Dokumentation und Code-Kommentare |
 | [status.md](status.md) | Laufender Projektstatus |
 
 ## Ablageregel

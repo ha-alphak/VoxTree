@@ -169,6 +169,13 @@ sudo apt-get install clang clang-tidy
 ./scripts/build.sh linux-clang-analysis
 ```
 
+To validate and build the C++ API documentation with Doxygen:
+
+```bash
+sudo apt-get install doxygen
+./scripts/build.sh linux-documentation
+```
+
 Build output is written to `out/`.
 
 ## Documentation
@@ -182,6 +189,7 @@ Important starting points are:
 - [State machines](doks/state-machines.md)
 - [Control-plane design](doks/control-plane.md)
 - [Development environment](doks/development.md)
+- [C++ code-documentation rules](doks/CodeDocumentation.md)
 - [Current project status](doks/status.md)
 
 ## Security and privacy

@@ -9,6 +9,7 @@
 | Windows 10/11 x64 | Visual Studio 2022, MSVC/v143 |
 | Debian 13 x64 | GCC und Ninja |
 | Statische Analyse | Clang und clang-tidy |
+| API-Dokumentation | Doxygen |
 
 Erforderlich ist CMake 3.25 oder neuer. Der Quellcode verwendet C++20 ohne
 Compilererweiterungen.
@@ -65,6 +66,21 @@ apt-get install clang clang-tidy
 ./scripts/build.sh linux-clang-analysis
 ```
 
+API-Dokumentation:
+
+```bash
+apt-get install doxygen
+./scripts/build.sh linux-documentation
+```
+
+Die verbindlichen Regeln für öffentliche Doxygen-Blöcke und interne
+Code-Kommentare stehen in
+[`CodeDocumentation.md`](CodeDocumentation.md). Bei Änderungen an öffentlichen
+oder geschützten Schnittstellen werden Code, Tests und Dokumentation gemeinsam
+aktualisiert. Der Dokumentations-Workflow prüft Doxygen-Tags, Parameterbezüge
+und Querverweise; die erzeugte HTML-Dokumentation liegt unter
+`out/build/linux-documentation/documentation/html/`.
+
 ## Presets
 
 `CMakePresets.json` enthält alle gemeinsamen und CI-relevanten Presets.
@@ -85,6 +101,7 @@ versioniert.
 - clang-tidy prüft Fehler, Nebenläufigkeit, Modern C++, Performance,
   Portabilität und Lesbarkeit.
 - clang-format und `.editorconfig` definieren die Quellcodeformatierung.
+- Doxygen prüft die Struktur und Konsistenz der C++-API-Dokumentation.
 
 ## Wiederkehrende Clang-Tidy-Regeln
 
@@ -106,6 +123,8 @@ beim Schreiben berücksichtigen:
 - Nach Änderungen an C++-Dateien werden clang-format, die betroffenen
   Clang-Tidy-Prüfungen und mindestens der lokale Debug-Build mit allen Tests
   ausgeführt.
+- Nach Änderungen an öffentlichen oder geschützten Schnittstellen wird
+  zusätzlich `./scripts/build.sh linux-documentation` ausgeführt.
 
 ## Abhängigkeiten
 
