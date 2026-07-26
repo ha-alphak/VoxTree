@@ -75,9 +75,9 @@ using hvc::domain::VoiceScope;
     case HVC_CLIENT_CORE_TRANSPORT_ERROR_PUBLICATION_FAILED:
         return VoiceTransportError::publication_failed;
     case HVC_CLIENT_CORE_TRANSPORT_ERROR_INTERNAL:
+    default:
         return VoiceTransportError::internal_error;
     }
-    return VoiceTransportError::internal_error;
 }
 
 [[nodiscard]] auto transportState(hvc_client_core_connection_state state) noexcept
@@ -93,8 +93,9 @@ using hvc::domain::VoiceScope;
         return VoiceTransportState::connected;
     case HVC_CLIENT_CORE_CONNECTION_RECONNECTING:
         return VoiceTransportState::reconnecting;
+    default:
+        return VoiceTransportState::disconnected;
     }
-    return VoiceTransportState::disconnected;
 }
 
 [[nodiscard]] auto coreState(VoiceTransportState state) noexcept -> hvc_client_core_connection_state
