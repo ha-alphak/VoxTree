@@ -14,12 +14,22 @@ set(
 add_executable(
   hvc_windows_client
   WIN32
+  resources/resource.h
+  resources/windows-client.rc
   src/client_session.cpp
   src/client_session.hpp
+  src/localized_text.cpp
+  src/localized_text.hpp
+  src/login_dialog.cpp
+  src/login_dialog.hpp
   src/main.cpp
 )
 
 target_compile_features(hvc_windows_client PRIVATE cxx_std_20)
+target_include_directories(
+  hvc_windows_client
+  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources"
+)
 target_compile_options(
   hvc_windows_client
   PRIVATE /W4 /WX /permissive- /Zc:preprocessor /utf-8 /EHsc /wd4265

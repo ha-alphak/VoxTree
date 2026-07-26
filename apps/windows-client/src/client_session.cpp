@@ -51,29 +51,10 @@ namespace
                              {{client::InputDeviceKind::keyboard, 0, VK_F11, false, {}}}},
     };
 }
-
-[[nodiscard]] auto scopeName(domain::VoiceScope scope) -> std::string
-{
-    switch (scope)
-    {
-    case domain::VoiceScope::team:
-        return "Team";
-    case domain::VoiceScope::specialization:
-        return "Specialization";
-    case domain::VoiceScope::group:
-        return "Group";
-    }
-    return "Unknown";
-}
-
-[[nodiscard]] auto actionName(client::PushToTalkAction action) -> std::string
-{
-    return scopeName(client::voiceScopeFor(action));
-}
 } // namespace
 
-ClientSession::ClientSession(StatusCallback status_callback)
-    : status_callback_(std::move(status_callback))
+ClientSession::ClientSession(EventCallback event_callback)
+    : event_callback_(std::move(event_callback))
 {
 }
 
@@ -87,21 +68,20 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
 {
     if (server_url.empty())
     {
-        return {false, "Eine Server-URL ist erforderlich.", std::nullopt};
+        return {false, "A server URL is required.", std::nullopt};
     }
     if (credential.empty())
     {
-        return {false, "Ein Anmelde-Credential ist erforderlich.", std::nullopt};
+        return {false, "A sign-in credential is required.", std::nullopt};
     }
 
     try
     {
         if (authorized_client_ != nullptr)
         {
-            return {false, "Der Client ist bereits verbunden.", std::nullopt};
+            return {false, "The client is already connected.", std::nullopt};
         }
 
-        report("Control Plane wird kontaktiert ...");
         http_transport_ = std::make_unique<client::WinHttpTransport>(server_url);
         control_plane_ = std::make_unique<client::ControlPlaneClient>(
             *http_transport_, static_cast<client::IClientIdentifierGenerator&>(*this),
@@ -128,7 +108,7 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
         if (!bindings_set)
         {
             disconnect();
-            return {false, "Die Standard-PTT-Belegungen konnten nicht aktiviert werden.",
+            return {false, "The default push-to-talk bindings could not be activated.",
                     std::nullopt};
         }
 
@@ -136,15 +116,13 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
         const auto input_started = raw_input_->start();
         if (!input_started)
         {
-            const auto message =
-                "Raw Input konnte nicht gestartet werden: " + input_started.message;
+            const auto message = "Raw Input could not be started: " + input_started.message;
             disconnect();
             return {false, message, std::nullopt};
         }
 
         auto membership = authorized_client_->membership();
-        report("Verbunden und bereit.");
-        return {true, "Verbunden und bereit.", std::move(membership)};
+        return {true, {}, std::move(membership)};
     }
     catch (const std::exception& error)
     {
@@ -183,6 +161,75 @@ void ClientSession::disconnect() noexcept
     http_transport_.reset();
 }
 
+auto ClientSession::recordingDevices() const -> std::vector<client::AudioDevice>
+{
+    return livekit_transport_ == nullptr ? std::vector<client::AudioDevice>{}
+                                         : livekit_transport_->recordingDevices();
+}
+
+auto ClientSession::playoutDevices() const -> std::vector<client::AudioDevice>
+{
+    return livekit_transport_ == nullptr ? std::vector<client::AudioDevice>{}
+                                         : livekit_transport_->playoutDevices();
+}
+
+auto ClientSession::selectRecordingDevice(const std::string& device_id)
+    -> client::VoiceTransportResult
+{
+    return livekit_transport_ == nullptr ? disconnectedResult()
+                                         : livekit_transport_->selectRecordingDevice(device_id);
+}
+
+auto ClientSession::selectPlayoutDevice(const std::string& device_id)
+    -> client::VoiceTransportResult
+{
+    return livekit_transport_ == nullptr ? disconnectedResult()
+                                         : livekit_transport_->selectPlayoutDevice(device_id);
+}
+
+auto ClientSession::setAudioEngineConfig(const client::AudioEngineConfig& config)
+    -> client::VoiceTransportResult
+{
+    return voice_client_ == nullptr ? disconnectedResult()
+                                    : voice_client_->setAudioEngineConfig(config);
+}
+
+auto ClientSession::audioEngineConfig() const noexcept -> client::AudioEngineConfig
+{
+    return voice_client_ == nullptr ? client::AudioEngineConfig{}
+                                    : voice_client_->audioEngineConfig();
+}
+
+auto ClientSession::setBindings(std::span<const client::InputBinding> bindings)
+    -> client::InputBindingResult
+{
+    return binding_engine_.setBindings(bindings);
+}
+
+auto ClientSession::bindings() const -> std::vector<client::InputBinding>
+{
+    return binding_engine_.bindings();
+}
+
+auto ClientSession::inputDevices() const -> std::vector<client::InputDeviceProfile>
+{
+    return binding_engine_.devices();
+}
+
+auto ClientSession::setParticipantVolume(const std::string& participant_id, float volume)
+    -> client::VoiceTransportResult
+{
+    return voice_client_ == nullptr ? disconnectedResult()
+                                    : voice_client_->setParticipantVolume(participant_id, volume);
+}
+
+auto ClientSession::setParticipantMuted(const std::string& participant_id, bool muted)
+    -> client::VoiceTransportResult
+{
+    return voice_client_ == nullptr ? disconnectedResult()
+                                    : voice_client_->setParticipantMuted(participant_id, muted);
+}
+
 auto ClientSession::nextCorrelationId() -> domain::CorrelationId
 {
     return domain::CorrelationId{newIdentifier()};
@@ -195,36 +242,29 @@ auto ClientSession::nextTransmissionId() -> domain::ClientTransmissionId
 
 void ClientSession::onVoiceStateChanged(client::VoiceTransportState state)
 {
-    switch (state)
-    {
-    case client::VoiceTransportState::disconnected:
-        report("Voice-Transport getrennt.");
-        break;
-    case client::VoiceTransportState::connecting:
-        report("Voice-Räume werden verbunden ...");
-        break;
-    case client::VoiceTransportState::connected:
-        report("Voice-Räume verbunden.");
-        break;
-    case client::VoiceTransportState::reconnecting:
-        report("Voice-Transport wird neu verbunden; PTT bleibt beendet.");
-        break;
-    }
+    report(SessionEvent{SessionEventKind::connection_state, state});
 }
 
 void ClientSession::onSpeakerStarted(domain::VoiceScope scope, const std::string& participant_id)
 {
-    report(scopeName(scope) + ": Sprecher " + participant_id + " ist aktiv.");
+    report(SessionEvent{SessionEventKind::speaker_started, client::VoiceTransportState::connected,
+                        scope, participant_id});
 }
 
 void ClientSession::onSpeakerStopped(domain::VoiceScope scope, const std::string& participant_id)
 {
-    report(scopeName(scope) + ": Sprecher " + participant_id + " ist nicht mehr aktiv.");
+    report(SessionEvent{SessionEventKind::speaker_stopped, client::VoiceTransportState::connected,
+                        scope, participant_id});
 }
 
-void ClientSession::onVoiceError(client::VoiceTransportError, const std::string& message)
+void ClientSession::onVoiceError(client::VoiceTransportError error, const std::string& message)
 {
-    report("Voice-Fehler: " + message);
+    report(SessionEvent{SessionEventKind::error,
+                        client::VoiceTransportState::disconnected,
+                        std::nullopt,
+                        {},
+                        std::to_string(static_cast<std::uint8_t>(error)),
+                        message});
 }
 
 void ClientSession::onPushToTalkInputResult(client::PushToTalkAction action, bool pressed,
@@ -232,17 +272,26 @@ void ClientSession::onPushToTalkInputResult(client::PushToTalkAction action, boo
 {
     if (!result)
     {
-        report(actionName(action) + "-PTT: " + voiceSessionMessage(result));
+        const auto error_code =
+            result.error.has_value() ? result.error->code : std::string{"client_unknown"};
+        report(SessionEvent{SessionEventKind::error,
+                            client::VoiceTransportState::connected,
+                            client::voiceScopeFor(action),
+                            {},
+                            error_code,
+                            voiceSessionMessage(result)});
         return;
     }
-    report(actionName(action) + (pressed ? "-PTT sendet." : "-PTT beendet."));
+    report(SessionEvent{pressed ? SessionEventKind::transmission_started
+                                : SessionEventKind::transmission_stopped,
+                        client::VoiceTransportState::connected, client::voiceScopeFor(action)});
 }
 
-void ClientSession::report(std::string message) const
+void ClientSession::report(SessionEvent event) const
 {
-    if (status_callback_)
+    if (event_callback_)
     {
-        status_callback_(std::move(message));
+        event_callback_(std::move(event));
     }
 }
 
@@ -256,6 +305,12 @@ auto ClientSession::voiceSessionMessage(const client::VoiceSessionResult& result
         }
         return result.error->code;
     }
-    return "Unbekannter Clientfehler.";
+    return "Unknown client failure.";
+}
+
+auto ClientSession::disconnectedResult() -> client::VoiceTransportResult
+{
+    return client::VoiceTransportResult::failure(client::VoiceTransportError::invalid_state,
+                                                 "The client is not connected.");
 }
 } // namespace hvc::windows_client

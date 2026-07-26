@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 26. Juli 2026
-**Phase:** Audio-Engine abgeschlossen – WinUI-Client als Nächstes<br>
+**Phase:** WinUI-Client abgeschlossen – Integrationsschnittstelle als Nächstes<br>
 **Gesamtstatus:** Grün
 
 ## Abgeschlossen
@@ -274,6 +274,26 @@
 - Client-Core-Tests für Prioritätsverdrängung, Ducking-Beziehungen,
   Mute/Block, individuelle Lautstärke und deterministische Wiederzulassung
   ergänzt; Audio-Engine in `audio-engine.md` dokumentiert.
+- WinUI-Client um vollständige Hierarchie- und Membership-Anzeige sowie
+  getrennte Verbindungs-, Sende-, Empfangs- und Fehlerzustände erweitert.
+- Strukturierte ClientSession-Ereignisse für Voice-Zustand, bestätigte lokale
+  Transmissionen und aktive Remote-Sprecher bis in die Oberfläche geführt.
+- Sprecheransicht mit Scope, öffentlicher Teilnehmeridentität, Rollenfeld,
+  bestätigtem Sprechzustand, lokaler Lautstärke und lokalem Mute ergänzt.
+- Audioeinstellungen für Aufnahme-/Wiedergabegerät, Streamlimits und alle drei
+  hierarchischen Ducking-Beziehungen mit der bestehenden Audio-Engine
+  verdrahtet.
+- Eingabeeinstellungen für unabhängige Team-, Specialization- und
+  Group-PTT-Funktionstasten sowie Anzeige der Raw-Input-Geräteprofile ergänzt.
+- Textskalierung, verstärkte Sprecherindikatoren und durchgängige textuelle
+  Scope-/Statuskennzeichnung als Accessibility-Grundlage umgesetzt.
+- Rollenabhängigen Moderationsbereich ergänzt; er ist ausschließlich für
+  Memberships mit Moderator- oder Administratorrolle sichtbar.
+- Sämtliche statischen UI-Texte in deutsche und englische Windows-Ressourcen
+  ausgelagert.
+- Reproduzierbaren WinUI-`TextBox`-/`PasswordBox`-Startfehler der
+  selbstenthaltenen Windows-App-SDK-2.2.0-Runtime durch einen eng gekapselten,
+  lokalisierten und passwortmaskierten nativen Anmeldedialog umgangen.
 
 ## Aktueller Stand
 
@@ -301,6 +321,11 @@
   Team-Spuren vor dem Dekodieren, wendet lokale Empfangsrestriktionen und
   konfigurierbare Gains an und gibt zugelassene Remote-Spuren über getrennte
   native XAudio2-Voices wieder.
+- Die WinUI-3-Anwendung zeigt Hierarchie, Membership, PTT-Scopes, aktive
+  Sprecher und getrennte Voice-Zustände an. Audio-, Eingabe- und
+  Accessibility-Einstellungen greifen direkt auf die vorhandenen
+  Client-Core-, LiveKit- und Raw-Input-Grenzen zu. Statische Texte sind
+  vollständig als deutsche und englische Ressourcen vorhanden.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
 - Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
@@ -324,9 +349,10 @@
 
 ## Nächster Schritt
 
-Mit Abschnitt 8 „WinUI-Client“ fortfahren: Hierarchie- und Sprecheransicht,
-Audio- und Eingabeeinstellungen sowie lokalisierbare Ressourcen auf der
-bestehenden Client-Core-, Audio- und Raw-Input-Basis ergänzen.
+Mit Abschnitt 9 „Integrationsschnittstelle“ fortfahren: den UI-unabhängigen
+Client-Core als stabile DLL-Grenze mit versionierter C-ABI, C++-Wrapper,
+Membership-, Verbindungs-, Sprecher- und Fehlerereignissen sowie
+Beispielintegration dokumentieren und absichern.
 
 ## Validierung
 
@@ -337,7 +363,11 @@ bestehenden Client-Core-, Audio- und Raw-Input-Basis ergänzen.
 | CTest Debug | 13 von 13 Tests bestanden |
 | CTest Release | 13 von 13 Tests bestanden |
 | WinUI-3-Client Debug-Build | Bestanden |
+| WinUI-3-Client Release-Build | Bestanden |
 | WinUI-3-Client Start-Smoke-Test | Bestanden |
+| WinUI-Hierarchie-, Sprecher- und Statusansicht | Bestanden |
+| WinUI-Audio-, Eingabe- und Accessibility-Einstellungen | Bestanden |
+| Deutsche/englische UI-Ressourcenparität | Bestanden |
 | Lokale native LiveKit-Zwei-Client-Verbindung | Bestanden |
 | Native Windows-Audiogeräteerkennung | Bestanden |
 | Lokaler Mikrofon-/Opus-Zwei-Prozess-Nachweis | Bestanden |
