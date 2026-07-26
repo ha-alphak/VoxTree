@@ -79,11 +79,18 @@ scan_tree() {
 
 scan_range() {
     local range="$1"
-    local commit
-    while IFS= read -r commit; do
-        [[ -z "$commit" ]] && continue
-        scan_tree "$commit"
-    done < <(git rev-list "$range")
+    local path
+    while IFS= read -r path; do
+        [[ -z "$path" ]] && continue
+        scan_path "$path"
+    done < <(git log --format= --name-only --diff-filter=ACMR --root "$range" | sort -u)
+
+    if git log --format= --patch --unified=0 --no-ext-diff --root "$range" |
+        grep -Ea '^\+([^+]|$)' |
+        grep -Eaq -- "$secret_pattern"; then
+        printf 'Potential embedded credential in revision range: %s\n' "$range" >&2
+        failure=1
+    fi
 }
 
 case "$mode" in
