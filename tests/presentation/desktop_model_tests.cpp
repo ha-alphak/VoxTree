@@ -60,6 +60,14 @@ auto testConnectionAndMembershipLifecycle() -> bool
            !model.state().membership.has_value() && model.state().participants.empty();
 }
 
+auto testCommandKindConstructorDefaultsPayload() -> bool
+{
+    const Command command{CommandKind::disconnect};
+    return command.kind == CommandKind::disconnect && !command.channel.has_value() &&
+           command.participant_id.empty() && command.participant_volume == 1.0F &&
+           !command.enabled && !command.settings.has_value();
+}
+
 auto testSeparatedParticipantState() -> bool
 {
     DesktopModel model;
@@ -168,10 +176,10 @@ auto main() noexcept -> int
 {
     try
     {
-        const auto passed = testConnectionAndMembershipLifecycle() &&
-                            testSeparatedParticipantState() &&
-                            testCommandValidationAndAdministration() && testSettingsValidation() &&
-                            testDiagnosticsAreSessionBounded();
+        const auto passed =
+            testCommandKindConstructorDefaultsPayload() && testConnectionAndMembershipLifecycle() &&
+            testSeparatedParticipantState() && testCommandValidationAndAdministration() &&
+            testSettingsValidation() && testDiagnosticsAreSessionBounded();
         if (!passed)
         {
             std::fputs("presentation desktop-model tests failed\n", stderr);

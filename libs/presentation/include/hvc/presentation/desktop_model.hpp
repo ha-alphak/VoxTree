@@ -214,6 +214,17 @@ struct DesktopState final
 /// Describe a toolkit-independent user command and its typed payload.
 struct Command final
 {
+    /// Construct a connection command with default payload values.
+    Command() = default;
+    /**
+     * Construct one command classification with default payload values.
+     *
+     * @param command_kind Classification assigned to `kind`.
+     */
+    constexpr explicit Command(CommandKind command_kind) noexcept : kind(command_kind)
+    {
+    }
+
     /// Command classification.
     CommandKind kind{CommandKind::connect};
     /// Server-defined channel selection for `select_channel`.
