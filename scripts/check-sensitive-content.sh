@@ -42,22 +42,10 @@ is_forbidden_path() {
 }
 
 scan_path() {
-    local source="$1"
-    local ref="$2"
-    local path="$3"
+    local path="$1"
 
     if is_forbidden_path "$path"; then
         printf 'Blocked sensitive path: %s\n' "$path" >&2
-        failure=1
-    fi
-
-    if [[ "$source" == "staged" ]]; then
-        if git show ":$path" 2>/dev/null | grep -Eaq -- "$secret_pattern"; then
-            printf 'Potential embedded credential in staged file: %s\n' "$path" >&2
-            failure=1
-        fi
-    elif git show "$ref:$path" 2>/dev/null | grep -Eaq -- "$secret_pattern"; then
-        printf 'Potential embedded credential in commit %s, file: %s\n' "$ref" "$path" >&2
         failure=1
     fi
 }
@@ -66,8 +54,13 @@ scan_staged() {
     local path
     while IFS= read -r path; do
         [[ -z "$path" ]] && continue
-        scan_path staged "" "$path"
+        scan_path "$path"
     done < <(git diff --cached --name-only --diff-filter=ACMR)
+
+    if git grep --cached -q -I -E -e "$secret_pattern" -- .; then
+        echo 'Potential embedded credential in staged content.' >&2
+        failure=1
+    fi
 }
 
 scan_tree() {
@@ -75,8 +68,13 @@ scan_tree() {
     local path
     while IFS= read -r path; do
         [[ -z "$path" ]] && continue
-        scan_path tree "$ref" "$path"
+        scan_path "$path"
     done < <(git ls-tree -r --name-only "$ref")
+
+    if git grep -q -I -E -e "$secret_pattern" "$ref" -- .; then
+        printf 'Potential embedded credential in commit: %s\n' "$ref" >&2
+        failure=1
+    fi
 }
 
 scan_range() {
