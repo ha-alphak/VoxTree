@@ -102,10 +102,11 @@ class FakeVoiceTransport final : public IVoiceTransport
                                             bool admitted, float gain)
         -> VoiceTransportResult override
     {
-        const auto match = [&](const auto& playback) {
-            return std::get<0>(playback) == scope && std::get<1>(playback) == participant_id;
+        const auto match = [&](const auto& playback_entry) {
+            return std::get<0>(playback_entry) == scope &&
+                   std::get<1>(playback_entry) == participant_id;
         };
-        const auto iterator = std::find_if(playback.begin(), playback.end(), match);
+        const auto iterator = std::ranges::find_if(playback, match);
         const auto value = std::tuple{scope, participant_id, admitted, gain};
         if (iterator == playback.end())
         {
@@ -147,12 +148,12 @@ class FakeVoiceTransport final : public IVoiceTransport
         }
     }
 
-    void makeAudioAvailable(VoiceScope scope, const std::string& participant_id)
+    void makeAudioAvailable(VoiceScope scope, const std::string& participant_id) const
     {
         observer_->onRemoteAudioAvailable(scope, participant_id);
     }
 
-    void makeAudioUnavailable(VoiceScope scope, const std::string& participant_id)
+    void makeAudioUnavailable(VoiceScope scope, const std::string& participant_id) const
     {
         observer_->onRemoteAudioUnavailable(scope, participant_id);
     }
@@ -244,7 +245,7 @@ auto testReconnectStopsAndNeverResumesPtt() -> bool
     -> std::optional<RemoteAudioPlayback>
 {
     const auto snapshot = client.remoteAudioPlayback();
-    const auto iterator = std::find_if(snapshot.begin(), snapshot.end(), [&](const auto& playback) {
+    const auto iterator = std::ranges::find_if(snapshot, [&](const auto& playback) {
         return playback.scope == scope && playback.participant_id == participant_id;
     });
     return iterator == snapshot.end() ? std::nullopt : std::optional{*iterator};
