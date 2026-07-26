@@ -1,8 +1,8 @@
 # Projektstatus
 
 **Berichtsdatum:** 26. Juli 2026
-**Phase:** Integrationsschnittstelle abgeschlossen – Qualität und Auslieferung als Nächstes<br>
-**Gesamtstatus:** Grün
+**Phase:** Integrationsschnittstelle abgeschlossen – Server-Laufzeit als Nächstes<br>
+**Gesamtstatus:** Gelb
 
 ## Abgeschlossen
 
@@ -323,13 +323,29 @@
 - Der erste versionierte Control-Plane-Netzwerkadapter ist implementiert. Der
   plattformunabhängige Vertrag und Dispatcher sind unter Windows lokal
   validiert; der Linux-spezifische Socketpfad wurde durch Debian-CI erfolgreich
-  gebaut und getestet.
+  gebaut. Der aktuelle Linux-Listener verarbeitet Verbindungen jedoch
+  sequenziell und ist noch nicht für parallele Last ausgelegt.
 - Der Anwendungskern ist für einen produktiven OIDC-/Account-Adapter
-  vorbereitet. Die konkrete externe Provider-Anbindung ist eine
-  Deployment-Entscheidung; der lokale Linux-Start verwendet weiterhin den
-  Bootstrap-Provider.
+  vorbereitet. Der Linux-Entry-Point verwendet weiterhin einen
+  Ein-Spieler-Bootstrap-Provider und verweigert administrative Membership- und
+  Moderationsoperationen. Ein realer Mehrbenutzerbetrieb ist damit noch nicht
+  hergestellt.
 - Die LiveKit-Tokenausstellung sowie die native Client- und Audioanbindung sind
-  vorhanden.
+  vorhanden. Die Tokens gewähren berechtigten Scopes derzeit bereits beim
+  Verbindungsaufbau das Publikationsrecht. Der produktive Server koppelt
+  LiveKit `UpdateParticipant` noch nicht an Start, Ende, Timeout, Disconnect,
+  Moderation oder Membership- und Rechteänderungen. Der bestehende
+  Rechteentzugsnachweis ist ein isoliertes Quality Gate.
+- Transmission-Timeout, erzwungener Abbruch und Auditierung sind im
+  Anwendungskern implementiert und getestet. Im Serverprozess fehlen der
+  regelmäßige Timeout-Scheduler, Session-Bereinigung und
+  Audit-Aufbewahrungsjobs.
+- Sprecherlimits sind im Domänenmodell und in der Persistenz enthalten, werden
+  bei der serverseitigen Transmissionsaktivierung aber noch nicht pro
+  Voice-Scope durchgesetzt.
+- Der Windows-Client lädt Membership und Voice-Grants beim Verbindungsaufbau.
+  Eine laufende Push- oder Polling-Strecke für Membership- und Rechteänderungen
+  innerhalb des Ein-Sekunden-Ziels fehlt.
 - Der UI-unabhängige Windows-Client-Core, die Control-Plane-Clientanbindung, der
   WinHTTP-Adapter, das globale Tastatur-/Maus-Eingabesystem und der native
   LiveKit-Transportadapter sind vorhanden. Generische HID-Controller sind für
@@ -375,11 +391,24 @@
 
 ## Nächster Schritt
 
-Mit Abschnitt 10 „Qualität und Auslieferung“ fortfahren: zuerst einen
-reproduzierbaren Lasttest mit mindestens 200 gleichzeitig verbundenen Spielern
-aufbauen und Group-Transmission, gleichzeitige Sprecher, Membership-Wechsel,
-Reconnect sowie Serverausfall unter Last gegen die festgelegten Latenz- und
-Isolationserwartungen messen.
+Mit Abschnitt 10.1 „Server-Laufzeit vervollständigen“ fortfahren:
+
+1. Mehrbenutzer-Identity, Membership-Verwaltung und Moderationsautorisierung im
+   Linux-Entry-Point verdrahten.
+2. Einen LiveKit-Control-Adapter anbinden, der Publikationsrechte ausschließlich
+   für aktive, serverautorisierte Transmissionen erteilt und sie bei jedem
+   terminalen Ereignis einschließlich Timeout und Membership-Wechsel entzieht.
+3. Sprecherlimits atomar durchsetzen sowie Timeout-, Session- und
+   Aufbewahrungsjobs ausführen.
+4. Membership-Änderungen an verbundene Clients propagieren und deren Grants
+   sowie Empfangsabonnements aktualisieren.
+5. Den HTTP-Server begrenzt parallelisieren und Betriebsmetriken, Readiness,
+   geordnetes Herunterfahren sowie Docker-/Compose-Auslieferung ergänzen.
+
+Danach mit Abschnitt 10.2 einen Headless-Lasttreiber aufbauen und mindestens
+200 virtuelle Spieler auf wenigen Lastgenerator-Rechnern prüfen. Reale
+Windows-PCs werden nur ergänzend für Audiohardware, Raw Input und den
+Ende-zu-Ende-Nachweis benötigt.
 
 ## Validierung
 
@@ -409,7 +438,14 @@ Isolationserwartungen messen.
 | Nativer LiveKit-Reconnect ohne automatische Transmission | Bestanden |
 | Nativer Aufnahmegerätewechsel bei aktiver Opus-Publikation | Bestanden |
 | Nativer Wiedergabegerätewechsel mit kontrolliertem Raum-Reconnect | Bestanden |
-| Sofortiger serverseitiger LiveKit-Publish-Rechteentzug | Bestanden |
+| LiveKit-Publish-Rechteentzug im isolierten Quality Gate | Bestanden |
+| Control-Plane-gesteuerter LiveKit-Publish-Lebenszyklus | Offen |
+| Mehrbenutzer-Identity und autorisierte Membership-Verwaltung | Offen |
+| Automatischer Transmission-Timeout im Serverprozess | Offen |
+| Serverseitige Sprecherlimits pro Scope | Offen |
+| Membership-Propagation an verbundene Clients | Offen |
+| Parallele, überlastgeschützte Linux-HTTP-Verarbeitung | Offen |
+| Headless-Lasttreiber und 200-Spieler-Ende-zu-Ende-Test | Offen |
 | Verhinderung nicht autorisierter LiveKit-Track-Abonnements | Bestanden |
 | LiveKit-Cross-Room-Isolation | Bestanden |
 | Automatisierte Cross-Team- und Cross-Group-Routingisolation | Bestanden |
@@ -437,7 +473,11 @@ Isolationserwartungen messen.
 | Risiko | Status | Maßnahme |
 |---|---|---|
 | Reife und Integration des LiveKit-C++-SDK | Beobachten | Quality Gate bestanden; bekannte Geräte- und Publication-Handle-Einschränkungen im Adapter kapseln |
+| LiveKit-Publikation ohne aktive Control-Plane-Transmission | Offen, release-blockierend | Publikationsrecht erst beim autorisierten Start erteilen und bei allen terminalen Ereignissen serverseitig entziehen |
+| Linux-Server nur als Ein-Spieler-Bootstrap und mit sequenziellem HTTP-Listener | Offen, release-blockierend | Mehrbenutzer-Adapter anbinden und begrenzte parallele Request-Verarbeitung implementieren |
+| Fehlende Laufzeitjobs und Membership-Propagation | Offen, release-blockierend | Timeout-, Session- und Retention-Scheduler sowie Push- oder Polling-Refresh ergänzen |
+| Sprecherlimits nur modelliert, nicht serverseitig erzwungen | Offen, release-blockierend | Aktivierungen atomar pro Scope und Hierarchieknoten begrenzen |
 | Autoritative Isolation im Shared-Room-Modell | Zurückgestellt | Getrennte, erfolgreich isolierte Räume verwenden |
 | Hintergrund-PTT für unterschiedliche HID-Geräte | Abgeschlossen | Tastatur/Maus und generische HID-Buttons umgesetzt; realer HOTAS-Button bei Fremdfokus über `RIM_INPUTSINK` bestätigt |
 | Windows 10 außerhalb des regulären Supports | Akzeptiert | Build 19045 unterstützen und Windows 11 mittesten |
-| 200-Spieler-Skalierung | Offen | Früher Lasttest vor UI-Vollausbau |
+| 200-Spieler-Skalierung | Offen | Nach Abschluss der Server-Laufzeit mit Headless-Teilnehmern auf wenigen Lastgeneratoren prüfen |

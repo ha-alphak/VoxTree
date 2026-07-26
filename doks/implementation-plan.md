@@ -1,7 +1,7 @@
 # Umsetzungsplan
 
 **Projekt:** Hierarchical Voice Communication  
-**Stand:** 25. Juli 2026  
+**Stand:** 26. Juli 2026<br>
 **Ziel:** Moderne, sichere und integrierbare Voice-Communication-Anwendung für
 Windows 10 und neuer
 
@@ -113,10 +113,54 @@ geeignete Lösung ausgetauscht.
 
 ## 10. Qualität und Auslieferung
 
-- Lasttest mit mindestens 200 gleichzeitig verbundenen Spielern durchführen.
-- Gleichzeitige Sprecher, Paketverlust und hohe Netzwerklatenz testen.
-- Manipulierte Clients und unzulässige Abonnements testen.
-- Reconnect, Serverausfall und Membership-Wechsel unter Last prüfen.
+### 10.1 Server-Laufzeit vervollständigen
+
+- Einen mehrbenutzerfähigen Identity- und Membership-Adapter anbinden. Der
+  Ein-Spieler-Bootstrap-Provider bleibt ausschließlich ein lokaler
+  Entwicklungsmodus.
+- Administrative Membership- und Moderationsoperationen im Linux-Entry-Point
+  mit einer autoritativen Rollenrichtlinie verdrahten.
+- LiveKit-Publikationsrechte an den serverseitigen Transmissionslebenszyklus
+  koppeln. Ein verbundener Client darf erst nach erfolgreichem Start für genau
+  den autorisierten Scope publizieren; Ende, Timeout, Disconnect, Moderation
+  sowie Membership- oder Rechteänderungen müssen das Recht entziehen und einen
+  aktiven Track entfernen.
+- Konfigurierbare Sprecherlimits pro Group-, Specialization- und Team-Scope
+  atomar bei der Transmissionsaktivierung durchsetzen.
+- Scheduler für Transmission-Timeouts, Session-Bereinigung und
+  Audit-Aufbewahrung in den Serverprozess integrieren.
+- Membership- und Rechteänderungen innerhalb des Zielwerts an verbundene
+  Clients propagieren und dort Grants sowie Empfangsabonnements aktualisieren.
+- Den sequenziellen Linux-HTTP-Listener durch eine begrenzte parallele
+  Verarbeitung mit Überlastschutz und geordnetem Herunterfahren ersetzen.
+- Readiness, strukturierte Betriebsprotokolle und Metriken für HTTP,
+  Autorisierung, aktive Transmissionen, LiveKit-Operationen, SQLite und
+  verworfene Audit-Events bereitstellen.
+- Reproduzierbare Docker- und Compose-Konfiguration für Control Plane,
+  LiveKit, persistente Daten und TLS-terminierenden Reverse Proxy erstellen.
+
+### 10.2 Reproduzierbare Last- und Sicherheitstests
+
+- Einen Headless-Lasttreiber für mindestens 200 unterschiedliche Spieler,
+  Sessions und Memberships erstellen. Der Nachweis erfordert keine 200
+  physischen Windows-PCs.
+- Control-Plane-Last und LiveKit-Medienlast getrennt sowie gemeinsam messen.
+- Eine Group-Transmission mit bis zu 200 berechtigten Empfängern und mehrere
+  gleichzeitige, voneinander unabhängige Scope-Transmissionen testen.
+- Gleichzeitige Sprecher, Sprecherlimits, Paketverlust und hohe Netzwerklatenz
+  testen.
+- Manipulierte Clients, Publikation ohne Startautorisierung und unzulässige
+  Abonnements testen.
+- Reconnect, Serverausfall, Timeout, Moderation und Membership-Wechsel unter
+  Last prüfen.
+- Autorisierungslatenz, Audio-Startlatenz, Membership-Propagation,
+  Fehlerraten, Ressourcenverbrauch und falsche Empfänger automatisiert
+  auswerten.
+- Echte Mikrofon-, Wiedergabe- und Eingabegeräte ergänzend mit wenigen
+  Windows-Rechnern Ende-zu-Ende prüfen.
+
+### 10.3 Auslieferungsreife
+
 - Barrierefreiheit und Bedienbarkeit mit verschiedenen Eingabegeräten testen.
 - Datenschutz-, Abhängigkeits- und Bedrohungsmodell prüfen.
 - Signiertes MSIX-Paket und versionierte Linux-Container erzeugen.
@@ -126,6 +170,10 @@ geeignete Lösung ausgetauscht.
 ## Release-blockierende Kriterien
 
 - Kein unautorisierter Empfänger erhält Audio oder vertrauliche Metadaten.
+- Kein Client kann ohne aktive serverseitige Transmission publizieren.
+- Timeout, Disconnect, Moderation sowie Membership- oder Rechteänderungen
+  entziehen aktive LiveKit-Publikationsrechte innerhalb des Zielwerts.
+- Konfigurierte Sprecherlimits werden serverseitig atomar durchgesetzt.
 - Alle Acceptance Criteria der Spezifikation sind erfüllt oder ausdrücklich
   dokumentiert zurückgestellt.
 - Der vereinbarte 200-Spieler-Lasttest besteht.
@@ -133,4 +181,3 @@ geeignete Lösung ausgetauscht.
 - Eine unterbrochene Transmission wird niemals automatisch fortgesetzt.
 - Client und Server können reproduzierbar aus einem sauberen Checkout gebaut
   werden.
-
