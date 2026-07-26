@@ -42,6 +42,7 @@ struct Arguments
     bool expect_reconnect{false};
     bool expect_no_audio{false};
     bool expect_empty_room{false};
+    bool expect_publish_denied{false};
 };
 
 void print_usage()
@@ -52,7 +53,7 @@ void print_usage()
               << "    [--publish-audio | --ptt <seconds>]\n"
               << "    [--expect-audio | --expect-ptt]\n"
               << "    [--expect-reconnect]\n"
-              << "    [--expect-no-audio | --expect-empty-room]\n"
+              << "    [--expect-no-audio | --expect-empty-room | --expect-publish-denied]\n"
               << "    [--recording-device <id>] [--playout-device <id>]\n"
               << "    [--switch-recording-device <id>] [--switch-playout-device <id>]\n"
               << "    [--switch-after <seconds>]\n"
@@ -162,6 +163,10 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         {
             arguments.expect_empty_room = true;
         }
+        else if (option == "--expect-publish-denied")
+        {
+            arguments.expect_publish_denied = true;
+        }
         else
         {
             throw std::invalid_argument{"unknown or incomplete option: " + option};
@@ -210,7 +215,8 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     {
         throw std::invalid_argument{"--expect-ptt is only supported by the single-room probe"};
     }
-    if (has_scope_tokens && (arguments.expect_no_audio || arguments.expect_empty_room))
+    if (has_scope_tokens && (arguments.expect_no_audio || arguments.expect_empty_room ||
+                             arguments.expect_publish_denied))
     {
         throw std::invalid_argument{
             "security expectation options are only supported by the single-room probe"};
@@ -227,8 +233,9 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     {
         throw std::invalid_argument{"--expect-audio cannot be combined with --expect-ptt"};
     }
-    const auto security_expectation_count =
-        static_cast<int>(arguments.expect_no_audio) + static_cast<int>(arguments.expect_empty_room);
+    const auto security_expectation_count = static_cast<int>(arguments.expect_no_audio) +
+                                            static_cast<int>(arguments.expect_empty_room) +
+                                            static_cast<int>(arguments.expect_publish_denied);
     if (security_expectation_count > 1)
     {
         throw std::invalid_argument{"security expectation options cannot be combined"};
@@ -238,7 +245,8 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         throw std::invalid_argument{
             "security expectation options cannot be combined with audio or PTT expectations"};
     }
-    if ((arguments.expect_no_audio || arguments.expect_empty_room) &&
+    if ((arguments.expect_no_audio || arguments.expect_empty_room ||
+         arguments.expect_publish_denied) &&
         (arguments.publish_audio || arguments.ptt_duration.has_value()))
     {
         throw std::invalid_argument{"negative subscription and room probes cannot publish audio"};
@@ -727,6 +735,52 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
         return EXIT_FAILURE;
     }
 
+    if (arguments.expect_publish_denied)
+    {
+        if (platform_audio == nullptr)
+        {
+            throw std::logic_error{"platform audio was not initialized"};
+        }
+        std::optional<PublishedAudio> attempted_audio;
+        try
+        {
+            attempted_audio = publish_microphone(room, *platform_audio);
+        }
+        catch (const std::exception& error)
+        {
+            const auto local_participant = room.localParticipant().lock();
+            if (room.connectionState() != livekit::ConnectionState::Connected ||
+                local_participant == nullptr || !local_participant->trackPublications().empty())
+            {
+                std::cerr << "FAIL: publication failed, but the room or local publication state "
+                             "was not clean.\n";
+                return EXIT_FAILURE;
+            }
+            std::cout << "PASS: LiveKit rejected microphone publication without canPublish "
+                         "permission: "
+                      << error.what() << ".\n";
+            return EXIT_SUCCESS;
+        }
+        std::this_thread::sleep_for(arguments.wait_for_peer);
+        const auto local_participant = room.localParticipant().lock();
+        if (room.connectionState() != livekit::ConnectionState::Connected ||
+            local_participant == nullptr)
+        {
+            std::cerr << "FAIL: room disconnected during the publication-denial probe.\n";
+            return EXIT_FAILURE;
+        }
+        if (!local_participant->trackPublications().empty() ||
+            (attempted_audio->track->publication() != nullptr &&
+             !attempted_audio->track->publication()->sid().empty()))
+        {
+            std::cerr << "FAIL: a client published without canPublish permission.\n";
+            return EXIT_FAILURE;
+        }
+        std::cout << "PASS: LiveKit rejected microphone publication without canPublish "
+                     "permission while the room remained connected.\n";
+        return EXIT_SUCCESS;
+    }
+
     std::optional<PublishedAudio> published_audio;
     if (arguments.publish_audio || arguments.ptt_duration.has_value())
     {
@@ -986,7 +1040,8 @@ auto main(const int argc, char** argv) -> int
 
         std::optional<livekit::PlatformAudio> platform_audio;
         if (arguments.list_audio_devices || arguments.publish_audio || arguments.expect_audio ||
-            arguments.ptt_duration.has_value() || arguments.expect_ptt || arguments.expect_no_audio)
+            arguments.ptt_duration.has_value() || arguments.expect_ptt ||
+            arguments.expect_no_audio || arguments.expect_publish_denied)
         {
             platform_audio.emplace();
             configure_audio_devices(arguments, *platform_audio);

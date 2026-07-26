@@ -21,6 +21,7 @@ Communication**.
 | [input-system.md](input-system.md) | Windows-Raw-Input, PTT-Aktionen und Bindings |
 | [windows-client.md](windows-client.md) | WinUI-Clientschale, Anmeldung und Bereitschaftszustand |
 | [server-runtime.md](server-runtime.md) | Mehrbenutzerbetrieb, LiveKit-Control, Jobs, HTTP und Container |
+| [load-and-security-tests.md](load-and-security-tests.md) | Reproduzierbarer 200-Spieler-Last-, Ausfall- und Sicherheitsnachweis |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |
 | [CodeDocumentation.md](CodeDocumentation.md) | Verbindliche Regeln für C++-API-Dokumentation und Code-Kommentare |
 | [status.md](status.md) | Laufender Projektstatus |

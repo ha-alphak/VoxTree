@@ -1,7 +1,7 @@
 # Projektstatus
 
 **Berichtsdatum:** 26. Juli 2026
-**Phase:** Server-Laufzeit abgeschlossen – Last- und Sicherheitstests als Nächstes<br>
+**Phase:** Last- und Sicherheitstests abgeschlossen – Auslieferungsreife als Nächstes<br>
 **Gesamtstatus:** Gelb
 
 ## Abgeschlossen
@@ -337,6 +337,26 @@
   `1.13.4`, persistenten Daten, Compose-Secrets und Caddy-TLS angelegt.
 - Server-Laufzeit, Konfiguration, Sicherheitslebenszyklus, Jobs und Betrieb in
   `server-runtime.md` dokumentiert.
+- Linux-Headless-Lasttreiber mit deterministischer Fixture für 200
+  Group-Spieler sowie zwei isolierte Sicherheitsidentitäten implementiert.
+- Reproduzierbare Compose-Lasttopologie mit getrennt und gemeinsam belasteter
+  Control Plane und LiveKit sowie fest gepinntem offiziellem
+  LiveKit-Lastgenerator angelegt.
+- 202 unterschiedliche Spieler, Sessions und Memberships parallel
+  authentifiziert und abgefragt; Group-Transmissionen mit exakt 200
+  Empfängern, unabhängige Scopes, gleichzeitige Sprecher, Sprecherlimits,
+  Moderation, Timeout und Membership-Abbruch bestanden.
+- 200/200 Group-, viermal 4/4 unabhängige Scope-, 400/400
+  Gleichzeitige-Sprecher- und 40/40 NetEm-Audioabonnements ohne Medienfehler
+  erreicht.
+- Serverausfall und Wiederherstellung unter fortlaufender Last, 150 ms
+  NetEm-Delay mit 2 % Paketverlust sowie CPU-, Speicher-, Fehler- und
+  Latenzmessungen automatisiert.
+- Manipulierte Control-Plane-Anfragen, Publikation ohne Berechtigung,
+  Publish-Rechteentzug bei aktivem Track, unzulässige Abonnements und
+  Cross-Room-Isolation gegen einen nativen Windows-Client bestanden.
+- Lastmodell, Ausführung, harte Gates, Messdefinitionen und Ergebnisartefakte
+  in `load-and-security-tests.md` dokumentiert.
 
 ## Aktueller Stand
 
@@ -366,6 +386,16 @@
   vollständige Container-/Compose-Lauf sind auf Debian 13 bestanden,
   einschließlich TLS, Healthchecks, nicht-root Serverprozess, Secret-Staging
   und persistenter Session nach Container-Neuerstellung.
+- Der reproduzierbare Abschnitt-10.2-Lauf ist auf Debian 13 mit 200
+  Group-Spielern und zwei isolierten Sicherheitsidentitäten bestanden. 1.435
+  Control-Plane-Gate-Anfragen und 11.851 parallele Hintergrundanfragen liefen
+  ohne unerwarteten Fehler und ohne falschen Empfänger; unter dieser Last lag
+  die p95-Startautorisierung bei 181,1 ms und die Membership-Propagation bei
+  217,0 ms. Die konservativ gemessene Audio-Startzeit lag bei 445 ms für 200
+  Subscriber und bei 1.531 ms unter kombinierter Zwei-Sprecher-Last. Getrennte,
+  parallele, kombinierte und netzbeeinträchtigte Medienlast erreichte sämtliche
+  erwarteten Audioabonnements. Ausfall und Wiederherstellung sowie die
+  ergänzenden nativen Windows-Sicherheitsproben bestanden.
 - Der UI-unabhängige Windows-Client-Core, die Control-Plane-Clientanbindung, der
   WinHTTP-Adapter, das globale Tastatur-/Maus-Eingabesystem und der native
   LiveKit-Transportadapter sind vorhanden. Generische HID-Controller sind für
@@ -390,7 +420,7 @@
   Sicherheitsgrenze dokumentiert.
 - SQLite wird unter Windows über `winsqlite3` aus dem Windows SDK und unter
   Debian über das Systempaket `libsqlite3-dev` angebunden.
-- Das LiveKit-C++-Quality-Gate wurde begonnen. SDK-Build, lokaler Programmstart
+- Das LiveKit-C++-Quality-Gate ist abgeschlossen. SDK-Build, lokaler Programmstart
   und die Verbindung zweier nativer Clientprozesse sind reproduzierbar. Der
   Quality-Gate-Client kann Windows-Audiogeräte auflisten und auswählen,
   Mikrofon-Audio mit Echo Cancellation, Noise Suppression und Automatic Gain
@@ -411,10 +441,11 @@
 
 ## Nächster Schritt
 
-Mit Abschnitt 10.2 einen Headless-Lasttreiber aufbauen und mindestens
-200 virtuelle Spieler auf wenigen Lastgenerator-Rechnern prüfen. Reale
-Windows-PCs werden nur ergänzend für Audiohardware, Raw Input und den
-Ende-zu-Ende-Nachweis benötigt.
+Mit Abschnitt 10.3 die Auslieferungsreife herstellen: Barrierefreiheit und
+Bedienbarkeit mit unterschiedlichen Eingabegeräten prüfen, Datenschutz-,
+Abhängigkeits- und Bedrohungsmodell abschließen, signiertes MSIX und
+versionierte Linux-Container erzeugen sowie Betriebs-, Konfigurations-,
+Moderations- und Integrationsdokumentation finalisieren.
 
 ## Validierung
 
@@ -424,8 +455,8 @@ Ende-zu-Ende-Nachweis benötigt.
 | Windows MSVC Release | Bestanden |
 | CTest Debug | 14 von 14 Tests bestanden |
 | CTest Release | 14 von 14 Tests bestanden |
-| Linux GCC Debug auf Debian 13 | 14 von 14 Tests bestanden, einschließlich Sanitizer |
-| Linux GCC Release auf Debian 13 | 14 von 14 Tests bestanden |
+| Linux GCC Debug auf Debian 13 | 15 von 15 Tests bestanden, einschließlich Sanitizer |
+| Linux GCC Release auf Debian 13 | 15 von 15 Tests bestanden |
 | Linux-Server-Laufzeit-Smoke | Bestanden: Readiness, Metriken, Mehrbenutzer-Authentifizierung, Gerätebindung, SQLite-Migration und Signal-Shutdown |
 | Linux-Queue-Überlastpfad | Bestanden: vollständige `503 server_overloaded`-Antwort ohne TCP-Reset |
 | Docker-/Compose-Lauf | Bestanden auf Debian 13: Images, Healthchecks, TLS-Proxy, nicht-root PID 1, `0400`-Secrets und persistente Session |
@@ -456,7 +487,13 @@ Ende-zu-Ende-Nachweis benötigt.
 | Serverseitige Sprecherlimits pro Scope | Bestanden |
 | Membership-Propagation an verbundene Clients | Bestanden, 500-ms-Polling |
 | Parallele, überlastgeschützte Linux-HTTP-Verarbeitung | Bestanden auf Debian 13, einschließlich CTest-Regression und realem Socket-Smoke-Test |
-| Headless-Lasttreiber und 200-Spieler-Ende-zu-Ende-Test | Offen |
+| Headless-Lasttreiber und 200-Spieler-Ende-zu-Ende-Test | Bestanden: 202 unterschiedliche Sessions/Memberships, 200/200 Group- und 400/400 Zwei-Sprecher-Abonnements |
+| Kombinierte Control-Plane-/Medienlast und Ressourcenmessung | Bestanden |
+| NetEm mit 150 ms Delay und 2 % Paketverlust | Bestanden: 40/40 Abonnements, keine verbleibenden Medienfehler |
+| Serverausfall und Wiederherstellung unter Last | Bestanden |
+| Autorisierungs- und Membership-Latenz unter Last | Bestanden: p95 181,1 ms beziehungsweise 217,0 ms Propagation |
+| Konservative Audio-Startlatenz | Gemessen: 445 ms für 200 Subscriber, 1.531 ms bei zwei Sprechern |
+| Publikation ohne LiveKit-Publish-Berechtigung | Bestanden |
 | Verhinderung nicht autorisierter LiveKit-Track-Abonnements | Bestanden |
 | LiveKit-Cross-Room-Isolation | Bestanden |
 | Automatisierte Cross-Team- und Cross-Group-Routingisolation | Bestanden |
@@ -474,9 +511,10 @@ Ende-zu-Ende-Nachweis benötigt.
 | Domänen-Zustandsautomat: Reconnect ohne automatische Transmission | Bestanden |
 | clang-format | Bestanden |
 | clang-tidy | Bestanden unter Debian 13 mit Clang 19 |
+| Linux-Headless-Treiber aus dem Release-Installationsbaum | Bestanden |
 | CMake-Installation und Paketexport inklusive `hvc::domain`, `hvc::client` und `hvc::client_core` | Bestanden |
-| Debian GCC Debug | Bestanden, 7 von 7 Tests |
-| Debian GCC Release | Bestanden, 7 von 7 Tests |
+| Debian GCC Debug | Bestanden, 15 von 15 Tests |
+| Debian GCC Release | Bestanden, 15 von 15 Tests |
 | GitHub-CI-Gesamtlauf | Bestanden |
 
 ## Risiken
@@ -491,4 +529,4 @@ Ende-zu-Ende-Nachweis benötigt.
 | Autoritative Isolation im Shared-Room-Modell | Zurückgestellt | Getrennte, erfolgreich isolierte Räume verwenden |
 | Hintergrund-PTT für unterschiedliche HID-Geräte | Abgeschlossen | Tastatur/Maus und generische HID-Buttons umgesetzt; realer HOTAS-Button bei Fremdfokus über `RIM_INPUTSINK` bestätigt |
 | Windows 10 außerhalb des regulären Supports | Akzeptiert | Build 19045 unterstützen und Windows 11 mittesten |
-| 200-Spieler-Skalierung | Offen | Nach Abschluss der Server-Laufzeit mit Headless-Teilnehmern auf wenigen Lastgeneratoren prüfen |
+| 200-Spieler-Skalierung | Abgeschlossen | Reproduzierbarer Headless-Lauf mit 200 Group-Spielern und ergänzenden nativen Sicherheitsproben bestanden |

@@ -216,6 +216,8 @@ set_target_properties(hvc_network_tests PROPERTIES CXX_EXTENSIONS OFF)
 add_test(NAME network.control_plane_http COMMAND hvc_network_tests)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_test(NAME load_driver.help COMMAND hvc_load_driver --help)
+
   find_package(Threads REQUIRED)
   add_executable(
     hvc_linux_http_server_tests

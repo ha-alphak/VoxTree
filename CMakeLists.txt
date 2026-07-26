@@ -61,6 +61,10 @@ add_subdirectory(libs/network)
 add_subdirectory(libs/livekit)
 add_subdirectory(apps/control-plane)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_subdirectory(apps/load-driver)
+endif()
+
 if(HVC_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()

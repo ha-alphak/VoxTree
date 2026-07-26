@@ -95,9 +95,16 @@ function New-LiveKitToken {
 }
 
 function Test-LiveKitPort {
+    $serverUri = [Uri]$Url
+    $serverPort = if ($serverUri.IsDefaultPort) {
+        if ($serverUri.Scheme -eq 'wss') { 443 } else { 80 }
+    }
+    else {
+        $serverUri.Port
+    }
     $client = [Net.Sockets.TcpClient]::new()
     try {
-        return $client.ConnectAsync('127.0.0.1', 7880).Wait(250) -and $client.Connected
+        return $client.ConnectAsync($serverUri.Host, $serverPort).Wait(3000) -and $client.Connected
     }
     catch {
         return $false
@@ -226,6 +233,10 @@ $startedServer = $null
 $probes = [Collections.Generic.List[object]]::new()
 try {
     if (!(Test-LiveKitPort)) {
+        $serverUri = [Uri]$Url
+        if ($serverUri.Host -notin @('127.0.0.1', 'localhost', '::1')) {
+            throw "The remote LiveKit endpoint is not reachable: $Url"
+        }
         if (!(Test-Path -LiteralPath $ServerPath -PathType Leaf)) {
             throw "LiveKit server not found: $ServerPath"
         }
@@ -299,6 +310,22 @@ try {
         Stop-Process -Id $publisher.Process.Id
         Wait-Process -Id $publisher.Process.Id -ErrorAction SilentlyContinue
     }
+
+    Write-Host '=== Publication without server authorization ==='
+    $publishDeniedRoom = "hvc-publish-denied-$suffix"
+    $publishDeniedToken = New-LiveKitToken `
+        -Identity "publish-denied-$suffix" `
+        -Room $publishDeniedRoom `
+        -CanPublish $false `
+        -CanSubscribe $false
+    $publishDenied = Start-Probe @(
+        '--url', $Url,
+        '--token', $publishDeniedToken,
+        '--expect-publish-denied',
+        '--wait-for-peer', '3'
+    )
+    $probes.Add($publishDenied)
+    Complete-Probe -Probe $publishDenied
 
     Write-Host '=== Track-subscription isolation ==='
     $subscriptionRoom = "hvc-subscription-$suffix"

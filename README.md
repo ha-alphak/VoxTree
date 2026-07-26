@@ -12,8 +12,9 @@ support future integration into games and other applications.
 > [!IMPORTANT]
 > This project is under active development and is not ready for production use.
 > The domain model, control plane, native voice path, complete WinUI 3 client,
-> and versioned client-core integration DLL are implemented. Packaging, load
-> validation, and other release-quality work remain.
+> versioned client-core integration DLL, and reproducible 200-player load and
+> security validation are implemented. Packaging and other release-quality work
+> remain.
 
 ## Core concepts
 
@@ -87,6 +88,8 @@ Implemented foundations include:
 - rate limiting, timeouts, moderation termination, and typed audit events;
 - SQLite session persistence and schema migrations;
 - deterministic routing tests with a 200-participant group;
+- reproducible headless control-plane, LiveKit, NetEm, outage, and security
+  validation with 200 group participants;
 - Windows and Debian CI configurations;
 - UI-independent client core with exclusive multi-scope PTT coordination;
 - opt-in native LiveKit transport with room, audio, device, and reconnect

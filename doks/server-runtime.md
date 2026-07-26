@@ -23,6 +23,10 @@ Der produktive Start verwendet:
 --livekit-api-secret-file /run/secrets/livekit-api-secret
 ```
 
+Die getrennte Lasttopologie, der 200-Spieler-Nachweis und die zugehörigen
+Betriebsmetriken sind in
+[load-and-security-tests.md](load-and-security-tests.md) beschrieben.
+
 Die Identity-Datei ist tabulatorgetrennt. Jede nicht auskommentierte Zeile
 enthält Bearer-Credential, Spieler-ID und eine kommaseparierte Liste erlaubter
 Geräte-IDs. `*` erlaubt jedes Gerät. Produktionsmodus verlangt mindestens zwei

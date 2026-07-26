@@ -1,0 +1,45 @@
+services:
+  control-plane:
+    command:
+      - --database
+      - /var/lib/hvc/control-plane.db
+      - --listen
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --http-workers
+      - "8"
+      - --http-queue-capacity
+      - "256"
+      - --identity-file
+      - /run/hvc-secrets/hvc-identities
+    ports:
+      - "18080:8080"
+    volumes: !override
+      - ${HVC_LOAD_DATA_DIRECTORY:?set HVC_LOAD_DATA_DIRECTORY}:/var/lib/hvc
+    restart: "no"
+
+  livekit:
+    ports: !override
+      - "17880:7880"
+      - "17881:17881"
+      - "17882:17882/udp"
+    volumes: !override
+      - ${HVC_LOAD_LIVEKIT_CONFIG_FILE:?set HVC_LOAD_LIVEKIT_CONFIG_FILE}:/etc/livekit.yaml:ro
+    restart: "no"
+
+  load-generator:
+    build:
+      context: .
+      dockerfile: deploy/load-generator.Dockerfile
+    image: hvc-load-generator:section-10-2
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ${HVC_LOAD_RESULT_DIRECTORY:?set HVC_LOAD_RESULT_DIRECTORY}:/results
+
+secrets:
+  hvc-identities:
+    file: ${HVC_LOAD_IDENTITIES_FILE:?set HVC_LOAD_IDENTITIES_FILE}
+  livekit-api-secret:
+    file: ${HVC_LOAD_LIVEKIT_SECRET_FILE:?set HVC_LOAD_LIVEKIT_SECRET_FILE}
