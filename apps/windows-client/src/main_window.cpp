@@ -882,7 +882,8 @@ fire_and_forget MainWindow::connectAsync(std::string server_url, std::string cre
         session->disconnect();
         co_return;
     }
-    if (!result.successful || !result.membership.has_value())
+    if (!result.successful || !result.membership.has_value() || !result.directory.has_value() ||
+        !result.presence.has_value())
     {
         model_.connectionFailed("connection_failed", result.message);
         login_error_text_.Text(text(IDS_LOGIN_FAILED) + L" " + to_hstring(result.message));
@@ -895,6 +896,19 @@ fire_and_forget MainWindow::connectAsync(std::string server_url, std::string cre
     {
         model_.connectionFailed(std::string{presentation::errorCodeName(applied.error)},
                                 "the initial membership is invalid for presentation");
+        co_await resume_background();
+        session->disconnect();
+        co_await ui_thread;
+        render();
+        co_return;
+    }
+    const auto directory_applied = model_.applyDirectory(std::move(*result.directory));
+    const auto presence_applied = model_.applyPresence(std::move(*result.presence));
+    if (!directory_applied || !presence_applied)
+    {
+        const auto failed = !directory_applied ? directory_applied : presence_applied;
+        model_.connectionFailed(std::string{presentation::errorCodeName(failed.error)},
+                                failed.field);
         co_await resume_background();
         session->disconnect();
         co_await ui_thread;
@@ -958,16 +972,16 @@ void MainWindow::handleSessionEvent(std::uint64_t generation, SessionEvent event
     switch (event.kind)
     {
     case SessionEventKind::connection_state:
-        model_.updateVoiceState(event.voice_state);
-        break;
-    case SessionEventKind::speaker_started:
-        if (event.scope.has_value())
+        if (event.connection_event.has_value())
         {
-            model_.speakerStarted(*event.scope, std::move(event.participant_id));
+            model_.updateVoiceState(*event.connection_event);
         }
         break;
-    case SessionEventKind::speaker_stopped:
-        model_.speakerStopped(event.participant_id);
+    case SessionEventKind::remote_voice:
+        if (event.remote_event.has_value())
+        {
+            model_.applyVoiceRemoteEvent(*event.remote_event);
+        }
         break;
     case SessionEventKind::transmission_started:
         if (event.scope.has_value())
@@ -982,6 +996,28 @@ void MainWindow::handleSessionEvent(std::uint64_t generation, SessionEvent event
         if (event.membership.has_value())
         {
             const auto updated = model_.updateMembership(std::move(*event.membership));
+            if (!updated && updated.error != presentation::ErrorCode::stale_version)
+            {
+                model_.recordError(std::string{presentation::errorCodeName(updated.error)},
+                                   updated.field);
+            }
+        }
+        break;
+    case SessionEventKind::directory_updated:
+        if (event.directory.has_value())
+        {
+            const auto updated = model_.applyDirectory(std::move(*event.directory));
+            if (!updated && updated.error != presentation::ErrorCode::stale_version)
+            {
+                model_.recordError(std::string{presentation::errorCodeName(updated.error)},
+                                   updated.field);
+            }
+        }
+        break;
+    case SessionEventKind::presence_updated:
+        if (event.presence.has_value())
+        {
+            const auto updated = model_.applyPresence(std::move(*event.presence));
             if (!updated && updated.error != presentation::ErrorCode::stale_version)
             {
                 model_.recordError(std::string{presentation::errorCodeName(updated.error)},

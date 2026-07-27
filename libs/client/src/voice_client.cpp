@@ -62,6 +62,7 @@ auto VoiceClient::connect(std::span<const VoiceRoomGrant> grants) -> VoiceTransp
                                                  "voice client is already active");
         }
         state_ = VoiceTransportState::connecting;
+        ++connection_generation_;
     }
 
     auto result = transport_.connect(grants);
@@ -321,8 +322,14 @@ auto VoiceClient::remoteAudioPlayback() const -> std::vector<RemoteAudioPlayback
 void VoiceClient::onTransportStateChanged(VoiceTransportState state)
 {
     IVoiceClientObserver* current_observer = nullptr;
+    VoiceConnectionEvent event;
     {
         const std::scoped_lock lock{mutex_};
+        if (state == VoiceTransportState::reconnecting &&
+            state_ != VoiceTransportState::reconnecting)
+        {
+            ++connection_generation_;
+        }
         state_ = state;
         if (state != VoiceTransportState::connected && active_scope_.has_value())
         {
@@ -345,26 +352,25 @@ void VoiceClient::onTransportStateChanged(VoiceTransportState state)
             available_remote_audio_.clear();
         }
         current_observer = observer_;
+        event = {state, connection_generation_, ++next_event_sequence_};
     }
 
     if (current_observer != nullptr)
     {
-        current_observer->onVoiceStateChanged(state);
+        current_observer->onVoiceStateChanged(event);
     }
 }
 
-void VoiceClient::onRemoteParticipantConnected(domain::VoiceScope, const std::string&)
+void VoiceClient::onRemoteParticipantConnected(domain::VoiceScope scope,
+                                               const std::string& participant_id)
 {
+    emitRemoteEvent(VoiceRemoteEventKind::participant_connected, scope, participant_id);
 }
 
 void VoiceClient::onRemoteParticipantDisconnected(domain::VoiceScope scope,
                                                   const std::string& participant_id)
 {
-    auto* const current_observer = observer();
-    if (current_observer != nullptr)
-    {
-        current_observer->onSpeakerStopped(scope, participant_id);
-    }
+    emitRemoteEvent(VoiceRemoteEventKind::participant_disconnected, scope, participant_id);
 }
 
 void VoiceClient::onRemoteAudioAvailable(domain::VoiceScope scope,
@@ -393,6 +399,7 @@ void VoiceClient::onRemoteAudioAvailable(domain::VoiceScope scope,
         changes = recomputePlaybackLocked();
     }
     static_cast<void>(applyPlaybackChanges(std::move(changes)));
+    emitRemoteEvent(VoiceRemoteEventKind::audio_available, scope, participant_id);
 }
 
 void VoiceClient::onRemoteAudioUnavailable(domain::VoiceScope scope,
@@ -407,24 +414,17 @@ void VoiceClient::onRemoteAudioUnavailable(domain::VoiceScope scope,
         changes = recomputePlaybackLocked();
     }
     static_cast<void>(applyPlaybackChanges(std::move(changes)));
+    emitRemoteEvent(VoiceRemoteEventKind::audio_unavailable, scope, participant_id);
 }
 
 void VoiceClient::onRemoteAudioStarted(domain::VoiceScope scope, const std::string& participant_id)
 {
-    auto* const current_observer = observer();
-    if (current_observer != nullptr)
-    {
-        current_observer->onSpeakerStarted(scope, participant_id);
-    }
+    emitRemoteEvent(VoiceRemoteEventKind::speaker_started, scope, participant_id);
 }
 
 void VoiceClient::onRemoteAudioStopped(domain::VoiceScope scope, const std::string& participant_id)
 {
-    auto* const current_observer = observer();
-    if (current_observer != nullptr)
-    {
-        current_observer->onSpeakerStopped(scope, participant_id);
-    }
+    emitRemoteEvent(VoiceRemoteEventKind::speaker_stopped, scope, participant_id);
 }
 
 void VoiceClient::onTransportError(VoiceTransportError error, const std::string& message)
@@ -609,5 +609,32 @@ auto VoiceClient::observer() const noexcept -> IVoiceClientObserver*
 {
     const std::scoped_lock lock{mutex_};
     return observer_;
+}
+
+void VoiceClient::emitRemoteEvent(VoiceRemoteEventKind kind, domain::VoiceScope scope,
+                                  const std::string& participant_id)
+{
+    if (participant_id.empty())
+    {
+        onTransportError(VoiceTransportError::invalid_argument,
+                         "remote voice event has an empty participant ID");
+        return;
+    }
+
+    IVoiceClientObserver* current_observer = nullptr;
+    VoiceRemoteEvent event;
+    {
+        const std::scoped_lock lock{mutex_};
+        if (state_ == VoiceTransportState::disconnected)
+        {
+            return;
+        }
+        current_observer = observer_;
+        event = {kind, scope, participant_id, connection_generation_, ++next_event_sequence_};
+    }
+    if (current_observer != nullptr)
+    {
+        current_observer->onVoiceRemoteEvent(event);
+    }
 }
 } // namespace hvc::client

@@ -1,7 +1,7 @@
 # Präsentations- und Fensterarchitektur
 
-**Stand:** 26. Juli 2026  
-**Arbeitspaket:** UX-01
+**Stand:** 27. Juli 2026<br>
+**Arbeitspakete:** UX-01, DIR-02
 
 ## Grenze
 
@@ -34,13 +34,30 @@ Fensterschale bildet sie auf deutsche oder englische Ressourcen ab.
 | Administration | getrennte Sichtbarkeit für Moderation und Administration |
 | Diagnose | Transportzustand, stabiler letzter Fehlercode, technisches Detail und Fehlerzähler |
 
-Das Modell nimmt spätere Directory- und Presence-Daten auf, ohne deren noch
-nicht spezifizierte Netzwerkverträge vorwegzunehmen. Der aktuelle
-`ClientSession`-Vertrag meldet nur hörbare Sprecher. Ein Teilnehmer kann deshalb
-bereits getrennte `audio_available`- und `speaking`-Zustände besitzen, wird in
-der heutigen Hauptansicht aber nur während `speaking` angezeigt. Vollständige
-Die serverseitigen Directory-/Presence-Daten sind mit DIR-01 verfügbar; ihre
-clientseitige Transportzusammenführung folgt mit DIR-02.
+`DesktopModel` nimmt das vollständige, gruppenbegrenzte Directory und
+versionierte Presence-Snapshots beziehungsweise -Deltas auf. Das Directory ist
+für sichtbare Spieler, Anzeigenamen, Primär-Team und öffentliche Rollen
+autoritativ. Ein neues Directory setzt die Presence-Basis zurück; erst ein
+passender Snapshot darf nachfolgende Deltas begründen.
+
+Transportzustände werden pro Spieler und Scope zusammengeführt. Presence,
+Audioverfügbarkeit und tatsächliches Sprechen bleiben getrennte Facetten:
+
+- ein Spieler gilt lokal als verbunden, solange mindestens einer seiner
+  autorisierten Scope-Räume verbunden ist;
+- serverseitige Presence und lokale Scope-Verbindungen werden vereinigt, ohne
+  einen Disconnect eines Scopes als vollständiges Offline zu deuten;
+- Audio-Unavailable beendet Sprechen desselben Scopes, Participant-Disconnect
+  beendet dort Verbindung, Audio und Sprechen;
+- jede Facette besitzt pro Spieler und Scope ihre eigene Ereignisfolge, damit
+  verspätete Ereignisse keine neueren Zustände überschreiben und gleichzeitig
+  unabhängig eintreffende Facetten nicht verloren gehen;
+- eine neue Transportgeneration löscht alle lokalen Remote-Zustände, bevor
+  Ereignisse dieser Generation angenommen werden.
+
+Die heutige Hauptansicht rendert weiterhin nur aktive Sprecher. Das vollständige
+Directory mit nicht sprechenden Teilnehmern und Kanalbaum wird erst in UX-02
+sichtbar; die benötigten Zustände und Ereignisse sind mit DIR-02 vorhanden.
 
 Membership-Updates werden nur mit strikt höherer Version angewendet. Beim
 Reconnect wird ein bestätigter Sendescope sofort gelöscht und nie automatisch
@@ -142,7 +159,11 @@ Clientbuild bei einer Abweichung ab.
 `presentation.desktop_model` prüft ohne WinUI:
 
 - Verbindungs- und Membership-Lebenszyklus einschließlich veralteter Versionen;
-- getrennte Teilnehmer-, Audio- und Sprechzustände;
+- Directory-Snapshots, Presence-Snapshot/-Delta und veraltete Versionen;
+- Mehrfachanwesenheit eines Spielers in allen drei Scopes;
+- getrennte Teilnehmer-, Audio- und Sprechzustände sowie verspätete
+  Transportereignisse;
+- Reconnect-Generationen und das deterministische Löschen lokaler Zustände;
 - Rollen- und Verwaltungsanzeige ohne Teilstring-Freigaben;
 - Befehls-, Geräte-, Audio- und Barrierefreiheitsvalidierung;
 - sitzungsgebundene Diagnosezustände.

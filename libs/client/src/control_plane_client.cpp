@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <charconv>
@@ -7,6 +8,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -20,6 +22,7 @@ namespace
 {
 enum class JsonType : std::uint8_t
 {
+    null_value,
     string,
     unsigned_integer,
     boolean,
@@ -111,6 +114,11 @@ class JsonParser final
         if (input_[offset_] == '[')
         {
             return parseArray();
+        }
+        if (input_.substr(offset_).starts_with("null"))
+        {
+            offset_ += 4;
+            return JsonValue{JsonType::null_value};
         }
         if (input_.substr(offset_).starts_with("true"))
         {
@@ -415,6 +423,24 @@ class JsonParser final
     return std::nullopt;
 }
 
+[[nodiscard]] auto parseDirectoryNodeKind(std::string_view value)
+    -> std::optional<DirectoryNodeKind>
+{
+    if (value == "group")
+    {
+        return DirectoryNodeKind::group;
+    }
+    if (value == "specialization")
+    {
+        return DirectoryNodeKind::specialization;
+    }
+    if (value == "team")
+    {
+        return DirectoryNodeKind::team;
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] auto scopeName(domain::VoiceScope scope) -> std::string_view
 {
     switch (scope)
@@ -709,6 +735,268 @@ auto ControlPlaneClient::membership() -> ControlPlaneResult<MembershipView>
     }
 }
 
+auto ControlPlaneClient::directory(std::optional<std::uint64_t> known_version)
+    -> ControlPlaneResult<DirectoryFetch>
+{
+    if (!session_)
+    {
+        return ControlPlaneResult<DirectoryFetch>::failure(
+            invalidState("a session is required before directory retrieval"));
+    }
+    if (known_version.has_value() && *known_version == 0)
+    {
+        return ControlPlaneResult<DirectoryFetch>::failure(
+            invalidArgument("known directory version must be positive"));
+    }
+
+    std::map<std::string, std::string, std::less<>> headers;
+    if (known_version.has_value())
+    {
+        headers.emplace("if-none-match", "\"directory-" + std::to_string(*known_version) + '"');
+    }
+    const auto response = sendSessionRequest("GET", "/api/v1/directory", {}, std::move(headers));
+    if (response.status_code == 304)
+    {
+        if (!response.transport_error.empty() || !response.body.empty() ||
+            responseHeader(response, "x-hvc-api-version") !=
+                std::optional<std::string_view>{"v1"} ||
+            !known_version.has_value() ||
+            responseHeader(response, "etag") !=
+                std::optional<std::string_view>{"\"directory-" + std::to_string(*known_version) +
+                                                '"'})
+        {
+            return ControlPlaneResult<DirectoryFetch>::failure(
+                invalidResponse("directory not-modified response is inconsistent"));
+        }
+        return ControlPlaneResult<DirectoryFetch>::success({});
+    }
+
+    auto root = responseRoot(response);
+    if (std::holds_alternative<ControlPlaneError>(root))
+    {
+        return responseFailure<DirectoryFetch>(root);
+    }
+    const auto& object = std::get<JsonValue>(root);
+    const auto* version = field(object, "directory_version", JsonType::unsigned_integer);
+    const auto* group = field(object, "group_id", JsonType::string);
+    const auto* nodes = field(object, "nodes", JsonType::array);
+    const auto* roles = field(object, "public_roles", JsonType::array);
+    const auto* participants = field(object, "participants", JsonType::array);
+    if (version == nullptr || version->unsigned_value == 0 || group == nullptr ||
+        group->string_value.empty() || nodes == nullptr || roles == nullptr ||
+        participants == nullptr || participants->array_value.size() > 200)
+    {
+        return ControlPlaneResult<DirectoryFetch>::failure(
+            invalidResponse("directory response is incomplete"));
+    }
+    const auto expected_etag = "\"directory-" + std::to_string(version->unsigned_value) + '"';
+    if (responseHeader(response, "etag") != std::optional<std::string_view>{expected_etag})
+    {
+        return ControlPlaneResult<DirectoryFetch>::failure(
+            invalidResponse("directory response has an inconsistent ETag"));
+    }
+
+    DirectoryView view;
+    view.version = version->unsigned_value;
+    view.group_id = group->string_value;
+    std::map<std::string, DirectoryNodeKind, std::less<>> node_kinds;
+    for (const auto& node : nodes->array_value)
+    {
+        const auto* node_id = field(node, "node_id", JsonType::string);
+        const auto* kind_value = field(node, "node_type", JsonType::string);
+        const auto* name = field(node, "display_name", JsonType::string);
+        const auto* order = field(node, "sort_index", JsonType::unsigned_integer);
+        const auto kind =
+            kind_value == nullptr ? std::nullopt : parseDirectoryNodeKind(kind_value->string_value);
+        if (node_id == nullptr || node_id->string_value.empty() || !kind || name == nullptr ||
+            name->string_value.empty() || order == nullptr ||
+            !node_kinds.emplace(node_id->string_value, *kind).second)
+        {
+            return ControlPlaneResult<DirectoryFetch>::failure(
+                invalidResponse("directory node is invalid or duplicated"));
+        }
+        std::optional<std::string> parent;
+        if (const auto* parent_value = field(node, "parent_node_id", JsonType::string);
+            parent_value != nullptr)
+        {
+            if (parent_value->string_value.empty())
+            {
+                return ControlPlaneResult<DirectoryFetch>::failure(
+                    invalidResponse("directory node has an empty parent"));
+            }
+            parent = parent_value->string_value;
+        }
+        else if (field(node, "parent_node_id", JsonType::null_value) == nullptr)
+        {
+            return ControlPlaneResult<DirectoryFetch>::failure(
+                invalidResponse("directory node has no valid parent field"));
+        }
+        if ((*kind == DirectoryNodeKind::group) != !parent.has_value())
+        {
+            return ControlPlaneResult<DirectoryFetch>::failure(
+                invalidResponse("directory node hierarchy level and parent disagree"));
+        }
+        view.nodes.push_back({node_id->string_value, *kind, std::move(parent), name->string_value,
+                              order->unsigned_value});
+    }
+    if (node_kinds.size() != view.nodes.size() ||
+        node_kinds.find(view.group_id) == node_kinds.end() ||
+        node_kinds.at(view.group_id) != DirectoryNodeKind::group ||
+        std::ranges::count_if(view.nodes, [](const auto& node) {
+            return node.kind == DirectoryNodeKind::group;
+        }) != 1)
+    {
+        return ControlPlaneResult<DirectoryFetch>::failure(
+            invalidResponse("directory hierarchy has no unique Group root"));
+    }
+    for (const auto& node : view.nodes)
+    {
+        if (!node.parent_node_id.has_value())
+        {
+            continue;
+        }
+        const auto parent = node_kinds.find(*node.parent_node_id);
+        const auto expected_parent = node.kind == DirectoryNodeKind::team
+                                         ? DirectoryNodeKind::specialization
+                                         : DirectoryNodeKind::group;
+        if (parent == node_kinds.end() || parent->second != expected_parent)
+        {
+            return ControlPlaneResult<DirectoryFetch>::failure(
+                invalidResponse("directory hierarchy contains an invalid parent"));
+        }
+    }
+
+    std::map<std::string, bool, std::less<>> role_ids;
+    for (const auto& role : roles->array_value)
+    {
+        const auto* role_id = field(role, "role_id", JsonType::string);
+        const auto* name = field(role, "display_name", JsonType::string);
+        if (role_id == nullptr || role_id->string_value.empty() || name == nullptr ||
+            name->string_value.empty() || !role_ids.emplace(role_id->string_value, true).second)
+        {
+            return ControlPlaneResult<DirectoryFetch>::failure(
+                invalidResponse("public directory role is invalid or duplicated"));
+        }
+        view.public_roles.push_back({role_id->string_value, name->string_value});
+    }
+
+    std::map<std::string, bool, std::less<>> player_ids;
+    for (const auto& participant : participants->array_value)
+    {
+        const auto* player_id = field(participant, "player_id", JsonType::string);
+        const auto* name = field(participant, "display_name", JsonType::string);
+        const auto* team = field(participant, "primary_team_id", JsonType::string);
+        const auto* participant_roles = field(participant, "public_role_ids", JsonType::array);
+        if (player_id == nullptr || player_id->string_value.empty() || name == nullptr ||
+            name->string_value.empty() || team == nullptr ||
+            node_kinds.find(team->string_value) == node_kinds.end() ||
+            node_kinds.at(team->string_value) != DirectoryNodeKind::team ||
+            participant_roles == nullptr ||
+            !player_ids.emplace(player_id->string_value, true).second)
+        {
+            return ControlPlaneResult<DirectoryFetch>::failure(
+                invalidResponse("directory participant is invalid or duplicated"));
+        }
+        DirectoryParticipantView participant_view{
+            player_id->string_value, name->string_value, team->string_value, {}};
+        std::map<std::string, bool, std::less<>> participant_role_ids;
+        for (const auto& role : participant_roles->array_value)
+        {
+            if (role.type != JsonType::string || !role_ids.contains(role.string_value) ||
+                !participant_role_ids.emplace(role.string_value, true).second)
+            {
+                return ControlPlaneResult<DirectoryFetch>::failure(
+                    invalidResponse("directory participant has an invalid public role"));
+            }
+            participant_view.public_role_ids.push_back(role.string_value);
+        }
+        view.participants.push_back(std::move(participant_view));
+    }
+    return ControlPlaneResult<DirectoryFetch>::success({std::move(view)});
+}
+
+auto ControlPlaneClient::directoryPresence(std::optional<std::uint64_t> after_version)
+    -> ControlPlaneResult<DirectoryPresenceView>
+{
+    if (!session_)
+    {
+        return ControlPlaneResult<DirectoryPresenceView>::failure(
+            invalidState("a session is required before presence retrieval"));
+    }
+    if (after_version.has_value() && *after_version == 0)
+    {
+        return ControlPlaneResult<DirectoryPresenceView>::failure(
+            invalidArgument("presence delta version must be positive"));
+    }
+    const auto target = after_version.has_value() ? "/api/v1/directory/presence?after_version=" +
+                                                        std::to_string(*after_version)
+                                                  : "/api/v1/directory/presence";
+    const auto response = sendSessionRequest("GET", target);
+    auto root = responseRoot(response);
+    if (std::holds_alternative<ControlPlaneError>(root))
+    {
+        return responseFailure<DirectoryPresenceView>(root);
+    }
+    const auto& object = std::get<JsonValue>(root);
+    const auto* version = field(object, "presence_version", JsonType::unsigned_integer);
+    const auto* mode = field(object, "mode", JsonType::string);
+    const auto* observed = field(object, "observed_at_unix_ms", JsonType::unsigned_integer);
+    const auto* entries = field(object, "entries", JsonType::array);
+    const auto observed_at =
+        observed == nullptr ? std::nullopt : timePoint(observed->unsigned_value);
+    const auto expected_mode =
+        after_version.has_value() ? DirectoryPresenceMode::delta : DirectoryPresenceMode::snapshot;
+    if (version == nullptr || version->unsigned_value == 0 || mode == nullptr ||
+        ((mode->string_value == "snapshot") !=
+         (expected_mode == DirectoryPresenceMode::snapshot)) ||
+        (mode->string_value != "snapshot" && mode->string_value != "delta") || !observed_at ||
+        entries == nullptr ||
+        (after_version.has_value() && version->unsigned_value < *after_version))
+    {
+        return ControlPlaneResult<DirectoryPresenceView>::failure(
+            invalidResponse("presence response is incomplete or mode-mismatched"));
+    }
+    const auto retry_header = responseHeader(response, "retry-after");
+    std::uint64_t retry_seconds{0};
+    const char* retry_end = nullptr;
+    std::errc retry_error{};
+    if (retry_header.has_value())
+    {
+        const auto parsed = std::from_chars(
+            retry_header->data(), retry_header->data() + retry_header->size(), retry_seconds);
+        retry_end = parsed.ptr;
+        retry_error = parsed.ec;
+    }
+    if (!retry_header.has_value() || retry_header->empty() || retry_error != std::errc{} ||
+        retry_end != retry_header->data() + retry_header->size() || retry_seconds == 0 ||
+        retry_seconds > static_cast<std::uint64_t>(std::chrono::seconds::max().count()))
+    {
+        return ControlPlaneResult<DirectoryPresenceView>::failure(
+            invalidResponse("presence response has no valid Retry-After"));
+    }
+
+    DirectoryPresenceView view{version->unsigned_value,
+                               expected_mode,
+                               *observed_at,
+                               {},
+                               std::chrono::seconds{retry_seconds}};
+    std::map<std::string, bool, std::less<>> player_ids;
+    for (const auto& entry : entries->array_value)
+    {
+        const auto* player = field(entry, "player_id", JsonType::string);
+        const auto* state = field(entry, "state", JsonType::string);
+        if (player == nullptr || player->string_value.empty() || state == nullptr ||
+            (state->string_value != "online" && state->string_value != "offline") ||
+            !player_ids.emplace(player->string_value, true).second)
+        {
+            return ControlPlaneResult<DirectoryPresenceView>::failure(
+                invalidResponse("presence entry is invalid or duplicated"));
+        }
+        view.entries.push_back({player->string_value, state->string_value == "online"});
+    }
+    return ControlPlaneResult<DirectoryPresenceView>::success(std::move(view));
+}
+
 auto ControlPlaneClient::voiceGrants() -> ControlPlaneResult<VoiceGrantSet>
 {
     if (!session_)
@@ -864,20 +1152,21 @@ void ControlPlaneClient::clearSession() noexcept
     session_.reset();
 }
 
-auto ControlPlaneClient::sendSessionRequest(std::string method, std::string target,
-                                            std::string body) -> ClientHttpResponse
+auto ControlPlaneClient::sendSessionRequest(
+    std::string method, std::string target, std::string body,
+    std::map<std::string, std::string, std::less<>> additional_headers) -> ClientHttpResponse
 {
     if (!session_)
     {
         return {0, {}, {}, "no active session"};
     }
-    ClientHttpRequest request{
-        std::move(method),
-        std::move(target),
-        {{"authorization", "Session " + std::string{session_->session_id.value()}},
-         {"x-correlation-id", std::string{identifiers_.nextCorrelationId().value()}},
-         {"x-hvc-device-id", std::string{device_id_.value()}}},
-        std::move(body)};
+    additional_headers.emplace("authorization",
+                               "Session " + std::string{session_->session_id.value()});
+    additional_headers.emplace("x-correlation-id",
+                               std::string{identifiers_.nextCorrelationId().value()});
+    additional_headers.emplace("x-hvc-device-id", std::string{device_id_.value()});
+    ClientHttpRequest request{std::move(method), std::move(target), std::move(additional_headers),
+                              std::move(body)};
     try
     {
         return transport_.send(request);

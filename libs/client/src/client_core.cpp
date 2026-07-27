@@ -18,6 +18,9 @@ using hvc::client::IVoiceClientObserver;
 using hvc::client::IVoiceTransport;
 using hvc::client::IVoiceTransportObserver;
 using hvc::client::VoiceClient;
+using hvc::client::VoiceConnectionEvent;
+using hvc::client::VoiceRemoteEvent;
+using hvc::client::VoiceRemoteEventKind;
 using hvc::client::VoiceRoomGrant;
 using hvc::client::VoiceTransportError;
 using hvc::client::VoiceTransportResult;
@@ -487,22 +490,26 @@ struct hvc_client_core final : IVoiceClientObserver
     hvc_client_core(hvc_client_core&&) = delete;
     auto operator=(hvc_client_core&&) -> hvc_client_core& = delete;
 
-    void onVoiceStateChanged(VoiceTransportState state) override
+    void onVoiceStateChanged(const VoiceConnectionEvent& connection) override
     {
         hvc_client_core_event_v1 event{};
         initializeEvent(event, HVC_CLIENT_CORE_EVENT_CONNECTION_STATE_CHANGED);
-        event.connection_state = coreState(state);
+        event.connection_state = coreState(connection.state);
         emit(event);
     }
 
-    void onSpeakerStarted(VoiceScope scope, const std::string& participant_id) override
+    void onVoiceRemoteEvent(const VoiceRemoteEvent& remote) override
     {
-        speakerEvent(HVC_CLIENT_CORE_EVENT_SPEAKER_STARTED, scope, participant_id);
-    }
-
-    void onSpeakerStopped(VoiceScope scope, const std::string& participant_id) override
-    {
-        speakerEvent(HVC_CLIENT_CORE_EVENT_SPEAKER_STOPPED, scope, participant_id);
+        if (remote.kind == VoiceRemoteEventKind::speaker_started)
+        {
+            speakerEvent(HVC_CLIENT_CORE_EVENT_SPEAKER_STARTED, remote.scope,
+                         remote.participant_id);
+        }
+        else if (remote.kind == VoiceRemoteEventKind::speaker_stopped)
+        {
+            speakerEvent(HVC_CLIENT_CORE_EVENT_SPEAKER_STOPPED, remote.scope,
+                         remote.participant_id);
+        }
     }
 
     void onVoiceError(VoiceTransportError error, const std::string& message) override

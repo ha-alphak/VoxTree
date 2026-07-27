@@ -171,10 +171,26 @@ void DesktopModel::disconnected() noexcept
     state_.diagnostics.voice_state = client::VoiceTransportState::disconnected;
 }
 
-void DesktopModel::updateVoiceState(client::VoiceTransportState state) noexcept
+void DesktopModel::updateVoiceState(const client::VoiceConnectionEvent& event) noexcept
 {
-    state_.diagnostics.voice_state = state;
-    switch (state)
+    if (event.generation < voice_generation_)
+    {
+        return;
+    }
+    if (event.generation > voice_generation_)
+    {
+        voice_generation_ = event.generation;
+        clearRemoteTransportState();
+        participant_voice_sequences_.clear();
+        last_connection_sequence_ = 0;
+    }
+    if (event.sequence <= last_connection_sequence_)
+    {
+        return;
+    }
+    last_connection_sequence_ = event.sequence;
+    state_.diagnostics.voice_state = event.state;
+    switch (event.state)
     {
     case client::VoiceTransportState::disconnected:
         if (state_.connection != ConnectionPhase::signed_out &&
@@ -232,32 +248,219 @@ auto DesktopModel::selectChannel(ChannelSelection selection) -> ValidationResult
     return result;
 }
 
-void DesktopModel::speakerStarted(domain::VoiceScope scope, std::string participant_id)
+auto DesktopModel::applyDirectory(client::DirectoryView directory) -> ValidationResult
 {
-    if (participant_id.empty())
+    if (!state_.membership.has_value())
     {
-        return;
+        return failure(ErrorCode::invalid_state, "directory");
     }
-    auto& participant = state_.participants[participant_id];
-    participant.participant_id = participant_id;
-    if (participant.display_name.empty())
+    if (directory.group_id != state_.membership->group_id.value())
     {
-        participant.display_name = participant_id;
+        return failure(ErrorCode::forbidden, "directory.group_id");
     }
-    participant.audio_available = true;
-    participant.speaking = true;
-    participant.speaking_scope = scope;
+    if (directory.version == 0 ||
+        (state_.directory.has_value() && directory.version <= state_.directory->version))
+    {
+        return failure(ErrorCode::stale_version, "directory.version");
+    }
+
+    std::map<std::string, ParticipantState, std::less<>> participants;
+    for (const auto& source : directory.participants)
+    {
+        ParticipantState target;
+        if (const auto existing = state_.participants.find(source.player_id);
+            existing != state_.participants.end())
+        {
+            target = existing->second;
+        }
+        target.participant_id = source.player_id;
+        target.display_name = source.display_name;
+        target.primary_team_id = source.primary_team_id;
+        target.role_ids = source.public_role_ids;
+        refreshParticipantDerivedState(target);
+        participants.emplace(target.participant_id, std::move(target));
+    }
+    state_.participants = std::move(participants);
+    state_.directory = std::move(directory);
+    state_.presence_version.reset();
+    state_.presence_observed_at.reset();
+    server_presence_.clear();
+    for (auto& [participant_id, participant] : state_.participants)
+    {
+        static_cast<void>(participant_id);
+        refreshParticipantDerivedState(participant);
+    }
+    return success();
 }
 
-void DesktopModel::speakerStopped(std::string_view participant_id) noexcept
+auto DesktopModel::applyPresence(client::DirectoryPresenceView presence) -> ValidationResult
 {
-    const auto participant = state_.participants.find(participant_id);
-    if (participant == state_.participants.end())
+    if (!state_.directory.has_value())
+    {
+        return failure(ErrorCode::invalid_state, "presence");
+    }
+    if (presence.version == 0 ||
+        (state_.presence_version.has_value() && presence.version <= *state_.presence_version))
+    {
+        return failure(ErrorCode::stale_version, "presence.version");
+    }
+    if (presence.mode == client::DirectoryPresenceMode::delta &&
+        !state_.presence_version.has_value())
+    {
+        return failure(ErrorCode::invalid_state, "presence.mode");
+    }
+    if (presence.mode == client::DirectoryPresenceMode::snapshot)
+    {
+        server_presence_.clear();
+    }
+    for (const auto& entry : presence.entries)
+    {
+        if (state_.participants.contains(entry.player_id))
+        {
+            server_presence_[entry.player_id] = entry.online;
+        }
+    }
+    state_.presence_version = presence.version;
+    state_.presence_observed_at = presence.observed_at;
+    for (auto& [participant_id, participant] : state_.participants)
+    {
+        static_cast<void>(participant_id);
+        refreshParticipantDerivedState(participant);
+    }
+    return success();
+}
+
+void DesktopModel::applyVoiceRemoteEvent(const client::VoiceRemoteEvent& event)
+{
+    if (event.participant_id.empty() || event.generation < voice_generation_)
     {
         return;
     }
-    participant->second.speaking = false;
-    participant->second.speaking_scope.reset();
+    if (event.generation > voice_generation_)
+    {
+        voice_generation_ = event.generation;
+        clearRemoteTransportState();
+        participant_voice_sequences_.clear();
+        last_connection_sequence_ = 0;
+    }
+
+    const auto scope_index = static_cast<std::size_t>(event.scope);
+    if (scope_index >= 3)
+    {
+        return;
+    }
+    auto& sequences = participant_voice_sequences_[event.participant_id];
+    const auto advance = [&event](std::uint64_t& sequence) {
+        if (event.sequence <= sequence)
+        {
+            return false;
+        }
+        sequence = event.sequence;
+        return true;
+    };
+    auto update_connected = false;
+    auto update_audio = false;
+    auto update_speaking = false;
+    switch (event.kind)
+    {
+    case client::VoiceRemoteEventKind::participant_connected:
+        update_connected = advance(sequences.connected[scope_index]);
+        break;
+    case client::VoiceRemoteEventKind::participant_disconnected:
+        update_connected = advance(sequences.connected[scope_index]);
+        update_audio = advance(sequences.audio_available[scope_index]);
+        update_speaking = advance(sequences.speaking[scope_index]);
+        break;
+    case client::VoiceRemoteEventKind::audio_available:
+        update_audio = advance(sequences.audio_available[scope_index]);
+        break;
+    case client::VoiceRemoteEventKind::audio_unavailable:
+    case client::VoiceRemoteEventKind::speaker_started:
+        update_audio = advance(sequences.audio_available[scope_index]);
+        update_speaking = advance(sequences.speaking[scope_index]);
+        break;
+    case client::VoiceRemoteEventKind::speaker_stopped:
+        update_speaking = advance(sequences.speaking[scope_index]);
+        break;
+    }
+    if (!update_connected && !update_audio && !update_speaking)
+    {
+        return;
+    }
+
+    auto participant = state_.participants.find(event.participant_id);
+    if (participant == state_.participants.end())
+    {
+        if (state_.directory.has_value())
+        {
+            return;
+        }
+        ParticipantState placeholder;
+        placeholder.participant_id = event.participant_id;
+        placeholder.display_name = event.participant_id;
+        participant =
+            state_.participants.emplace(event.participant_id, std::move(placeholder)).first;
+    }
+    switch (event.kind)
+    {
+    case client::VoiceRemoteEventKind::participant_connected:
+        if (update_connected)
+        {
+            participant->second.connected_scopes[scope_index] = true;
+        }
+        break;
+    case client::VoiceRemoteEventKind::participant_disconnected:
+        if (update_connected)
+        {
+            participant->second.connected_scopes[scope_index] = false;
+        }
+        if (update_audio)
+        {
+            participant->second.audio_available_scopes[scope_index] = false;
+        }
+        if (update_speaking && participant->second.speaking_scope == event.scope)
+        {
+            participant->second.speaking = false;
+            participant->second.speaking_scope.reset();
+        }
+        break;
+    case client::VoiceRemoteEventKind::audio_available:
+        if (update_audio)
+        {
+            participant->second.audio_available_scopes[scope_index] = true;
+        }
+        break;
+    case client::VoiceRemoteEventKind::audio_unavailable:
+        if (update_audio)
+        {
+            participant->second.audio_available_scopes[scope_index] = false;
+        }
+        if (update_speaking && participant->second.speaking_scope == event.scope)
+        {
+            participant->second.speaking = false;
+            participant->second.speaking_scope.reset();
+        }
+        break;
+    case client::VoiceRemoteEventKind::speaker_started:
+        if (update_audio)
+        {
+            participant->second.audio_available_scopes[scope_index] = true;
+        }
+        if (update_speaking)
+        {
+            participant->second.speaking = true;
+            participant->second.speaking_scope = event.scope;
+        }
+        break;
+    case client::VoiceRemoteEventKind::speaker_stopped:
+        if (update_speaking && participant->second.speaking_scope == event.scope)
+        {
+            participant->second.speaking = false;
+            participant->second.speaking_scope.reset();
+        }
+        break;
+    }
+    refreshParticipantDerivedState(participant->second);
 }
 
 void DesktopModel::transmissionStarted(domain::VoiceScope scope) noexcept
@@ -356,20 +559,71 @@ auto DesktopModel::administrationFor(const client::MembershipView& membership)
 
 void DesktopModel::applyMembership(client::MembershipView membership)
 {
+    const auto group_changed = state_.membership.has_value() &&
+                               state_.membership->group_id.value() != membership.group_id.value();
+    if (group_changed)
+    {
+        state_.directory.reset();
+        state_.presence_version.reset();
+        state_.presence_observed_at.reset();
+        state_.participants.clear();
+        server_presence_.clear();
+        participant_voice_sequences_.clear();
+        clearRemoteTransportState();
+    }
     state_.administration = administrationFor(membership);
     state_.selected_channel =
         ChannelSelection{domain::VoiceScope::team, std::string{membership.team_id.value()}};
     state_.membership = std::move(membership);
 }
 
+void DesktopModel::clearRemoteTransportState() noexcept
+{
+    for (auto& [participant_id, participant] : state_.participants)
+    {
+        static_cast<void>(participant_id);
+        participant.connected_scopes = {};
+        participant.audio_available_scopes = {};
+        participant.audio_available = false;
+        participant.speaking = false;
+        participant.speaking_scope.reset();
+        refreshParticipantDerivedState(participant);
+    }
+}
+
+void DesktopModel::refreshParticipantDerivedState(ParticipantState& participant) noexcept
+{
+    const auto locally_connected =
+        std::ranges::any_of(participant.connected_scopes, [](bool connected) { return connected; });
+    participant.audio_available = std::ranges::any_of(participant.audio_available_scopes,
+                                                      [](bool available) { return available; });
+    if (const auto server = server_presence_.find(participant.participant_id);
+        server != server_presence_.end())
+    {
+        participant.presence =
+            server->second || locally_connected ? PresenceState::online : PresenceState::offline;
+    }
+    else
+    {
+        participant.presence = locally_connected ? PresenceState::online : PresenceState::unknown;
+    }
+}
+
 void DesktopModel::clearAuthenticatedState() noexcept
 {
     state_.membership.reset();
     state_.selected_channel.reset();
+    state_.directory.reset();
+    state_.presence_version.reset();
+    state_.presence_observed_at.reset();
     state_.participants.clear();
     state_.active_transmission_scope.reset();
     state_.administration = {};
     state_.diagnostics = {};
+    server_presence_.clear();
+    participant_voice_sequences_.clear();
+    voice_generation_ = 0;
+    last_connection_sequence_ = 0;
 }
 
 auto errorCodeName(ErrorCode error) noexcept -> std::string_view

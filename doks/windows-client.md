@@ -1,6 +1,6 @@
 # Windows-Client
 
-**Stand:** 26. Juli 2026
+**Stand:** 27. Juli 2026
 
 ## Anwendungsschale
 
@@ -47,7 +47,8 @@ Der Verbindungsablauf wird außerhalb des UI-Threads ausgeführt. Er verdrahtet 
 dieser Reihenfolge:
 
 1. `WinHttpTransport` und `ControlPlaneClient`;
-2. Session-Erstellung und autoritativen Membership-Abruf;
+2. Session-Erstellung, autoritativen Membership-Abruf sowie initiales
+   Directory und Presence;
 3. Ausstellung der kurzlebigen Voice-Grants;
 4. `LiveKitVoiceTransport`, `VoiceClient` und `AuthorizedVoiceClient`;
 5. `AuthorizedPushToTalkInput`, `PushToTalkBindingEngine` und
@@ -107,13 +108,19 @@ aktiver Sprecher bleiben oberhalb als Entscheidungsgrundlage sichtbar.
 Serverseitige Moderationsbefugnisse werden weiterhin ausschließlich von der
 Control Plane geprüft.
 
-Nicht sprechende entfernte Teilnehmer sind derzeit nicht sichtbar. Die
-Hauptfläche kennzeichnet diese Grenze ausdrücklich und erfindet keine
-Presence-Daten. Der eigene Membership-Endpunkt liefert keine Gruppenliste, und
-Remote-Participant-Connect/-Disconnect-Ereignisse werden noch nicht bis zur
-Oberfläche weitergereicht. Die geplante Kanal- und Teilnehmeransicht benötigt
-deshalb zuerst den in `implementation-plan.md` beschriebenen
-Directory-/Presence-Vertrag.
+Nicht sprechende entfernte Teilnehmer sind derzeit noch nicht sichtbar. Die
+Hauptfläche kennzeichnet diese Grenze ausdrücklich. `ClientSession` lädt beim
+Verbindungsaufbau das gruppenbegrenzte Directory und einen Presence-Snapshot,
+pollt anschließend Directory bedingt per ETag sowie Presence anhand der
+Version und beachtet `Retry-After`. Nach einer Directory-Änderung oder
+`presence_snapshot_required` wird deterministisch eine neue Snapshot-Basis
+geladen.
+
+Participant-, Audio- und Sprecherereignisse aller drei Voice-Scopes erreichen
+den UI-Dispatcher als strukturierte Ereignisse. `MainWindow` führt sie mit
+Directory und Presence im gemeinsamen `DesktopModel` zusammen. Die geplante
+UX-02-Kanal- und Teilnehmeransicht rendert diese bereits vorhandenen Zustände
+vollständig.
 
 ## Eigenständiges Einstellungsfenster
 
@@ -186,7 +193,8 @@ Der verbindliche offene Umfang steht im
 
 - Erweiterung der vorhandenen navigierbaren Hauptansicht um den vollständigen
   serverdefinierten Kanalbaum und alle sichtbaren Teilnehmer;
-- getrennte Zustände für Presence, Audioverfügbarkeit und Sprechen;
+- Rendering der bereits getrennten Zustände für Presence,
+  Audioverfügbarkeit und Sprechen;
 - persistente, nicht geheime Benutzerkonfiguration;
 - direkte Lernansicht für Tastatur, Maus und HID-/HOTAS-Buttons;
 - Account-, Membership-, Rollen- und Moderationsoberflächen;

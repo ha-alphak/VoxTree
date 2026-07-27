@@ -170,6 +170,26 @@ class FakeVoiceTransport final : public IVoiceTransport
         observer_->onRemoteAudioUnavailable(scope, participant_id);
     }
 
+    void connectParticipant(VoiceScope scope, const std::string& participant_id) const
+    {
+        observer_->onRemoteParticipantConnected(scope, participant_id);
+    }
+
+    void disconnectParticipant(VoiceScope scope, const std::string& participant_id) const
+    {
+        observer_->onRemoteParticipantDisconnected(scope, participant_id);
+    }
+
+    void startSpeaker(VoiceScope scope, const std::string& participant_id) const
+    {
+        observer_->onRemoteAudioStarted(scope, participant_id);
+    }
+
+    void stopSpeaker(VoiceScope scope, const std::string& participant_id) const
+    {
+        observer_->onRemoteAudioStopped(scope, participant_id);
+    }
+
     void waitForMicrophoneStart()
     {
         std::unique_lock lock{publication_mutex};
@@ -197,6 +217,29 @@ class FakeVoiceTransport final : public IVoiceTransport
     std::mutex publication_mutex;
     std::condition_variable publication_changed;
     std::vector<std::tuple<VoiceScope, std::string, bool, float>> playback;
+};
+
+class RecordingObserver final : public IVoiceClientObserver
+{
+  public:
+    void onVoiceStateChanged(const VoiceConnectionEvent& event) override
+    {
+        connections.push_back(event);
+    }
+
+    void onVoiceRemoteEvent(const VoiceRemoteEvent& event) override
+    {
+        remote.push_back(event);
+    }
+
+    void onVoiceError(VoiceTransportError, const std::string&) override
+    {
+        ++errors;
+    }
+
+    std::vector<VoiceConnectionEvent> connections;
+    std::vector<VoiceRemoteEvent> remote;
+    int errors{0};
 };
 
 [[nodiscard]] auto validGrants() -> std::array<VoiceRoomGrant, 3>
@@ -472,6 +515,51 @@ auto testMuteBlockVolumeAndReadmission() -> bool
     return !playbackFor(client, VoiceScope::group, "first").has_value() &&
            !client.setParticipantVolume("", 0.5F) && !client.setParticipantVolume("second", 1.1F);
 }
+
+auto testOrderedParticipantAndAudioEvents() -> bool
+{
+    FakeVoiceTransport transport;
+    VoiceClient client{transport};
+    RecordingObserver observer;
+    client.setObserver(&observer);
+    const auto grants = validGrants();
+    if (!client.connect(grants) || observer.connections.size() != 1 ||
+        observer.connections.back().generation != 1)
+    {
+        return false;
+    }
+    transport.connectParticipant(VoiceScope::team, "speaker-1");
+    transport.connectParticipant(VoiceScope::group, "speaker-1");
+    transport.makeAudioAvailable(VoiceScope::group, "speaker-1");
+    transport.startSpeaker(VoiceScope::group, "speaker-1");
+    transport.stopSpeaker(VoiceScope::group, "speaker-1");
+    transport.makeAudioUnavailable(VoiceScope::group, "speaker-1");
+    transport.disconnectParticipant(VoiceScope::team, "speaker-1");
+    if (observer.remote.size() != 7)
+    {
+        return false;
+    }
+    for (std::size_t index = 1; index < observer.remote.size(); ++index)
+    {
+        if (observer.remote[index].sequence <= observer.remote[index - 1].sequence ||
+            observer.remote[index].generation != 1)
+        {
+            return false;
+        }
+    }
+    if (observer.remote.front().kind != VoiceRemoteEventKind::participant_connected ||
+        observer.remote[2].kind != VoiceRemoteEventKind::audio_available ||
+        observer.remote[3].kind != VoiceRemoteEventKind::speaker_started ||
+        observer.remote.back().kind != VoiceRemoteEventKind::participant_disconnected)
+    {
+        return false;
+    }
+    transport.reconnect();
+    return observer.connections.size() == 3 &&
+           observer.connections[1].state == VoiceTransportState::reconnecting &&
+           observer.connections[1].generation == 2 && observer.connections[2].generation == 2 &&
+           observer.connections[2].sequence > observer.connections[1].sequence;
+}
 } // namespace
 
 auto main() noexcept -> int
@@ -482,7 +570,7 @@ auto main() noexcept -> int
             !testReconnectStopsAndNeverResumesPtt() ||
             !testCancelsPendingPublicationAcrossEveryScope() ||
             !testDisconnectCancelsPendingPublication() || !testPriorityAdmissionAndDucking() ||
-            !testMuteBlockVolumeAndReadmission())
+            !testMuteBlockVolumeAndReadmission() || !testOrderedParticipantAndAudioEvents())
         {
             std::fputs("A voice-client assertion failed.\n", stderr);
             return 1;

@@ -1,6 +1,6 @@
 # Windows-Client-Core und Voice-Transport
 
-**Stand:** 26. Juli 2026
+**Stand:** 27. Juli 2026
 
 ## Schichtengrenze
 
@@ -15,6 +15,14 @@ Der Vertrag umfasst:
 - Aufzählung und Auswahl stabiler Aufnahme- und Wiedergabegeräte-IDs,
 - Transport-, Teilnehmer- und Remote-Audio-Ereignisse,
 - Momentaufnahmen für Teilnehmerzahl und aktiven Remote-Audioempfang.
+
+Transportereignisse sind für DIR-02 als `VoiceConnectionEvent` und
+`VoiceRemoteEvent` strukturiert. Verbindungsereignisse tragen eine
+Transportgeneration, Remote-Ereignisse zusätzlich eine strikt steigende
+Ereignisfolge. Die fachlich getrennten Remote-Arten sind Participant
+Connected/Disconnected, Audio Available/Unavailable und Speaker
+Started/Stopped. Ein kontrollierter oder spontaner Reconnect erhält eine neue
+Generation; Rückmeldungen eines abgelösten nativen Raums werden verworfen.
 
 `VoiceClient` akzeptiert zwischen einem und drei nicht leere, eindeutige
 Scope-Grants. Ein nicht berechtigter Scope wird nicht künstlich ergänzt. Der
@@ -87,6 +95,13 @@ Membership, Voice-Grants sowie Start und Ende einer Transmission ab. Er prüft
 API-Version, Antwortschema, Geräte- und Spielerbindung, Membership-Version,
 Scope, Client-Transmission-ID und Server-Transmission-ID. Fehler bleiben als
 stabile `ControlPlaneError`-Werte erhalten.
+
+Für DIR-02 bildet er außerdem das gruppenbegrenzte Directory und Presence
+vollständig typisiert ab. Directory-Abrufe unterstützen bedingte Requests über
+`If-None-Match`/`ETag`; Presence unterstützt Snapshot und Delta, den
+`after_version`-Cursor sowie `Retry-After`. Unvollständige Hierarchien,
+unbekannte öffentliche Rollen, doppelte Spieler, ungültige Modi und nicht
+monotone Versionen werden an der Clientgrenze abgelehnt.
 
 `IClientHttpTransport` hält die Protokolllogik von der Plattform-HTTP-API
 getrennt. Unter Windows implementiert `hvc::client_winhttp` diese Grenze mit
@@ -164,9 +179,12 @@ Die Client-Tests verwenden Fake-HTTP-, Fake-Voice- und Fake-PTT-Ziele. Sie prüf
 Scope-Grant-Validierung, den exklusiven PTT-Lebenszyklus, die Reihenfolge
 „Autorisierung vor Mikrofon“, Ablehnungen ohne Publikation, den Rollback bei
 Audiofehlern und den Abbruch ohne automatische Wiederaufnahme nach einem
-Reconnect. Zusätzlich prüfen sie Stream-Admission, Ducking, Mute/Block,
-Teilnehmerlautstärke, Bindings, Kombinationen und die drei separaten
-Eingabeaktionen. Das native Quality-Gate bleibt als unabhängiger
+Reconnect. Zusätzlich prüfen sie die strukturierten Remote-Arten, monotone
+Ereignisfolgen und neue Generationen nach Reconnect sowie Directory-/Presence-
+Parsing einschließlich ETag, Snapshot-Pflicht und negativer Schemata.
+Stream-Admission, Ducking, Mute/Block, Teilnehmerlautstärke, Bindings,
+Kombinationen und die drei separaten Eingabeaktionen bleiben ebenfalls
+abgedeckt. Das native Quality-Gate bleibt als unabhängiger
 Ende-zu-Ende-Nachweis der verwendeten SDK-Operationen erhalten.
 
 Die PRE-01-Regression führt zusätzlich 100 deterministisch während `starting`

@@ -705,26 +705,28 @@ void printScopeProbeFailures(const Arguments& arguments,
 class TransportScopeObserver final : public hvc::client::IVoiceClientObserver
 {
   public:
-    void onVoiceStateChanged(hvc::client::VoiceTransportState) override
+    void onVoiceStateChanged(const hvc::client::VoiceConnectionEvent&) override
     {
     }
 
-    void onSpeakerStarted(hvc::domain::VoiceScope scope, const std::string&) override
+    void onVoiceRemoteEvent(const hvc::client::VoiceRemoteEvent& event) override
     {
-        started_[static_cast<std::size_t>(scope)].store(true);
-        std::cerr << "EVENT: remote audio started in scope " << static_cast<unsigned int>(scope)
-                  << ".\n";
-    }
-
-    void onSpeakerStopped(hvc::domain::VoiceScope scope, const std::string&) override
-    {
-        const auto index = static_cast<std::size_t>(scope);
-        if (started_[index].load())
+        const auto index = static_cast<std::size_t>(event.scope);
+        if (event.kind == hvc::client::VoiceRemoteEventKind::speaker_started)
         {
-            stopped_[index].store(true);
+            started_[index].store(true);
+            std::cerr << "EVENT: remote audio started in scope "
+                      << static_cast<unsigned int>(event.scope) << ".\n";
         }
-        std::cerr << "EVENT: remote audio stopped in scope " << static_cast<unsigned int>(scope)
-                  << ".\n";
+        else if (event.kind == hvc::client::VoiceRemoteEventKind::speaker_stopped)
+        {
+            if (started_[index].load())
+            {
+                stopped_[index].store(true);
+            }
+            std::cerr << "EVENT: remote audio stopped in scope "
+                      << static_cast<unsigned int>(event.scope) << ".\n";
+        }
     }
 
     void onVoiceError(hvc::client::VoiceTransportError, const std::string& message) override

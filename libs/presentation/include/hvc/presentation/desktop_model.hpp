@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <chrono>
 #include <cstdint>
 #include <hvc/client/control_plane_client.hpp>
 #include <hvc/client/ptt_input.hpp>
@@ -127,6 +129,10 @@ struct ParticipantState final
     std::vector<std::string> role_ids;
     /// Aggregated transport presence.
     PresenceState presence{PresenceState::unknown};
+    /// Locally observed connected Voice scopes.
+    std::array<bool, 3> connected_scopes{};
+    /// Locally observed remote-audio availability per Voice scope.
+    std::array<bool, 3> audio_available_scopes{};
     /// Whether a remote microphone track is available.
     bool audio_available{false};
     /// Whether admitted remote audio is currently audible.
@@ -199,6 +205,12 @@ struct DesktopState final
     std::optional<client::MembershipView> membership;
     /// Selected hierarchy node.
     std::optional<ChannelSelection> selected_channel;
+    /// Latest complete visible Directory snapshot.
+    std::optional<client::DirectoryView> directory;
+    /// Latest applied server Presence version.
+    std::optional<std::uint64_t> presence_version;
+    /// Observation time of the latest applied Presence response.
+    std::optional<std::chrono::system_clock::time_point> presence_observed_at;
     /// Participants keyed by stable public identifier.
     std::map<std::string, ParticipantState, std::less<>> participants;
     /// Confirmed active local transmission scope.
@@ -311,9 +323,9 @@ class DesktopModel final
     /**
      * Apply an aggregate voice transport state.
      *
-     * @param state Latest transport state.
+     * @param event Ordered aggregate transport transition.
      */
-    void updateVoiceState(client::VoiceTransportState state) noexcept;
+    void updateVoiceState(const client::VoiceConnectionEvent& event) noexcept;
     /**
      * Apply a strictly newer authoritative membership.
      *
@@ -330,18 +342,25 @@ class DesktopModel final
     [[nodiscard]] auto selectChannel(ChannelSelection selection) -> ValidationResult;
 
     /**
-     * Mark a participant as currently audible.
+     * Apply a complete, strictly newer visible Directory snapshot.
      *
-     * @param scope Audible scope.
-     * @param participant_id Stable public transport identity.
+     * @param directory Candidate snapshot for the current Membership Group.
+     * @returns Validation outcome; stale or cross-Group snapshots are ignored.
      */
-    void speakerStarted(domain::VoiceScope scope, std::string participant_id);
+    [[nodiscard]] auto applyDirectory(client::DirectoryView directory) -> ValidationResult;
     /**
-     * Mark a participant as no longer audible.
+     * Apply a Presence snapshot or versioned delta.
      *
-     * @param participant_id Stable public transport identity.
+     * @param presence Candidate response for the current Directory.
+     * @returns Validation outcome; deltas require an established version.
      */
-    void speakerStopped(std::string_view participant_id) noexcept;
+    [[nodiscard]] auto applyPresence(client::DirectoryPresenceView presence) -> ValidationResult;
+    /**
+     * Apply one ordered, generation-bound remote transport transition.
+     *
+     * @param event Normalized VoiceClient event.
+     */
+    void applyVoiceRemoteEvent(const client::VoiceRemoteEvent& event);
     /**
      * Publish the confirmed local transmission scope.
      *
@@ -385,13 +404,26 @@ class DesktopModel final
     void recordError(std::string error_code, std::string diagnostic);
 
   private:
+    struct ParticipantVoiceSequences final
+    {
+        std::array<std::uint64_t, 3> connected{};
+        std::array<std::uint64_t, 3> audio_available{};
+        std::array<std::uint64_t, 3> speaking{};
+    };
+
     [[nodiscard]] static auto validateSettings(const SettingsState& settings) -> ValidationResult;
     [[nodiscard]] static auto administrationFor(const client::MembershipView& membership)
         -> AdministrationState;
     void applyMembership(client::MembershipView membership);
+    void clearRemoteTransportState() noexcept;
+    void refreshParticipantDerivedState(ParticipantState& participant) noexcept;
     void clearAuthenticatedState() noexcept;
 
     DesktopState state_;
+    std::map<std::string, bool, std::less<>> server_presence_;
+    std::map<std::string, ParticipantVoiceSequences, std::less<>> participant_voice_sequences_;
+    std::uint64_t voice_generation_{0};
+    std::uint64_t last_connection_sequence_{0};
 };
 
 /**

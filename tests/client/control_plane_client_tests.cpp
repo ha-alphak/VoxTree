@@ -40,6 +40,7 @@ class ScriptedHttpTransport final : public client::IClientHttpTransport
         -> client::ClientHttpResponse override
     {
         targets.push_back(request.target);
+        last_request = request;
         if (request.target == "/api/v1/sessions")
         {
             return json(
@@ -53,6 +54,48 @@ class ScriptedHttpTransport final : public client::IClientHttpTransport
                 R"({"api_version":"v1","membership_version":)" +
                     std::to_string(membership_version) +
                     R"(,"hierarchy_id":"hierarchy-1","player_id":"player-1","group_id":"group-1","specialization_id":"specialization-1","team_id":"team-1","role_ids":["speaker"],"connected":true,"can_receive_voice":true,"transmit_muted":false})");
+        }
+        if (request.target == "/api/v1/directory")
+        {
+            if (invalid_directory)
+            {
+                auto response = json(
+                    200,
+                    R"({"api_version":"v1","directory_version":9,"group_id":"group-1","nodes":[{"node_id":"group-1","node_type":"group","parent_node_id":"other","display_name":"Group 1","sort_index":0}],"public_roles":[],"participants":[]})");
+                response.headers.emplace("etag", "\"directory-9\"");
+                return response;
+            }
+            const auto conditional = request.headers.find("if-none-match");
+            if (conditional != request.headers.end() && conditional->second == "\"directory-9\"")
+            {
+                return {304, {{"etag", "\"directory-9\""}, {"x-hvc-api-version", "v1"}}, {}, {}};
+            }
+            auto response = json(
+                200,
+                R"({"api_version":"v1","directory_version":9,"group_id":"group-1","nodes":[{"node_id":"group-1","node_type":"group","parent_node_id":null,"display_name":"Group 1","sort_index":0},{"node_id":"specialization-1","node_type":"specialization","parent_node_id":"group-1","display_name":"Specialization 1","sort_index":0},{"node_id":"team-1","node_type":"team","parent_node_id":"specialization-1","display_name":"Team 1","sort_index":0}],"public_roles":[{"role_id":"speaker","display_name":"Speaker"}],"participants":[{"player_id":"player-1","display_name":"Player One","primary_team_id":"team-1","public_role_ids":["speaker"]},{"player_id":"player-2","display_name":"Player Two","primary_team_id":"team-1","public_role_ids":[]}]})");
+            response.headers.emplace("etag", "\"directory-9\"");
+            return response;
+        }
+        if (request.target == "/api/v1/directory/presence")
+        {
+            if (invalid_presence)
+            {
+                return presenceJson(
+                    R"({"api_version":"v1","presence_version":20,"mode":"delta","observed_at_unix_ms":1500000,"entries":[]})");
+            }
+            return presenceJson(
+                R"({"api_version":"v1","presence_version":20,"mode":"snapshot","observed_at_unix_ms":1500000,"entries":[{"player_id":"player-1","state":"online"},{"player_id":"player-2","state":"offline"}]})");
+        }
+        if (request.target == "/api/v1/directory/presence?after_version=20")
+        {
+            if (require_presence_snapshot)
+            {
+                return json(
+                    409,
+                    R"({"api_version":"v1","error":{"code":"presence_snapshot_required","message":"snapshot required"}})");
+            }
+            return presenceJson(
+                R"({"api_version":"v1","presence_version":21,"mode":"delta","observed_at_unix_ms":1501000,"entries":[{"player_id":"player-2","state":"online"}]})");
         }
         if (request.target == "/api/v1/voice-grants")
         {
@@ -98,12 +141,23 @@ class ScriptedHttpTransport final : public client::IClientHttpTransport
         return {status, {{"x-hvc-api-version", "v1"}}, std::move(body), {}};
     }
 
+    [[nodiscard]] static auto presenceJson(std::string body) -> client::ClientHttpResponse
+    {
+        auto response = json(200, std::move(body));
+        response.headers.emplace("retry-after", "1");
+        return response;
+    }
+
     std::vector<std::string> targets;
+    client::ClientHttpRequest last_request;
     bool reject_start{false};
     bool start_authorized{false};
     int end_calls{0};
     int end_failures_remaining{0};
     std::uint64_t membership_version{42};
+    bool require_presence_snapshot{false};
+    bool invalid_directory{false};
+    bool invalid_presence{false};
 };
 
 class FakeVoiceTransport final : public client::IVoiceTransport
@@ -402,6 +456,79 @@ auto retainsFailedRollbackForExplicitCleanup() -> bool
            !authorized.activeTransmission().has_value();
 }
 
+auto decodesDirectoryAndPresenceContracts() -> bool
+{
+    ScriptedHttpTransport http;
+    Identifiers identifiers;
+    client::ControlPlaneClient control{http, identifiers, domain::DeviceId{"device-1"}};
+    if (!control.createSession("external-credential"))
+    {
+        return false;
+    }
+    const auto directory = control.directory();
+    if (!directory || !directory.value->snapshot.has_value())
+    {
+        return false;
+    }
+    const auto& snapshot = *directory.value->snapshot;
+    if (snapshot.version != 9 || snapshot.group_id != "group-1" || snapshot.nodes.size() != 3 ||
+        snapshot.participants.size() != 2 ||
+        snapshot.participants[0].public_role_ids != std::vector<std::string>{"speaker"})
+    {
+        return false;
+    }
+    const auto not_modified = control.directory(9);
+    if (!not_modified || not_modified.value->snapshot.has_value() ||
+        http.last_request.headers.at("if-none-match") != "\"directory-9\"")
+    {
+        return false;
+    }
+    const auto presence = control.directoryPresence();
+    const auto delta = control.directoryPresence(20);
+    return presence && presence.value->mode == client::DirectoryPresenceMode::snapshot &&
+           presence.value->version == 20 && presence.value->entries.size() == 2 &&
+           presence.value->entries[0].online && presence.value->retry_after.count() == 1 && delta &&
+           delta.value->mode == client::DirectoryPresenceMode::delta &&
+           delta.value->version == 21 && delta.value->entries.size() == 1 &&
+           delta.value->entries[0].online;
+}
+
+auto preservesPresenceSnapshotRequirement() -> bool
+{
+    ScriptedHttpTransport http;
+    Identifiers identifiers;
+    client::ControlPlaneClient control{http, identifiers, domain::DeviceId{"device-1"}};
+    if (!control.createSession("external-credential"))
+    {
+        return false;
+    }
+    http.require_presence_snapshot = true;
+    const auto result = control.directoryPresence(20);
+    return !result && result.error.has_value() &&
+           result.error->kind == client::ControlPlaneErrorKind::server &&
+           result.error->status_code == 409 && result.error->code == "presence_snapshot_required";
+}
+
+auto rejectsInvalidDirectoryAndPresenceSchemas() -> bool
+{
+    ScriptedHttpTransport http;
+    Identifiers identifiers;
+    client::ControlPlaneClient control{http, identifiers, domain::DeviceId{"device-1"}};
+    if (!control.createSession("external-credential"))
+    {
+        return false;
+    }
+    http.invalid_directory = true;
+    const auto directory_result = control.directory();
+    http.invalid_directory = false;
+    http.invalid_presence = true;
+    const auto presence_result = control.directoryPresence();
+    return !directory_result && directory_result.error.has_value() &&
+           directory_result.error->kind == client::ControlPlaneErrorKind::invalid_response &&
+           !presence_result && presence_result.error.has_value() &&
+           presence_result.error->kind == client::ControlPlaneErrorKind::invalid_response;
+}
+
 class InvalidVersionTransport final : public client::IClientHttpTransport
 {
   public:
@@ -437,7 +564,9 @@ auto main() noexcept -> int
             !cancelsPendingPublicationAndEndsServerOnce() ||
             !refreshesChangedMembershipAndRoomSubscriptions() ||
             !refreshStopsActivePublicationAndServerTransmission() ||
-            !retainsFailedRollbackForExplicitCleanup() || !rejectsMismatchedProtocolHeader())
+            !retainsFailedRollbackForExplicitCleanup() || !decodesDirectoryAndPresenceContracts() ||
+            !preservesPresenceSnapshotRequirement() ||
+            !rejectsInvalidDirectoryAndPresenceSchemas() || !rejectsMismatchedProtocolHeader())
         {
             std::fputs("A control-plane client assertion failed.\n", stderr);
             return 1;

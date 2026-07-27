@@ -187,6 +187,109 @@ struct MembershipView final
     bool transmit_muted{false};
 };
 
+/// Classify a server-defined directory node.
+enum class DirectoryNodeKind : std::uint8_t
+{
+    /// Root Group node.
+    group,
+    /// Specialization below the Group.
+    specialization,
+    /// Team below a Specialization.
+    team
+};
+
+/// Describe one visible hierarchy node.
+struct DirectoryNodeView final
+{
+    /// Stable server-defined node identifier.
+    std::string node_id;
+    /// Hierarchy level represented by the node.
+    DirectoryNodeKind kind{DirectoryNodeKind::group};
+    /// Parent identifier; absent only for the Group root.
+    std::optional<std::string> parent_node_id;
+    /// Public display label.
+    std::string display_name;
+    /// Stable sibling ordering key.
+    std::uint64_t sort_index{0};
+};
+
+/// Describe a role explicitly released for public display.
+struct PublicRoleView final
+{
+    /// Stable public role identifier.
+    std::string role_id;
+    /// Public role label.
+    std::string display_name;
+};
+
+/// Describe one participant visible in the authenticated Group.
+struct DirectoryParticipantView final
+{
+    /// Stable public player identifier.
+    std::string player_id;
+    /// Public display name.
+    std::string display_name;
+    /// Stable primary Team identifier.
+    std::string primary_team_id;
+    /// Publicly released role identifiers.
+    std::vector<std::string> public_role_ids;
+};
+
+/// Hold a complete, versioned directory snapshot.
+struct DirectoryView final
+{
+    /// Strictly increasing visible directory version.
+    std::uint64_t version{0};
+    /// Group from which the authenticated view was derived.
+    std::string group_id;
+    /// Complete visible hierarchy.
+    std::vector<DirectoryNodeView> nodes;
+    /// Public role catalog referenced by participants.
+    std::vector<PublicRoleView> public_roles;
+    /// Complete visible participant list.
+    std::vector<DirectoryParticipantView> participants;
+};
+
+/// Hold either a fresh directory snapshot or a validated `304` result.
+struct DirectoryFetch final
+{
+    /// Fresh snapshot, absent when the conditional request was not modified.
+    std::optional<DirectoryView> snapshot;
+};
+
+/// Classify a presence response.
+enum class DirectoryPresenceMode : std::uint8_t
+{
+    /// Complete current Group presence.
+    snapshot,
+    /// Changes after an explicitly requested version.
+    delta
+};
+
+/// Describe one aggregated public presence value.
+struct DirectoryPresenceEntry final
+{
+    /// Stable public player identifier.
+    std::string player_id;
+    /// `true` when at least one authorized transport scope is connected.
+    bool online{false};
+};
+
+/// Hold one versioned presence snapshot or delta.
+struct DirectoryPresenceView final
+{
+    /// Current visible presence version.
+    std::uint64_t version{0};
+    /// Whether entries form a full snapshot or a delta.
+    DirectoryPresenceMode mode{DirectoryPresenceMode::snapshot};
+    /// Server observation time.
+    std::chrono::system_clock::time_point observed_at;
+    /// Latest state per included participant.
+    std::vector<DirectoryPresenceEntry> entries;
+    /// Minimum server-requested delay before the next poll.
+    std::chrono::seconds retry_after{0};
+};
+
 /// Hold short-lived voice-room grants for one membership version.
 struct VoiceGrantSet final
 {
@@ -256,6 +359,23 @@ class ControlPlaneClient final
      */
     [[nodiscard]] auto membership() -> ControlPlaneResult<MembershipView>;
     /**
+     * Fetch the visible Group directory, optionally using its current version.
+     *
+     * @param known_version Version used for a conditional request.
+     * @returns A fresh snapshot, a successful empty value for `304`, or a
+     *     typed failure.
+     */
+    [[nodiscard]] auto directory(std::optional<std::uint64_t> known_version = std::nullopt)
+        -> ControlPlaneResult<DirectoryFetch>;
+    /**
+     * Fetch aggregated Group presence as a snapshot or delta.
+     *
+     * @param after_version Exclusive delta base; absent requests a snapshot.
+     * @returns A validated snapshot/delta and the server polling delay.
+     */
+    [[nodiscard]] auto directoryPresence(std::optional<std::uint64_t> after_version = std::nullopt)
+        -> ControlPlaneResult<DirectoryPresenceView>;
+    /**
      * Fetch voice-room grants for the current membership.
      *
      * @returns Short-lived room grants or a typed failure.
@@ -290,8 +410,10 @@ class ControlPlaneClient final
     void clearSession() noexcept;
 
   private:
-    [[nodiscard]] auto sendSessionRequest(std::string method, std::string target,
-                                          std::string body = {}) -> ClientHttpResponse;
+    [[nodiscard]] auto sendSessionRequest(
+        std::string method, std::string target, std::string body = {},
+        std::map<std::string, std::string, std::less<>> additional_headers = {})
+        -> ClientHttpResponse;
 
     IClientHttpTransport& transport_;
     IClientIdentifierGenerator& identifiers_;

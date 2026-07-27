@@ -23,6 +23,10 @@ Abnahme sind unter
 [api-01-contract-tests.md](api-01-contract-tests.md) und
 [archive/api-01-directory-identity-administration-contract-2026-07-27.md](archive/api-01-directory-identity-administration-contract-2026-07-27.md)
 nachgewiesen.
+Die abgeschlossenen Clientpfade für Directory, Presence und strukturierte
+Voice-Ereignisse aus DIR-02 sind unter
+[archive/dir-02-client-presence-2026-07-27.md](archive/dir-02-client-presence-2026-07-27.md)
+abgenommen.
 
 ## Arbeitsregeln
 
@@ -65,16 +69,6 @@ Beitreten zu einem LiveKit-Raum anbieten und keine clientseitige
 Empfängerauswahl erzeugen.
 
 ## Phase 1: Verzeichnis, Presence und neue Hauptansichten
-
-### DIR-02 – Client-Präsenz
-
-1. Remote-Participant-Connect/-Disconnect als strukturierte Clientereignisse
-   bis ins Präsentationsmodell weiterreichen.
-2. Mehrfachanwesenheit desselben Spielers in Team-, Specialization- und
-   Group-Raum zu einem Teilnehmerzustand zusammenführen.
-3. Presence, Audioverfügbarkeit und tatsächliches Sprechen getrennt anzeigen.
-4. Reconnect, Membership-Wechsel und veraltete Ereignisse deterministisch
-   behandeln.
 
 ### UX-02 – Kanal- und Teilnehmeransicht
 

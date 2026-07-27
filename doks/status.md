@@ -29,6 +29,11 @@ hat die gruppenbegrenzten Directory- und Presence-Endpunkte inzwischen im
 Anwendungskern, HTTP-v1-Adapter und Server-Entry-Point umgesetzt. Öffentliche
 Rollen werden nur aus einem expliziten Freigabekatalog geliefert; Presence
 bleibt getrennt von Membership und fasst mehrere Scope-Verbindungen zusammen.
+DIR-02 konsumiert diese Verträge nun typisiert im Client, führt
+Remote-Participant-, Audio- und Sprecherereignisse aus allen drei Voice-Scopes
+generations- und sequenzsicher mit den Serverdaten zusammen und aktualisiert das
+gemeinsame Präsentationsmodell. Die vollständige sichtbare Kanal- und
+Teilnehmeransicht folgt mit UX-02.
 
 Vor Abschnitt 10.3 müssen die Clientoberfläche, das Identitäts- und
 Verwaltungsmodell sowie die Clientdiagnose vervollständigt werden. Der zuvor
@@ -45,6 +50,7 @@ Validierung sind archiviert:
 - [IAM-01: Identitäts- und Account-Lebenszyklus](archive/iam-01-identity-and-account-lifecycle-2026-07-27.md)
 - [API-01: Directory-, Identity- und Verwaltungsverträge](archive/api-01-directory-identity-administration-contract-2026-07-27.md)
 - [DIR-01: Serververzeichnis und Presence](archive/dir-01-server-directory-2026-07-27.md)
+- [DIR-02: Client-Präsenz](archive/dir-02-client-presence-2026-07-27.md)
 - [Last- und Sicherheitstests](load-and-security-tests.md)
 
 ## Belastbarer Ausgangsstand
@@ -57,9 +63,9 @@ Validierung sind archiviert:
 | Voice | Drei getrennte LiveKit-Scope-Räume, servergesteuerte Publish-Rechte, bestätigungsgebundene PTT-Publikation, Opus-Aufnahme sowie XAudio2- und PipeWire-Backends implementiert |
 | Last und Sicherheit | Reproduzierbarer 200-Spieler-Lauf und native Sicherheitsproben bestanden |
 | Eingabe | Windows Raw Input sowie Wayland-Portal-PTT und unprivilegierter Linux-evdev-/udev-Adapter implementiert |
-| Client-Core | UI-unabhängige Bibliothek sowie versionierte C-ABI und C++-Schnittstelle implementiert |
-| Präsentation | Plattformneutrale Zustände, Befehle, Validierung und stabile Fehlercodes für Verbindung, Kanalwahl, Teilnehmer, Einstellungen, Administration und Diagnose implementiert und getestet |
-| Windows-App | Prozesseinstieg, App, Haupt-, Einstellungs- und Diagnosefenster getrennt; Anmeldung, Verbindung, PTT, aktive Sprecher und technische Einstellungen als WinUI-3-Prototyp verdrahtet |
+| Client-Core | UI-unabhängige Bibliothek sowie versionierte C-ABI und C++-Schnittstelle; typisierte Directory-/Presence-Verarbeitung und strukturierte Remote-Voice-Ereignisse implementiert |
+| Präsentation | Plattformneutrale Zustände, Befehle und Validierung; Directory/Presence sowie scopeübergreifende Presence-, Audio- und Sprechzustände deterministisch zusammengeführt und getestet |
+| Windows-App | Prozesseinstieg, App, Haupt-, Einstellungs- und Diagnosefenster getrennt; Anmeldung, Directory-/Presence-Polling, Verbindung, PTT, aktive Sprecher und technische Einstellungen als WinUI-3-Prototyp verdrahtet |
 | Debian/KDE-App | Technische Qt-Widgets-/Wayland-Schale und Linux-Plattformadapter qualifiziert; vollständige Produktfenster, HTTP-, Einstellungs-, Secret-Service- und Diagnoseintegration fehlen |
 | Auslieferung | Docker-Grundlage vorhanden; signiertes MSIX, Debian-Clientpaket, Produktbetrieb und Release-Dokumentation noch offen |
 
@@ -165,13 +171,12 @@ Diagnose- und Integrationsdokumentation sind nicht abgeschlossen.
 
 ## Nächster Schritt
 
-Nicht mit Abschnitt 10.3 beginnen. Als nächstes DIR-02 des
-[aktuellen Umsetzungsplans](implementation-plan.md) umsetzen:
-Remote-Participant-Connect/-Disconnect aus allen drei Voice-Scopes als
-strukturierte Clientereignisse bis ins gemeinsame Präsentationsmodell
-weiterreichen, pro Spieler zusammenführen und deterministisch mit den
-DIR-01-Snapshots und -Deltas verknüpfen. Erst danach folgt UX-02 mit der
-sichtbaren Kanal- und Teilnehmeroberfläche.
+Nicht mit Abschnitt 10.3 beginnen. Als nächstes UX-02 des
+[aktuellen Umsetzungsplans](implementation-plan.md) umsetzen: den
+serverdefinierten Baum Group → Specialization → Team und alle sichtbaren
+Teilnehmer aus den mit DIR-02 bereitgestellten Zuständen rendern. Die Ansicht
+muss nicht sprechende Teilnehmer, getrennte Presence-/Audio-/Sprechzustände,
+öffentliche Rollen sowie lokale Lautstärke, Mute und Block abbilden.
 
 ## Release-Gates
 
@@ -196,7 +201,7 @@ Der Wechsel zu Abschnitt 10.3 ist erst zulässig, wenn:
 
 | Risiko | Auswirkung | Behandlung |
 |---|---|---|
-| Client verarbeitet Directory/Presence noch nicht | Serverdaten sind verfügbar, erscheinen aber bis DIR-02/UX-02 nicht als vollständige Teilnehmerzustände | DIR-02 bindet Transportereignisse und Polling an das Präsentationsmodell; UX-02 rendert die Zustände |
+| Directory-/Presence-Zustände sind noch nicht vollständig sichtbar | Daten und zusammengeführte Teilnehmerzustände sind im Modell vorhanden, die bestehende Ansicht zeigt aber weiterhin nur aktive Sprecher | UX-02 rendert Kanalbaum, alle sichtbaren Teilnehmer und getrennte Zustände |
 | Statische Identity-Datei | Kein sicherer Account-Lebenszyklus im Produktbetrieb | IAM-01-Entscheidung und API-01-Vertrag in IAM-02/IAM-03 implementieren; Datei nur als Migrationspfad |
 | Verwaltungs-API nur teilweise vorhanden | Rechteoberfläche wäre unvollständig oder unsicher | ADM-01 serverseitig vervollständigen, danach UI anbinden |
 | Unzureichende Clientlogs | Feldprobleme sind nicht reproduzierbar | DIA-01 früh als Querschnittsfunktion einführen |

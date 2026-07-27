@@ -14,6 +14,7 @@ historische Nachweise erhalten.
 | [iam-01-identity-and-account-lifecycle-2026-07-27.md](iam-01-identity-and-account-lifecycle-2026-07-27.md) | Abschluss und Abnahmebelege für Identität, Accounts, Bedrohungsmodell, Migration und Recovery |
 | [api-01-directory-identity-administration-contract-2026-07-27.md](api-01-directory-identity-administration-contract-2026-07-27.md) | Abschluss und Abnahmebelege für die v1-Verträge zu Directory, Presence, Identity und Verwaltung |
 | [dir-01-server-directory-2026-07-27.md](dir-01-server-directory-2026-07-27.md) | Abschluss und Abnahmebelege für gruppenbegrenztes Serververzeichnis und Presence |
+| [dir-02-client-presence-2026-07-27.md](dir-02-client-presence-2026-07-27.md) | Abschluss und Abnahmebelege für Directory-/Presence-Verarbeitung und strukturierte Voice-Ereignisse im Client |
 
 Für laufende Arbeiten gelten ausschließlich
 [../status.md](../status.md) und

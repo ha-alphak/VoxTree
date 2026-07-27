@@ -25,16 +25,18 @@ enum class SessionEventKind : std::uint8_t
 {
     /// The aggregate voice connection state changed.
     connection_state,
-    /// A remote participant began producing audible audio.
-    speaker_started,
-    /// A remote participant stopped producing audible audio.
-    speaker_stopped,
+    /// A remote participant, publication, or speaker state changed.
+    remote_voice,
     /// An authorized local transmission started.
     transmission_started,
     /// The local transmission stopped.
     transmission_stopped,
     /// A newer authoritative membership and grant set was applied.
     membership_updated,
+    /// A newer complete visible Directory snapshot was loaded.
+    directory_updated,
+    /// A newer Presence snapshot or delta was loaded.
+    presence_updated,
     /// A session operation failed.
     error
 };
@@ -56,6 +58,14 @@ struct SessionEvent final
     std::string diagnostic;
     /// Refreshed membership associated with a membership event.
     std::optional<client::MembershipView> membership;
+    /// Ordered aggregate connection transition.
+    std::optional<client::VoiceConnectionEvent> connection_event;
+    /// Ordered remote participant/audio transition.
+    std::optional<client::VoiceRemoteEvent> remote_event;
+    /// Fresh complete Directory snapshot.
+    std::optional<client::DirectoryView> directory;
+    /// Fresh Presence snapshot or delta.
+    std::optional<client::DirectoryPresenceView> presence;
 };
 
 /// Hold the outcome and membership established by a UI connection attempt.
@@ -67,6 +77,10 @@ struct ConnectResult final
     std::string message;
     /// Authoritative membership fetched during a successful connection.
     std::optional<client::MembershipView> membership;
+    /// Complete visible Directory fetched during connection.
+    std::optional<client::DirectoryView> directory;
+    /// Complete Presence snapshot fetched during connection.
+    std::optional<client::DirectoryPresenceView> presence;
 };
 
 /**
@@ -200,9 +214,8 @@ class ClientSession final : private client::IClientIdentifierGenerator,
     [[nodiscard]] auto nextCorrelationId() -> domain::CorrelationId override;
     [[nodiscard]] auto nextTransmissionId() -> domain::ClientTransmissionId override;
 
-    void onVoiceStateChanged(client::VoiceTransportState state) override;
-    void onSpeakerStarted(domain::VoiceScope scope, const std::string& participant_id) override;
-    void onSpeakerStopped(domain::VoiceScope scope, const std::string& participant_id) override;
+    void onVoiceStateChanged(const client::VoiceConnectionEvent& event) override;
+    void onVoiceRemoteEvent(const client::VoiceRemoteEvent& event) override;
     void onVoiceError(client::VoiceTransportError error, const std::string& message) override;
     void onPushToTalkInputResult(client::PushToTalkAction action, bool pressed,
                                  const client::VoiceSessionResult& result) override;

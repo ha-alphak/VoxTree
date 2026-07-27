@@ -124,8 +124,39 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
         }
 
         auto membership = authorized_client_->membership();
-        membership_refresh_ = std::jthread{[this](std::stop_token stop_token) {
+        auto directory_result = control_plane_->directory();
+        if (!directory_result || !directory_result.value->snapshot.has_value())
+        {
+            const auto message =
+                directory_result.error.has_value()
+                    ? directory_result.error->message
+                    : std::string{"The server returned no initial directory snapshot."};
+            resetServicesLocked();
+            return {false, message, std::nullopt};
+        }
+        auto presence_result = control_plane_->directoryPresence();
+        if (!presence_result)
+        {
+            const auto message = presence_result.error.has_value()
+                                     ? presence_result.error->message
+                                     : std::string{"The server returned no initial presence."};
+            resetServicesLocked();
+            return {false, message, std::nullopt};
+        }
+        auto directory = std::move(*directory_result.value->snapshot);
+        auto presence = std::move(*presence_result.value);
+        const auto initial_directory_version = directory.version;
+        const auto initial_presence_version = presence.version;
+        const auto initial_group_id = directory.group_id;
+        const auto initial_presence_retry = presence.retry_after;
+        membership_refresh_ = std::jthread{[this, initial_directory_version,
+                                            initial_presence_version, initial_group_id,
+                                            initial_presence_retry](std::stop_token stop_token) {
             std::uint64_t known_version{};
+            auto known_directory_version = initial_directory_version;
+            auto known_presence_version = initial_presence_version;
+            auto known_group_id = initial_group_id;
+            auto next_presence_poll = std::chrono::steady_clock::now() + initial_presence_retry;
             if (const auto current = authorized_client_->membership(); current)
             {
                 known_version = current->version;
@@ -157,13 +188,72 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
                 if (current && current->version > known_version)
                 {
                     known_version = current->version;
+                    if (current->group_id.value() != known_group_id)
+                    {
+                        known_group_id = std::string{current->group_id.value()};
+                        known_directory_version = 0;
+                        known_presence_version = 0;
+                    }
                     SessionEvent event{SessionEventKind::membership_updated};
                     event.membership = current;
                     report(std::move(event));
                 }
+
+                auto directory_update = control_plane_->directory(
+                    known_directory_version == 0 ? std::nullopt
+                                                 : std::optional{known_directory_version});
+                if (!directory_update)
+                {
+                    report(SessionEvent{SessionEventKind::error,
+                                        client::VoiceTransportState::connected,
+                                        std::nullopt,
+                                        {},
+                                        directory_update.error->code,
+                                        directory_update.error->message});
+                }
+                else if (directory_update.value->snapshot.has_value())
+                {
+                    known_directory_version = directory_update.value->snapshot->version;
+                    known_presence_version = 0;
+                    next_presence_poll = std::chrono::steady_clock::now();
+                    SessionEvent event{SessionEventKind::directory_updated};
+                    event.directory = std::move(*directory_update.value->snapshot);
+                    report(std::move(event));
+                }
+
+                if (std::chrono::steady_clock::now() < next_presence_poll)
+                {
+                    continue;
+                }
+                auto presence_update = control_plane_->directoryPresence(
+                    known_presence_version == 0 ? std::nullopt
+                                                : std::optional{known_presence_version});
+                if (!presence_update && presence_update.error.has_value() &&
+                    presence_update.error->code == "presence_snapshot_required")
+                {
+                    known_presence_version = 0;
+                    presence_update = control_plane_->directoryPresence();
+                }
+                if (!presence_update)
+                {
+                    report(SessionEvent{SessionEventKind::error,
+                                        client::VoiceTransportState::connected,
+                                        std::nullopt,
+                                        {},
+                                        presence_update.error->code,
+                                        presence_update.error->message});
+                    next_presence_poll = std::chrono::steady_clock::now() + std::chrono::seconds{1};
+                    continue;
+                }
+                known_presence_version = presence_update.value->version;
+                next_presence_poll =
+                    std::chrono::steady_clock::now() + presence_update.value->retry_after;
+                SessionEvent event{SessionEventKind::presence_updated};
+                event.presence = std::move(*presence_update.value);
+                report(std::move(event));
             }
         }};
-        return {true, {}, std::move(membership)};
+        return {true, {}, std::move(membership), std::move(directory), std::move(presence)};
     }
     catch (const std::exception& error)
     {
@@ -304,21 +394,20 @@ auto ClientSession::nextTransmissionId() -> domain::ClientTransmissionId
     return domain::ClientTransmissionId{newIdentifier()};
 }
 
-void ClientSession::onVoiceStateChanged(client::VoiceTransportState state)
+void ClientSession::onVoiceStateChanged(const client::VoiceConnectionEvent& connection_event)
 {
-    report(SessionEvent{SessionEventKind::connection_state, state});
+    SessionEvent event{SessionEventKind::connection_state, connection_event.state};
+    event.connection_event = connection_event;
+    report(std::move(event));
 }
 
-void ClientSession::onSpeakerStarted(domain::VoiceScope scope, const std::string& participant_id)
+void ClientSession::onVoiceRemoteEvent(const client::VoiceRemoteEvent& remote_event)
 {
-    report(SessionEvent{SessionEventKind::speaker_started, client::VoiceTransportState::connected,
-                        scope, participant_id});
-}
-
-void ClientSession::onSpeakerStopped(domain::VoiceScope scope, const std::string& participant_id)
-{
-    report(SessionEvent{SessionEventKind::speaker_stopped, client::VoiceTransportState::connected,
-                        scope, participant_id});
+    SessionEvent event{SessionEventKind::remote_voice};
+    event.scope = remote_event.scope;
+    event.participant_id = remote_event.participant_id;
+    event.remote_event = remote_event;
+    report(std::move(event));
 }
 
 void ClientSession::onVoiceError(client::VoiceTransportError error, const std::string& message)

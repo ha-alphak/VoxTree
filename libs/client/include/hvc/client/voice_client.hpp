@@ -60,6 +60,49 @@ struct RemoteAudioPlayback final
     float gain{0.0F};
 };
 
+/// Classify normalized remote-participant and audio transitions.
+enum class VoiceRemoteEventKind : std::uint8_t
+{
+    /// The participant joined one granted scope room.
+    participant_connected,
+    /// The participant left one granted scope room.
+    participant_disconnected,
+    /// A remote microphone publication is available for admission.
+    audio_available,
+    /// A remote microphone publication is no longer available.
+    audio_unavailable,
+    /// Admitted remote audio became audible.
+    speaker_started,
+    /// Admitted remote audio ceased to be audible.
+    speaker_stopped
+};
+
+/// Describe an ordered aggregate voice-state transition.
+struct VoiceConnectionEvent final
+{
+    /// New aggregate transport state.
+    VoiceTransportState state{VoiceTransportState::disconnected};
+    /// Connection generation invalidating earlier remote events.
+    std::uint64_t generation{0};
+    /// Monotonically increasing voice event sequence.
+    std::uint64_t sequence{0};
+};
+
+/// Describe one ordered, generation-bound remote transition.
+struct VoiceRemoteEvent final
+{
+    /// Remote transition classification.
+    VoiceRemoteEventKind kind{VoiceRemoteEventKind::participant_connected};
+    /// Scope room in which the transition occurred.
+    domain::VoiceScope scope{domain::VoiceScope::team};
+    /// Stable transport participant identifier.
+    std::string participant_id;
+    /// Connection generation in which the callback was accepted.
+    std::uint64_t generation{0};
+    /// Monotonically increasing voice event sequence.
+    std::uint64_t sequence{0};
+};
+
 /// Receive normalized voice-client state, speaker, and error notifications.
 class IVoiceClientObserver
 {
@@ -80,23 +123,15 @@ class IVoiceClientObserver
     /**
      * Handle a voice-state transition.
      *
-     * @param state New transport-backed voice state.
+     * @param event Ordered transport-backed voice state.
      */
-    virtual void onVoiceStateChanged(VoiceTransportState state) = 0;
+    virtual void onVoiceStateChanged(const VoiceConnectionEvent& event) = 0;
     /**
-     * Handle a participant becoming audible.
+     * Handle a participant, publication, or audible-audio transition.
      *
-     * @param scope Scope in which audio started.
-     * @param participant_id Transport participant identifier.
+     * @param event Ordered, connection-generation-bound remote transition.
      */
-    virtual void onSpeakerStarted(domain::VoiceScope scope, const std::string& participant_id) = 0;
-    /**
-     * Handle a participant ceasing to be audible.
-     *
-     * @param scope Scope in which audio stopped.
-     * @param participant_id Transport participant identifier.
-     */
-    virtual void onSpeakerStopped(domain::VoiceScope scope, const std::string& participant_id) = 0;
+    virtual void onVoiceRemoteEvent(const VoiceRemoteEvent& event) = 0;
     /**
      * Handle a voice transport failure.
      *
@@ -271,6 +306,8 @@ class VoiceClient final : private IVoiceTransportObserver
     [[nodiscard]] static auto validateAudioConfig(const AudioEngineConfig& config)
         -> VoiceTransportResult;
     [[nodiscard]] auto observer() const noexcept -> IVoiceClientObserver*;
+    void emitRemoteEvent(VoiceRemoteEventKind kind, domain::VoiceScope scope,
+                         const std::string& participant_id);
     struct AvailableRemoteAudio final
     {
         domain::VoiceScope scope{domain::VoiceScope::team};
@@ -298,6 +335,8 @@ class VoiceClient final : private IVoiceTransportObserver
     std::condition_variable publication_changed_;
     IVoiceClientObserver* observer_{nullptr};
     VoiceTransportState state_{VoiceTransportState::disconnected};
+    std::uint64_t connection_generation_{0};
+    std::uint64_t next_event_sequence_{0};
     MicrophonePublicationState publication_state_{MicrophonePublicationState::idle};
     std::uint64_t publication_generation_{0};
     std::optional<domain::VoiceScope> active_scope_;

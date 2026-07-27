@@ -3,6 +3,7 @@
 #include <exception>
 #include <hvc/presentation/desktop_model.hpp>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -22,6 +23,19 @@ using namespace hvc::presentation;
             true,
             true,
             false};
+}
+
+[[nodiscard]] auto directory(std::uint64_t version = 4) -> client::DirectoryView
+{
+    return {version,
+            "group-1",
+            {{"group-1", client::DirectoryNodeKind::group, std::nullopt, "Group", 0},
+             {"specialization-1", client::DirectoryNodeKind::specialization, "group-1",
+              "Specialization", 0},
+             {"team-1", client::DirectoryNodeKind::team, "specialization-1", "Team", 0}},
+            {{"leader", "Leader"}},
+            {{"player-1", "Local Player", "team-1", {}},
+             {"speaker-1", "Remote Player", "team-1", {"leader"}}}};
 }
 
 auto testConnectionAndMembershipLifecycle() -> bool
@@ -45,7 +59,7 @@ auto testConnectionAndMembershipLifecycle() -> bool
         return false;
     }
     model.transmissionStarted(domain::VoiceScope::group);
-    model.updateVoiceState(client::VoiceTransportState::reconnecting);
+    model.updateVoiceState({client::VoiceTransportState::reconnecting, 2, 10});
     if (model.state().connection != ConnectionPhase::reconnecting ||
         model.state().active_transmission_scope.has_value())
     {
@@ -75,7 +89,14 @@ auto testSeparatedParticipantState() -> bool
     {
         return false;
     }
-    model.speakerStarted(domain::VoiceScope::specialization, "speaker-1");
+    if (!model.applyDirectory(directory()))
+    {
+        return false;
+    }
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::audio_available,
+                                 domain::VoiceScope::specialization, "speaker-1", 1, 1});
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::speaker_started,
+                                 domain::VoiceScope::specialization, "speaker-1", 1, 2});
     const auto& active = model.state().participants.at("speaker-1");
     if (!active.audio_available || !active.speaking || active.presence != PresenceState::unknown ||
         active.speaking_scope != domain::VoiceScope::specialization)
@@ -87,10 +108,82 @@ auto testSeparatedParticipantState() -> bool
     {
         return false;
     }
-    model.speakerStopped("speaker-1");
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::speaker_stopped,
+                                 domain::VoiceScope::specialization, "speaker-1", 1, 3});
     const auto& stopped = model.state().participants.at("speaker-1");
     return !stopped.speaking && !stopped.speaking_scope.has_value() && stopped.muted &&
            std::abs(stopped.volume - 0.4F) < 0.001F;
+}
+
+auto testDirectoryPresenceAndTransportAggregation() -> bool
+{
+    DesktopModel model;
+    if (!model.beginConnect() || !model.connectionSucceeded(membership(1)) ||
+        !model.applyDirectory(directory()))
+    {
+        return false;
+    }
+    const auto observed = std::chrono::system_clock::time_point{std::chrono::seconds{100}};
+    if (!model.applyPresence({10,
+                              client::DirectoryPresenceMode::snapshot,
+                              observed,
+                              {{"player-1", true}, {"speaker-1", false}},
+                              std::chrono::seconds{1}}))
+    {
+        return false;
+    }
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::participant_connected,
+                                 domain::VoiceScope::team, "speaker-1", 1, 1});
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::participant_connected,
+                                 domain::VoiceScope::group, "speaker-1", 1, 2});
+    if (model.state().participants.at("speaker-1").presence != PresenceState::online)
+    {
+        return false;
+    }
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::participant_disconnected,
+                                 domain::VoiceScope::team, "speaker-1", 1, 3});
+    if (model.state().participants.at("speaker-1").presence != PresenceState::online)
+    {
+        return false;
+    }
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::participant_disconnected,
+                                 domain::VoiceScope::group, "speaker-1", 1, 4});
+    if (model.state().participants.at("speaker-1").presence != PresenceState::offline)
+    {
+        return false;
+    }
+    if (!model.applyPresence({11,
+                              client::DirectoryPresenceMode::delta,
+                              observed + std::chrono::seconds{1},
+                              {{"speaker-1", true}},
+                              std::chrono::seconds{1}}) ||
+        model.state().participants.at("speaker-1").presence != PresenceState::online ||
+        model.applyPresence(
+                 {10, client::DirectoryPresenceMode::delta, observed, {}, std::chrono::seconds{1}})
+                .error != ErrorCode::stale_version)
+    {
+        return false;
+    }
+
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::participant_disconnected,
+                                 domain::VoiceScope::group, "speaker-1", 1, 3});
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::audio_available,
+                                 domain::VoiceScope::group, "speaker-1", 1, 5});
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::audio_unavailable,
+                                 domain::VoiceScope::group, "speaker-1", 1, 6});
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::speaker_stopped,
+                                 domain::VoiceScope::group, "speaker-1", 1, 8});
+    model.applyVoiceRemoteEvent({client::VoiceRemoteEventKind::audio_available,
+                                 domain::VoiceScope::group, "speaker-1", 1, 7});
+    if (!model.state().participants.at("speaker-1").audio_available ||
+        model.state().participants.at("speaker-1").speaking)
+    {
+        return false;
+    }
+    model.updateVoiceState({client::VoiceTransportState::reconnecting, 2, 9});
+    const auto& reset = model.state().participants.at("speaker-1");
+    return reset.presence == PresenceState::online && !reset.audio_available && !reset.speaking &&
+           model.applyDirectory(directory(4)).error == ErrorCode::stale_version;
 }
 
 auto testCommandValidationAndAdministration() -> bool
@@ -178,8 +271,9 @@ auto main() noexcept -> int
     {
         const auto passed =
             testCommandKindConstructorDefaultsPayload() && testConnectionAndMembershipLifecycle() &&
-            testSeparatedParticipantState() && testCommandValidationAndAdministration() &&
-            testSettingsValidation() && testDiagnosticsAreSessionBounded();
+            testSeparatedParticipantState() && testDirectoryPresenceAndTransportAggregation() &&
+            testCommandValidationAndAdministration() && testSettingsValidation() &&
+            testDiagnosticsAreSessionBounded();
         if (!passed)
         {
             std::fputs("presentation desktop-model tests failed\n", stderr);

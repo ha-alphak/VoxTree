@@ -109,26 +109,29 @@ class LiveKitVoiceTransport::Impl final
     class RoomObserver final : public ::livekit::RoomDelegate
     {
       public:
-        RoomObserver(Impl& owner, domain::VoiceScope scope) : owner_(owner), scope_(scope)
+        RoomObserver(Impl& owner, domain::VoiceScope scope, std::uint64_t generation)
+            : owner_(owner), scope_(scope), generation_(generation)
         {
         }
 
         void onParticipantConnected(::livekit::Room&,
                                     const ::livekit::ParticipantConnectedEvent& event) override
         {
-            owner_.participantConnected(scope_, participantIdentity(event.participant));
+            owner_.participantConnected(scope_, participantIdentity(event.participant),
+                                        generation_);
         }
 
         void onParticipantDisconnected(
             ::livekit::Room&, const ::livekit::ParticipantDisconnectedEvent& event) override
         {
-            owner_.participantDisconnected(scope_, participantIdentity(event.participant));
+            owner_.participantDisconnected(scope_, participantIdentity(event.participant),
+                                           generation_);
         }
 
         void onLocalTrackPublished(::livekit::Room&,
                                    const ::livekit::LocalTrackPublishedEvent& event) override
         {
-            owner_.localAudioPublished(scope_, event.track, event.publication);
+            owner_.localAudioPublished(scope_, event.track, event.publication, generation_);
         }
 
         void onTrackSubscribed(::livekit::Room&,
@@ -139,9 +142,9 @@ class LiveKitVoiceTransport::Impl final
                 // LiveKit may report subscription before publication. Registering the
                 // publication first makes admission independent of callback ordering.
                 owner_.remoteAudioAvailable(scope_, event.publication,
-                                            participantIdentity(event.participant));
+                                            participantIdentity(event.participant), generation_);
                 owner_.remoteAudioStarted(scope_, event.publication->sid(), event.track,
-                                          participantIdentity(event.participant));
+                                          participantIdentity(event.participant), generation_);
             }
         }
 
@@ -151,7 +154,7 @@ class LiveKitVoiceTransport::Impl final
             if (isVoicePublication(event.publication))
             {
                 owner_.remoteAudioAvailable(scope_, event.publication,
-                                            participantIdentity(event.participant));
+                                            participantIdentity(event.participant), generation_);
             }
         }
 
@@ -161,7 +164,7 @@ class LiveKitVoiceTransport::Impl final
             if (isVoiceTrack(event.track))
             {
                 owner_.remoteAudioStopped(scope_, event.publication->sid(),
-                                          participantIdentity(event.participant));
+                                          participantIdentity(event.participant), generation_);
             }
         }
 
@@ -171,25 +174,25 @@ class LiveKitVoiceTransport::Impl final
             if (isVoicePublication(event.publication))
             {
                 owner_.remoteAudioStopped(scope_, event.publication->sid(),
-                                          participantIdentity(event.participant));
+                                          participantIdentity(event.participant), generation_);
                 owner_.remoteAudioUnavailable(scope_, event.publication->sid(),
-                                              participantIdentity(event.participant));
+                                              participantIdentity(event.participant), generation_);
             }
         }
 
         void onReconnecting(::livekit::Room&, const ::livekit::ReconnectingEvent&) override
         {
-            owner_.reconnecting();
+            owner_.reconnecting(generation_);
         }
 
         void onReconnected(::livekit::Room&, const ::livekit::ReconnectedEvent&) override
         {
-            owner_.reconnected();
+            owner_.reconnected(generation_);
         }
 
         void onDisconnected(::livekit::Room&, const ::livekit::DisconnectedEvent&) override
         {
-            owner_.roomDisconnected();
+            owner_.roomDisconnected(generation_);
         }
 
       private:
@@ -221,12 +224,13 @@ class LiveKitVoiceTransport::Impl final
 
         Impl& owner_;
         domain::VoiceScope scope_;
+        std::uint64_t generation_{0};
     };
 
     struct ScopeRoom final
     {
-        ScopeRoom(Impl& owner, const client::VoiceRoomGrant& room_grant)
-            : grant(room_grant), observer(owner, room_grant.scope)
+        ScopeRoom(Impl& owner, const client::VoiceRoomGrant& room_grant, std::uint64_t generation)
+            : grant(room_grant), observer(owner, room_grant.scope, generation)
         {
             room.setDelegate(&observer);
         }
@@ -298,13 +302,15 @@ class LiveKitVoiceTransport::Impl final
         }
 
         state_.store(client::VoiceTransportState::connecting);
+        const auto room_generation = next_room_generation_.fetch_add(1) + 1;
+        active_room_generation_.store(room_generation);
         notifyState(client::VoiceTransportState::connecting);
         std::array<std::shared_ptr<ScopeRoom>, voice_scope_count> new_rooms;
         try
         {
             for (const auto& grant : grants)
             {
-                auto scope_room = std::make_shared<ScopeRoom>(*this, grant);
+                auto scope_room = std::make_shared<ScopeRoom>(*this, grant, room_generation);
                 ::livekit::RoomOptions room_options;
                 // LiveKit C++ 1.4.0 does not surface TrackPublished while manual
                 // subscription is active. Auto-subscribe guarantees the first track
@@ -313,6 +319,7 @@ class LiveKitVoiceTransport::Impl final
                 if (!scope_room->room.connect(grant.url, grant.token, room_options))
                 {
                     static_cast<void>(disconnectRooms(new_rooms));
+                    active_room_generation_.store(0);
                     state_.store(client::VoiceTransportState::disconnected);
                     notifyState(client::VoiceTransportState::disconnected);
                     return failure(client::VoiceTransportError::connection_failed,
@@ -324,6 +331,7 @@ class LiveKitVoiceTransport::Impl final
         catch (const std::exception& error)
         {
             static_cast<void>(disconnectRooms(new_rooms));
+            active_room_generation_.store(0);
             state_.store(client::VoiceTransportState::disconnected);
             notifyState(client::VoiceTransportState::disconnected);
             return failure(client::VoiceTransportError::connection_failed, error.what());
@@ -348,6 +356,7 @@ class LiveKitVoiceTransport::Impl final
 
         static_cast<void>(stopMicrophoneIfActive());
         state_.store(client::VoiceTransportState::disconnected);
+        active_room_generation_.store(0);
         controlled_reconnect_.store(true);
         auto rooms = takeRooms();
         static_cast<void>(disconnectRooms(rooms));
@@ -780,8 +789,18 @@ class LiveKitVoiceTransport::Impl final
         }
     }
 
-    void participantConnected(domain::VoiceScope scope, const std::string& participant_id) const
+    [[nodiscard]] auto isCurrentRoomGeneration(std::uint64_t generation) const noexcept -> bool
     {
+        return generation != 0 && active_room_generation_.load() == generation;
+    }
+
+    void participantConnected(domain::VoiceScope scope, const std::string& participant_id,
+                              std::uint64_t generation) const
+    {
+        if (!isCurrentRoomGeneration(generation))
+        {
+            return;
+        }
         auto* const observer = observer_.load();
         if (observer != nullptr)
         {
@@ -789,8 +808,13 @@ class LiveKitVoiceTransport::Impl final
         }
     }
 
-    void participantDisconnected(domain::VoiceScope scope, const std::string& participant_id)
+    void participantDisconnected(domain::VoiceScope scope, const std::string& participant_id,
+                                 std::uint64_t generation)
     {
+        if (!isCurrentRoomGeneration(generation))
+        {
+            return;
+        }
         clearParticipantAudio(scope, participant_id);
         std::shared_ptr<detail::RemoteAudioPlayout> playout;
         auto publication_removed = false;
@@ -819,8 +843,12 @@ class LiveKitVoiceTransport::Impl final
 
     void remoteAudioStarted(domain::VoiceScope scope, const std::string& publication_id,
                             const std::shared_ptr<::livekit::Track>& track,
-                            const std::string& participant_id)
+                            const std::string& participant_id, std::uint64_t generation)
     {
+        if (!isCurrentRoomGeneration(generation))
+        {
+            return;
+        }
         {
             const std::scoped_lock lock{remote_publications_mutex_};
             auto& publications = remote_publications_[scopeIndex(scope)];
@@ -868,8 +896,12 @@ class LiveKitVoiceTransport::Impl final
 
     void remoteAudioAvailable(domain::VoiceScope scope,
                               const std::shared_ptr<::livekit::RemoteTrackPublication>& publication,
-                              const std::string& participant_id)
+                              const std::string& participant_id, std::uint64_t generation)
     {
+        if (!isCurrentRoomGeneration(generation))
+        {
+            return;
+        }
         auto notify_available = false;
         {
             const std::scoped_lock lock{remote_publications_mutex_};
@@ -901,8 +933,12 @@ class LiveKitVoiceTransport::Impl final
     }
 
     void remoteAudioUnavailable(domain::VoiceScope scope, const std::string& publication_id,
-                                const std::string& participant_id)
+                                const std::string& participant_id, std::uint64_t generation)
     {
+        if (!isCurrentRoomGeneration(generation))
+        {
+            return;
+        }
         std::shared_ptr<detail::RemoteAudioPlayout> playout;
         {
             const std::scoped_lock lock{remote_publications_mutex_};
@@ -924,8 +960,12 @@ class LiveKitVoiceTransport::Impl final
     }
 
     void remoteAudioStopped(domain::VoiceScope scope, const std::string& publication_id,
-                            const std::string& participant_id)
+                            const std::string& participant_id, std::uint64_t generation)
     {
+        if (!isCurrentRoomGeneration(generation))
+        {
+            return;
+        }
         std::shared_ptr<detail::RemoteAudioPlayout> playout;
         {
             const std::scoped_lock lock{remote_audio_mutex_};
@@ -952,9 +992,9 @@ class LiveKitVoiceTransport::Impl final
         }
     }
 
-    void reconnecting()
+    void reconnecting(std::uint64_t generation)
     {
-        if (controlled_reconnect_.load())
+        if (controlled_reconnect_.load() || !isCurrentRoomGeneration(generation))
         {
             return;
         }
@@ -966,9 +1006,9 @@ class LiveKitVoiceTransport::Impl final
         notifyState(client::VoiceTransportState::reconnecting);
     }
 
-    void reconnected()
+    void reconnected(std::uint64_t generation)
     {
-        if (controlled_reconnect_.load())
+        if (controlled_reconnect_.load() || !isCurrentRoomGeneration(generation))
         {
             return;
         }
@@ -979,9 +1019,9 @@ class LiveKitVoiceTransport::Impl final
         }
     }
 
-    void roomDisconnected()
+    void roomDisconnected(std::uint64_t generation)
     {
-        if (controlled_reconnect_.load())
+        if (controlled_reconnect_.load() || !isCurrentRoomGeneration(generation))
         {
             return;
         }
@@ -1030,8 +1070,13 @@ class LiveKitVoiceTransport::Impl final
 
     void localAudioPublished(domain::VoiceScope scope,
                              const std::shared_ptr<::livekit::Track>& track,
-                             const std::shared_ptr<::livekit::LocalTrackPublication>& publication)
+                             const std::shared_ptr<::livekit::LocalTrackPublication>& publication,
+                             std::uint64_t room_generation)
     {
+        if (!isCurrentRoomGeneration(room_generation))
+        {
+            return;
+        }
         if (track == nullptr || publication == nullptr || publication->sid().empty())
         {
             return;
@@ -1375,6 +1420,8 @@ class LiveKitVoiceTransport::Impl final
     std::string playout_initialization_error_;
     std::atomic<client::IVoiceTransportObserver*> observer_{nullptr};
     std::atomic<client::VoiceTransportState> state_{client::VoiceTransportState::disconnected};
+    std::atomic<std::uint64_t> next_room_generation_{0};
+    std::atomic<std::uint64_t> active_room_generation_{0};
     std::atomic<bool> controlled_reconnect_{false};
     mutable std::mutex rooms_mutex_;
     std::array<std::shared_ptr<ScopeRoom>, voice_scope_count> rooms_;
