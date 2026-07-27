@@ -147,6 +147,42 @@
   Er ist eine klar abgegrenzte Integrationsstufe und wird durch einen
   produktionsfähigen Account-/Identity-Adapter ersetzt.
 
+## Identität und Account-Lebenszyklus
+
+- Version 1 verwendet geschlossene, administrative Provisionierung. Eine
+  offene Selbstregistrierung und ein anonymer Passwort-Reset gehören nicht zum
+  Release-Umfang.
+- Account, öffentliches Profil, Membership und Rollenzuweisung sind getrennte,
+  eigenständig versionierte Datensätze. Account-Deaktivierung löscht weder
+  Membership noch Auditgeschichte.
+- Der lokale selbst betriebene Identity-Adapter verwendet SQLite hinter
+  `IIdentityProvider`. Die Adaptergrenze bleibt für einen späteren externen
+  Provider bestehen.
+- Passwörter werden ausschließlich mit der High-Level-API von libsodium als
+  parametrisierte Argon2id-1.3-Hashes gespeichert. Der Dienst kalibriert 250
+  bis 500 Millisekunden Hashzeit und akzeptiert keine Konfiguration unter
+  19 MiB Speicher und zwei Iterationen.
+- Accountanlage, Aktivierung und administrativer Reset verwenden 256 Bit
+  starke Einmal-Secrets. Persistiert werden nur deren Hashes; ein Reset
+  widerruft Credential, Sessions, Geräteerneuerungen und ältere Einladungen
+  atomar.
+- Zugriffssessions bleiben kurzlebig. Längerfristige Anmeldung verwendet pro
+  Gerät rotierende Erneuerungssecrets mit Hash-at-Rest und
+  Wiederverwendungserkennung. Clients speichern sie nur im jeweiligen
+  Betriebssystem-Secret-Store.
+- Der erste Administrator entsteht über einen einmaligen Offline-Bootstrap
+  ohne Netzwerklistener. Verlust aller Administratorzugänge wird ausschließlich
+  durch eine auditierte Offline-Recovery für einen bereits als Administrator
+  zugewiesenen Account behandelt.
+- Die statische Identity-Datei wird nicht als Passwortquelle übernommen.
+  Migration erzeugt neue Accounts und einmalige Aktivierungssecrets unter
+  Erhalt von `PlayerId`, Membership, Rollen und Auditnachweisen.
+- Bedrohungsmodell, Zustandsautomaten, Migration und Recovery sind verbindlich
+  in
+  [`identity-and-account-lifecycle.md`](identity-and-account-lifecycle.md)
+  festgelegt. API-01 versioniert die daraus folgenden Netzwerkverträge; IAM-02
+  implementiert sie.
+
 ## Voice-Transport
 
 - LiveKit wird als selbst betriebene WebRTC-SFU eingesetzt.

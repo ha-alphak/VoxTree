@@ -1,7 +1,7 @@
 # Control-Plane-Netzwerkvertrag v1
 
-**Stand:** 25. Juli 2026  
-**Basis-Pfad:** `/api/v1`  
+**Stand:** 27. Juli 2026<br>
+**Basis-Pfad:** `/api/v1`<br>
 **Medientyp:** `application/json; charset=utf-8`
 
 ## Geltungsbereich
@@ -70,6 +70,15 @@ Datei und ordnet es einem konfigurierten Spieler zu. Er dient nur der lokalen
 Linux-Integration; ein produktiver Deployment-Adapter übernimmt
 Credentialprüfung, Accountstatus, Geräterichtlinie und vorgelagerte Rate Limits.
 Das Credential wird bewusst nicht als Kommandozeilenargument angenommen.
+
+IAM-01 hat für den persistenten lokalen Accountdienst Passwortanmeldung,
+Aktivierung, Erneuerung, Credentialwechsel sowie Geräte- und
+Sessionwiderruf entschieden. Diese noch nicht implementierten Abläufe werden
+in API-01 als neuer, versionierter Vertrag festgelegt. Insbesondere wird das
+bestehende opake Bearer-Credential dieses Endpunkts weder als Passwort
+umgedeutet noch um neue Pflichtfelder erweitert. Der vollständige
+Lebenszyklus- und Migrationsvertrag steht in
+[`identity-and-account-lifecycle.md`](identity-and-account-lifecycle.md).
 
 ## Bereitschaft
 

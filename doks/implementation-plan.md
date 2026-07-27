@@ -11,6 +11,11 @@ Der abgeschlossene ursprüngliche Plan ist unter
 archiviert. Dieses Dokument enthält bewusst nur noch offene Arbeiten.
 Das abgeschlossene technische Debian-/KDE-Paket KDE-00 ist in
 [kde-00-quality-gate.md](kde-00-quality-gate.md) nachgewiesen.
+Die abgeschlossene IAM-01-Entscheidung ist in
+[identity-and-account-lifecycle.md](identity-and-account-lifecycle.md)
+verbindlich und unter
+[archive/iam-01-identity-and-account-lifecycle-2026-07-27.md](archive/iam-01-identity-and-account-lifecycle-2026-07-27.md)
+abgenommen.
 
 ## Arbeitsregeln
 
@@ -52,33 +57,7 @@ Die Kanalansicht bildet serverdefinierte Scopes ab. Sie darf kein freies
 Beitreten zu einem LiveKit-Raum anbieten und keine clientseitige
 Empfängerauswahl erzeugen.
 
-## Phase 0: Stabilisieren und Verträge festlegen
-
-### IAM-01 – Identität und Account-Lebenszyklus
-
-Vor der Implementierung wird eine Architekturentscheidung mit folgendem
-Zielmodell festgeschrieben:
-
-- geschlossene, administrative Provisionierung statt offener
-  Selbstregistrierung;
-- initialer Administrator über einen einmaligen Bootstrap-Vorgang;
-- Accountanlage mit einmaliger Einladung/Aktivierung;
-- sichere Credential-Erstellung, -Änderung und -Rücksetzung;
-- Account-Deaktivierung, Geräte- und Sitzungswiderruf;
-- getrennte Speicherung von Account, öffentlichem Profil, Membership und
-  Rollen;
-- lokaler persistenter Identity-Adapter für selbst betriebenen Betrieb;
-- weiterhin austauschbare `IIdentityProvider`-Grenze für einen späteren
-  externen Provider;
-- bewährte Passwort-Hashing-Bibliothek und parametrisierte Hashes, keine eigene
-  Kryptografie.
-
-Abnahme:
-
-- Bedrohungsanalyse für Anmeldung, Aktivierung, Reset, Brute Force,
-  Sessiondiebstahl und Administratorverlust;
-- dokumentierter Migrationsweg von der Identity-Datei;
-- festgelegte Recovery-Prozedur für den ersten Administrator.
+## Phase 0: Verträge festlegen
 
 ### API-01 – Verzeichnis- und Verwaltungsverträge
 
@@ -87,6 +66,9 @@ Vor der UI werden versionierte Verträge für folgende Sichten festgelegt:
 - sichtbare Hierarchie und Mitglieder des eigenen Groups;
 - öffentliches Teilnehmerprofil und Presence-Zustand;
 - paginierte Accountliste und Account-Lifecycle;
+- Anmeldung, Aktivierung, Erneuerung, Passwortänderung sowie Geräte- und
+  Sessionwiderruf gemäß
+  [identity-and-account-lifecycle.md](identity-and-account-lifecycle.md);
 - Hierarchie-, Membership- und Rollenkatalog;
 - effektive Sende-/Empfangsrechte;
 - aktive Transmissionen für autorisierte Moderatoren;
@@ -98,6 +80,7 @@ Abnahme:
 - Positiv-, Negativ-, Datenschutz- und Autorisierungstests sind spezifiziert;
 - ein normaler Teilnehmer kann weder fremde Groups auflisten noch
   Verwaltungsmetadaten abrufen;
+- öffentliche Authentifizierungsfehler ermöglichen keine Account-Enumeration;
 - die bestehenden v1-Voice-Verträge bleiben kompatibel oder erhalten einen
   dokumentierten Migrationspfad.
 

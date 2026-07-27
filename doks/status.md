@@ -18,6 +18,10 @@ testbare Zustandsmodelle sowie Haupt-, Einstellungs- und Diagnosefenster
 implementiert und qualifiziert: offizielles LiveKit-C++-SDK, direkter
 PipeWire-Medienpfad, evdev-/udev-Eingabe, XDG-Global-Shortcuts und ein
 Qt-Widgets-Prototyp. Die eigentliche Debian-Produktoberfläche bleibt offen.
+IAM-01 hat außerdem den geschlossenen Account-Lebenszyklus, den lokalen
+Identity-Adapter, Argon2id, Geräte-/Sessionwiderruf, Identity-Datei-Migration
+sowie Bootstrap und Recovery verbindlich festgelegt; die Implementierung folgt
+in IAM-02/IAM-03.
 
 Vor Abschnitt 10.3 müssen die Clientoberfläche, das Identitäts- und
 Verwaltungsmodell sowie die Clientdiagnose vervollständigt werden. Der zuvor
@@ -31,6 +35,7 @@ Validierung sind archiviert:
 - [Umsetzungsplan bis Abschnitt 10.2](archive/implementation-plan-through-10.2-2026-07-26.md)
 - [PRE-01: Kurze PTT-Impulse](archive/pre-01-short-ptt-2026-07-26.md)
 - [UX-01: Präsentations- und Fensterarchitektur](archive/ux-01-presentation-and-window-architecture-2026-07-26.md)
+- [IAM-01: Identitäts- und Account-Lebenszyklus](archive/iam-01-identity-and-account-lifecycle-2026-07-27.md)
 - [Last- und Sicherheitstests](load-and-security-tests.md)
 
 ## Belastbarer Ausgangsstand
@@ -39,6 +44,7 @@ Validierung sind archiviert:
 |---|---|
 | Domäne und Routing | Datengetriebene Hierarchie, Rollenrechte, atomare Membership-Versionen und Isolation implementiert |
 | Control Plane | Mehrbenutzersitzungen, Memberships, Transmissionen, Moderation, Sprecherlimits, Audit, Jobs und Metriken implementiert |
+| Identität und Accounts | IAM-01-Zielmodell für geschlossene Provisionierung, Argon2id, Einladungen, Geräte/Sessions, Migration, Bootstrap und Recovery verbindlich entschieden; persistenter Dienst noch nicht implementiert |
 | Voice | Drei getrennte LiveKit-Scope-Räume, servergesteuerte Publish-Rechte, bestätigungsgebundene PTT-Publikation, Opus-Aufnahme sowie XAudio2- und PipeWire-Backends implementiert |
 | Last und Sicherheit | Reproduzierbarer 200-Spieler-Lauf und native Sicherheitsproben bestanden |
 | Eingabe | Windows Raw Input sowie Wayland-Portal-PTT und unprivilegierter Linux-evdev-/udev-Adapter implementiert |
@@ -90,19 +96,18 @@ ein Hardware-Release-Gate.
 Details und Nachweise stehen in [debian-kde-client.md](debian-kde-client.md)
 und [kde-00-quality-gate.md](kde-00-quality-gate.md).
 
-### IAM-01: Anmeldung und Accounts
+### IAM-02/IAM-03: Persistente Accounts und Anmeldung
 
-Der produktionsnahe Server liest Accounts derzeit aus einer statischen
-tabulatorgetrennten Identity-Datei. Die Windows-App erwartet ein opakes
-Credential. Es gibt keine Registrierung, Aktivierung, Passwortänderung,
-Account-Deaktivierung, Geräte-/Sitzungsverwaltung oder Verwaltungsoberfläche.
+IAM-01 ist abgeschlossen und in
+[identity-and-account-lifecycle.md](identity-and-account-lifecycle.md)
+verbindlich dokumentiert. Der produktionsnahe Server liest Accounts weiterhin
+aus einer statischen tabulatorgetrennten Identity-Datei und die Windows-App
+erwartet noch ein opakes Credential. Persistenter Account-, Credential-,
+Einladungs-, Geräte- und Sessiondienst, versionierte Lifecycle-Endpunkte sowie
+Aktivierungs-, Passwort- und Selbstverwaltungsoberflächen fehlen.
 
-Für Version 1 ist eine geschlossene, administrativ gesteuerte Registrierung
-vorgesehen: Ein Administrator legt Accounts oder Einladungen an; eine offene
-Selbstregistrierung ist nicht vorgesehen. Der bestehende
-`IIdentityProvider` bleibt die Adaptergrenze. Die konkrete lokale
-Credential-Speicherung und ein optionaler externer Identity-Provider werden vor
-der Implementierung in einer Architekturentscheidung festgeschrieben.
+Die Identity-Datei bleibt bis IAM-02 ein befristeter Entwicklungs- und
+Migrationspfad. Ihre Klartext-Bearer werden nicht als Passwörter übernommen.
 
 ### ADM-01: Rechte und Moderation
 
@@ -163,11 +168,11 @@ Diagnose- und Integrationsdokumentation sind nicht abgeschlossen.
 
 ## Nächster Schritt
 
-Nicht mit Abschnitt 10.3 beginnen. Als nächstes IAM-01 des
-[aktuellen Umsetzungsplans](implementation-plan.md) umsetzen: Identitäts- und
-Account-Lebenszyklus verbindlich entscheiden und spezifizieren. Danach folgen
-API-01 für Directory, Presence und Verwaltung sowie die darauf aufbauenden
-Clientfunktionen.
+Nicht mit Abschnitt 10.3 beginnen. Als nächstes API-01 des
+[aktuellen Umsetzungsplans](implementation-plan.md) umsetzen: die versionierten
+Directory-, Presence-, Account- und Verwaltungsverträge einschließlich
+Autorisierungs-, Datenschutz-, Paging- und Konfliktregeln festlegen. Danach
+folgen DIR-01 und die darauf aufbauenden Clientfunktionen.
 
 ## Release-Gates
 
@@ -193,7 +198,7 @@ Der Wechsel zu Abschnitt 10.3 ist erst zulässig, wenn:
 | Risiko | Auswirkung | Behandlung |
 |---|---|---|
 | Fehlender Directory-/Presence-Vertrag | Kanalansicht kann keine vollständigen Teilnehmer zeigen | DIR-01 vor der Teilnehmer-UI implementieren |
-| Statische Identity-Datei | Kein sicherer Account-Lebenszyklus im Produktbetrieb | IAM-01 mit versioniertem Vertrag und administrativer Provisionierung |
+| Statische Identity-Datei | Kein sicherer Account-Lebenszyklus im Produktbetrieb | IAM-01-Entscheidung in IAM-02/IAM-03 und API-01 umsetzen; Datei nur als Migrationspfad |
 | Verwaltungs-API nur teilweise vorhanden | Rechteoberfläche wäre unvollständig oder unsicher | ADM-01 serverseitig vervollständigen, danach UI anbinden |
 | Unzureichende Clientlogs | Feldprobleme sind nicht reproduzierbar | DIA-01 früh als Querschnittsfunktion einführen |
 | AEC und physischer HID-Hot-Plug noch nicht auf Debian-Hardware qualifiziert | Echoqualität oder einzelne Controller können im Produktbetrieb abweichen | Reverse-Audiopfad implementieren; Hardwarematrix vor Release abnehmen |

@@ -1,6 +1,6 @@
 # Linux-Control-Plane
 
-**Stand:** 25. Juli 2026
+**Stand:** 27. Juli 2026
 
 ## Modulgrenzen
 
@@ -219,6 +219,17 @@ allgemeine `IdentitySessionAuthenticator`-Schicht stellt daraus 15 Minuten
 gültige Sessions für genau einen konfigurierten Spieler aus. Ein produktiver
 OIDC-, OAuth- oder eigener Account-Provider kann den Bootstrap-Provider
 ersetzen, ohne HTTP-Adapter, Session-Persistenz oder Anwendungsfälle zu ändern.
+
+IAM-01 legt als Nachfolger einen lokalen persistenten Accountadapter hinter
+derselben `IIdentityProvider`-Grenze fest. Account, öffentliches Profil,
+Membership und Rollen bleiben getrennt. Der Adapter verwendet
+libsodium/Argon2id für Passwörter, gehashte Einmal- und Sessionsecrets,
+rotierende gerätegebundene Erneuerungssecrets sowie einen einmaligen
+Offline-Bootstrap. Die vollständige Entscheidung einschließlich
+Bedrohungsmodell, Migration und Recovery steht in
+[`identity-and-account-lifecycle.md`](identity-and-account-lifecycle.md).
+Bis IAM-02 ist dies Zielarchitektur und kein bereits implementierter
+Laufzeitpfad.
 
 Der Linux-Socketadapter begrenzt Header und Body, lehnt Transfer-Encoding ab und
 schließt jede Verbindung nach genau einem HTTP/1.1-Request. TLS bleibt Aufgabe

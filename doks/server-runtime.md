@@ -1,6 +1,6 @@
 # Server-Laufzeit
 
-**Stand:** 26. Juli 2026
+**Stand:** 27. Juli 2026
 
 ## Betriebsmodell
 
@@ -37,6 +37,15 @@ zeitkonstant verglichen.
 opaque-token-1	player-1	desktop-1,laptop-1
 opaque-token-2	player-2	*
 ```
+
+Dieser Modus ist seit IAM-01 ausdrücklich ein befristeter Entwicklungs- und
+Migrationspfad. IAM-02 ersetzt ihn im Produktbetrieb durch den persistenten
+lokalen Accountadapter aus
+[`identity-and-account-lifecycle.md`](identity-and-account-lifecycle.md).
+Die Klartext-Bearer werden dabei nicht als Passwörter übernommen; die
+Offline-Migration erhält Spieler-, Membership-, Rollen- und Auditbezüge und
+erzeugt neue einmalige Aktivierungssecrets. Dateiadapter und Accountadapter
+dürfen niemals gleichzeitig authentifizieren.
 
 Memberships und Rollenrichtlinien liegen autoritativ in SQLite. Ein
 `administrator` darf die vorhandenen administrativen Membership-Endpunkte
