@@ -1,7 +1,7 @@
 # Debian-Client für KDE Plasma
 
-**Stand:** 26. Juli 2026<br>
-**Status:** Verbindlicher Vor-Release-Umfang, noch nicht implementiert
+**Stand:** 27. Juli 2026<br>
+**Status:** Plattformgrundlage mit KDE-00 qualifiziert; Produktoberfläche offen
 
 ## Ziel
 
@@ -43,7 +43,7 @@ Noch Windows-spezifisch sind:
 
 | Bereich | Debian/KDE-Ziel |
 |---|---|
-| Oberfläche | C++20 mit Qt 6; Qt Widgets oder Qt Quick/Kirigami wird durch KDE-00 entschieden |
+| Oberfläche | C++20 mit Qt 6 und Qt Widgets |
 | Desktop | KDE Plasma, Wayland primär |
 | HTTP | Linux-Adapter hinter `IClientHttpTransport`, TLS-Prüfung über System-Truststore |
 | Voice | gemeinsamer LiveKit-Vertrag mit plattformneutralem Raum-/Publikationskern |
@@ -66,10 +66,11 @@ das XDG-Global-Shortcuts-Portal registriert. Der Desktop zeigt dabei den
 Freigabe-/Konfigurationsdialog. Der Client wertet die Portalereignisse für
 Aktivierung und Deaktivierung als PTT Press/Release aus.
 
-Gamepads, Joysticks und HOTAS benötigen keinen Compositor-Keylogger. Ein
-eigener Adapter verwendet eine etablierte HID-Bibliothek und Geräteerkennung,
-meldet fehlende Benutzerberechtigungen sichtbar und liefert dieselben
-normalisierten `InputEvent`-Werte wie Raw Input.
+Gamepads, Joysticks und HOTAS benötigen keinen Compositor-Keylogger. Der
+Linux-Adapter verwendet libudev zur Erkennung und evdev für die durch logind-ACLs
+freigegebenen `ID_INPUT_JOYSTICK`-Geräte. Er meldet fehlende
+Benutzerberechtigungen sichtbar und liefert dieselben normalisierten
+`InputEvent`-Werte wie Raw Input.
 
 Zusätzliche globale Maustasten werden nur angeboten, wenn eine
 unprivilegierte, vom Desktop ausdrücklich freigegebene Schnittstelle sie
@@ -78,8 +79,7 @@ Bindingklasse als nicht verfügbar, statt die Sicherheitsgrenze zu umgehen.
 
 ## Audio- und LiveKit-Grenze
 
-`LiveKitVoiceTransport` enthält derzeit Raumlogik und XAudio2-Wiedergabe in
-einer Implementierung. Vor dem Debian-Client werden getrennt:
+`LiveKitVoiceTransport` trennt seit KDE-00:
 
 1. gemeinsamer Raum-, Grant-, Publication- und Subscription-Lebenszyklus;
 2. Aufnahme-/Gerätevertrag;
@@ -87,15 +87,21 @@ einer Implementierung. Vor dem Debian-Client werden getrennt:
 4. Windows-XAudio2-Backend;
 5. Debian-PipeWire-Backend.
 
-Das KDE-00-Quality-Gate prüft insbesondere, ob die gepinnte
-LiveKit-C++-Version unter Debian Aufnahme und WebRTC-Audioverarbeitung in der
-geforderten Qualität bereitstellt. Fehlende Funktionen werden im HVC-Backend
-ergänzt oder führen vor dem UI-Ausbau zu einer dokumentierten
-Transportentscheidung.
+Das direkte PipeWire-Backend übernimmt Aufnahme, Wiedergabe, Gerätebeobachtung
+und Geräteauswahl. WebRTC Audio Processing aktiviert High-Pass-Filter, Noise
+Suppression und AGC. AEC bleibt deaktiviert, bis der Produktclient einen
+zeitlich ausgerichteten Reverse-Wiedergabestream samt gemessener Verzögerung
+bereitstellt; eine Aktivierung ohne dieses Signal wäre keine belastbare
+Echo-Cancellation.
+
+Der vollständige technische Nachweis, die Versionen und die verbleibenden
+Hardwaregrenzen stehen in
+[KDE-00: Technisches Debian-/KDE-Quality-Gate](kde-00-quality-gate.md).
 
 ## Oberfläche
 
-Die Qt-Oberfläche bildet dieselbe Informationsarchitektur wie WinUI ab:
+KDE-00 legt Qt Widgets als Fensterschale fest. Die Qt-Oberfläche bildet dieselbe
+Informationsarchitektur wie WinUI ab:
 
 - Hauptfenster mit Kanalbaum und Teilnehmern;
 - separates Einstellungsfenster;

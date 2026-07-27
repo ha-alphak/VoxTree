@@ -1,6 +1,6 @@
 # Architekturentscheidungen
 
-**Stand:** 25. Juli 2026
+**Stand:** 27. Juli 2026
 
 ## Produkt
 
@@ -35,12 +35,17 @@
 - Der Debian-Desktop-Client gehört zum Vor-Release-Umfang.
 - Zielplattform ist Debian 13 x64 mit KDE Plasma; Wayland ist der primäre
   Sitzungsweg.
-- Die Oberfläche verwendet C++20 und Qt 6. Die Entscheidung zwischen Qt
-  Widgets und Qt Quick/Kirigami fällt nach einem technischen Quality-Gate.
+- Die Oberfläche verwendet C++20, Qt 6 und Qt Widgets. KDE-00 bestätigt diese
+  Fensterschale mit nativer Wayland- und XDG-Portal-Integration; Kirigami
+  würde für den Desktopumfang zusätzliche Laufzeit- und Packaging-Komplexität
+  schaffen, ohne die gemeinsamen Präsentationsmodelle zu verbessern.
 - WinUI und Qt verwenden dieselben UI-unabhängigen Präsentationsmodelle,
   Netzwerkverträge und Fehlercodes.
-- Aufnahme und Wiedergabe werden über ein PipeWire-Backend an den gemeinsamen
-  Voice-Transport angebunden.
+- Aufnahme und Wiedergabe werden über ein direktes PipeWire-Backend an den
+  gemeinsamen Voice-Transport angebunden. Noise Suppression und AGC laufen
+  über WebRTC Audio Processing. AEC wird erst aktiviert, wenn ein
+  zeitlich ausgerichteter Reverse-Wiedergabestream bereitsteht und auf realer
+  Hardware qualifiziert ist.
 - Globale Tastatur-PTT-Aktionen verwenden unter Wayland das
   XDG-Global-Shortcuts-Portal. Der Client umgeht Compositor-Sicherheitsgrenzen
   nicht durch privilegiertes Eingabeabgreifen.
@@ -49,9 +54,9 @@
 - Das erste Auslieferungsformat ist ein versioniertes Debian-Paket mit
   signierten Repository-/Release-Metadaten. Eine Flatpak-Auslieferung erfordert
   eine gesonderte Packaging-Entscheidung.
-- Vor der Produktoberfläche muss ein Debian-Quality-Gate LiveKit, PipeWire,
-  Wayland-PTT, Gerätewechsel, Reconnect und Windows-Interoperabilität
-  nachweisen.
+- Das technische Debian-Quality-Gate KDE-00 ist die verbindliche
+  Plattformgrundlage. Physische HID-Hot-Plug- sowie spätere
+  Windows↔Debian-Produktinteroperabilität bleiben eigenständige Release-Gates.
 
 ## Server
 

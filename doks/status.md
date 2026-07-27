@@ -1,6 +1,6 @@
 # Projektstatus
 
-**Berichtsdatum:** 26. Juli 2026<br>
+**Berichtsdatum:** 27. Juli 2026<br>
 **Phase:** Konsolidierung vor der Auslieferungsreife<br>
 **Gesamtstatus:** Gelb<br>
 **Release-Status:** Blockiert
@@ -14,8 +14,10 @@ technische Grundlage ist belastbar, der Windows-Client ist jedoch noch ein
 Funktionsprototyp und keine auslieferungsreife Produktoberfläche. Seine
 Präsentations- und Fensterarchitektur ist mit UX-01 jedoch in getrennte,
 testbare Zustandsmodelle sowie Haupt-, Einstellungs- und Diagnosefenster
-überführt. Ein Desktop-Client für Debian 13 mit KDE Plasma ist in den
-verbindlichen Vor-Release-Umfang aufgenommen und noch nicht implementiert.
+überführt. KDE-00 hat die technische Plattformgrundlage für Debian 13/KDE
+implementiert und qualifiziert: offizielles LiveKit-C++-SDK, direkter
+PipeWire-Medienpfad, evdev-/udev-Eingabe, XDG-Global-Shortcuts und ein
+Qt-Widgets-Prototyp. Die eigentliche Debian-Produktoberfläche bleibt offen.
 
 Vor Abschnitt 10.3 müssen die Clientoberfläche, das Identitäts- und
 Verwaltungsmodell sowie die Clientdiagnose vervollständigt werden. Der zuvor
@@ -37,13 +39,13 @@ Validierung sind archiviert:
 |---|---|
 | Domäne und Routing | Datengetriebene Hierarchie, Rollenrechte, atomare Membership-Versionen und Isolation implementiert |
 | Control Plane | Mehrbenutzersitzungen, Memberships, Transmissionen, Moderation, Sprecherlimits, Audit, Jobs und Metriken implementiert |
-| Voice | Drei getrennte LiveKit-Scope-Räume, servergesteuerte Publish-Rechte, bestätigungsgebundene PTT-Publikation, Opus-Aufnahme und XAudio2-Wiedergabe implementiert |
+| Voice | Drei getrennte LiveKit-Scope-Räume, servergesteuerte Publish-Rechte, bestätigungsgebundene PTT-Publikation, Opus-Aufnahme sowie XAudio2- und PipeWire-Backends implementiert |
 | Last und Sicherheit | Reproduzierbarer 200-Spieler-Lauf und native Sicherheitsproben bestanden |
-| Eingabe | Globale Tastatur-, Maus- und generische HID-/HOTAS-Eingaben implementiert |
+| Eingabe | Windows Raw Input sowie Wayland-Portal-PTT und unprivilegierter Linux-evdev-/udev-Adapter implementiert |
 | Client-Core | UI-unabhängige Bibliothek sowie versionierte C-ABI und C++-Schnittstelle implementiert |
 | Präsentation | Plattformneutrale Zustände, Befehle, Validierung und stabile Fehlercodes für Verbindung, Kanalwahl, Teilnehmer, Einstellungen, Administration und Diagnose implementiert und getestet |
 | Windows-App | Prozesseinstieg, App, Haupt-, Einstellungs- und Diagnosefenster getrennt; Anmeldung, Verbindung, PTT, aktive Sprecher und technische Einstellungen als WinUI-3-Prototyp verdrahtet |
-| Debian/KDE-App | Eingeplant; gemeinsamer Client-Core nutzbar, Linux-Transport-, Audio-, Eingabe- und UI-Adapter fehlen |
+| Debian/KDE-App | Technische Qt-Widgets-/Wayland-Schale und Linux-Plattformadapter qualifiziert; vollständige Produktfenster, HTTP-, Einstellungs-, Secret-Service- und Diagnoseintegration fehlen |
 | Auslieferung | Docker-Grundlage vorhanden; signiertes MSIX, Debian-Clientpaket, Produktbetrieb und Release-Dokumentation noch offen |
 
 ## Festgestellte Lücken und Probleme
@@ -71,20 +73,22 @@ Binding-Lernen, Rücksetzen/Übernehmen und eine verständliche Fehleranzeige.
 
 ### KDE-01: Debian-Client für KDE Plasma
 
-Der UI-unabhängige Client-Core baut bereits unter Debian, aber der ausführbare
-Desktop-Client ist aktuell vollständig Windows-spezifisch. WinUI, WinHTTP, Raw
-Input und XAudio2 besitzen noch keine Linux-Adapter; auch das native
-LiveKit-C++-SDK ist im Projekt nur für Windows qualifiziert.
+KDE-00 hat das offizielle LiveKit-C++-SDK 1.4.0 für Linux x64 reproduzierbar
+eingebunden und die Windows-Audiokopplung in XAudio2- und PipeWire-Backends
+getrennt. Der native Qt-Widgets-Prototyp startet unter Plasma/Wayland, zeigt
+Audio- und Eingabefähigkeiten und verarbeitet globale Portal-PTT-Ereignisse bei
+Fremdfokus. Ein unprivilegierter evdev-/udev-Adapter bildet Controllerbuttons
+auf die gemeinsamen Eingabeereignisse ab.
 
-Geplant ist ein nativer C++20-/Qt-6-Client für Debian 13 und KDE Plasma mit
-Wayland als primärem Sitzungsmodell. PipeWire übernimmt Aufnahme, Wiedergabe,
-Gerätewechsel und Pegelinformationen. Globale Tastatur-PTT-Aktionen werden
-über das XDG-Global-Shortcuts-Portal integriert; HID-/HOTAS-Geräte erhalten
-einen eigenen Linux-Adapter. Vor dem UI-Ausbau muss ein Linux-Quality-Gate
-LiveKit, PipeWire, Wayland-PTT, Gerätewechsel und Reconnect nachweisen.
+Offen bleibt die vollständige Produktoberfläche mit Linux-HTTP-Adapter,
+Directory/Presence, persistenten XDG-Einstellungen, Secret Service/KWallet,
+Diagnose und Debian-Paketierung. AEC benötigt vor der Aktivierung einen
+zeitlich ausgerichteten Reverse-Wiedergabestream. Physisches
+Gamepad-/Joystick-/HOTAS-Hot-Plugging bleibt mangels verfügbarer Testhardware
+ein Hardware-Release-Gate.
 
-Details und bekannte Plattformgrenzen stehen in
-[debian-kde-client.md](debian-kde-client.md).
+Details und Nachweise stehen in [debian-kde-client.md](debian-kde-client.md)
+und [kde-00-quality-gate.md](kde-00-quality-gate.md).
 
 ### IAM-01: Anmeldung und Accounts
 
@@ -159,13 +163,11 @@ Diagnose- und Integrationsdokumentation sind nicht abgeschlossen.
 
 ## Nächster Schritt
 
-Nicht mit Abschnitt 10.3 beginnen. Zuerst Phase 0 des
-[aktuellen Umsetzungsplans](implementation-plan.md) abschließen:
-
-1. KDE-00: Das Debian-/KDE-Quality-Gate für LiveKit, PipeWire, Wayland und globale
-   PTT-Eingaben ausführen.
-2. Verzeichnis-, Presence-, Account- und Verwaltungsverträge spezifizieren,
-   bevor die neue UI darauf aufgebaut wird.
+Nicht mit Abschnitt 10.3 beginnen. Als nächstes IAM-01 des
+[aktuellen Umsetzungsplans](implementation-plan.md) umsetzen: Identitäts- und
+Account-Lebenszyklus verbindlich entscheiden und spezifizieren. Danach folgen
+API-01 für Directory, Presence und Verwaltung sowie die darauf aufbauenden
+Clientfunktionen.
 
 ## Release-Gates
 
@@ -194,7 +196,7 @@ Der Wechsel zu Abschnitt 10.3 ist erst zulässig, wenn:
 | Statische Identity-Datei | Kein sicherer Account-Lebenszyklus im Produktbetrieb | IAM-01 mit versioniertem Vertrag und administrativer Provisionierung |
 | Verwaltungs-API nur teilweise vorhanden | Rechteoberfläche wäre unvollständig oder unsicher | ADM-01 serverseitig vervollständigen, danach UI anbinden |
 | Unzureichende Clientlogs | Feldprobleme sind nicht reproduzierbar | DIA-01 früh als Querschnittsfunktion einführen |
-| LiveKit-C++-SDK unter Debian nicht qualifiziert | Linux-Medienpfad könnte Adapterarbeit oder Transportentscheidung erzwingen | KDE-00-Quality-Gate vor dem Bau der Oberfläche |
+| AEC und physischer HID-Hot-Plug noch nicht auf Debian-Hardware qualifiziert | Echoqualität oder einzelne Controller können im Produktbetrieb abweichen | Reverse-Audiopfad implementieren; Hardwarematrix vor Release abnehmen |
 | Globale PTT-Eingaben unter Wayland sind absichtlich eingeschränkt | Nicht alle Windows-Bindingtypen lassen sich identisch abbilden | XDG-Portal für Tastatur, separater HID-Adapter und explizite Capability-Anzeige |
 | Unterschiedliche Audio-Backends | Abweichungen bei Geräten, AEC und Reconnect | Gemeinsame Audio-Verträge, PipeWire-Adapter und plattformübergreifende Abnahmematrix |
 | Windows 10 außerhalb des regulären Supports | Höherer Test- und Supportaufwand | Build 19045 explizit testen und Supportentscheidung vor Release bestätigen |

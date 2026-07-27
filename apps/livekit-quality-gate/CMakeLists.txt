@@ -19,16 +19,25 @@ set_target_properties(
     OUTPUT_NAME hvc-livekit-quality-gate
 )
 
-add_custom_command(
-  TARGET hvc_livekit_quality_gate
-  POST_BUILD
-  COMMAND
-    "${CMAKE_COMMAND}" -E copy_if_different
-    "${HVC_LIVEKIT_SDK_ROOT}/bin/livekit.dll"
-    "$<TARGET_FILE_DIR:hvc_livekit_quality_gate>"
-  COMMAND
-    "${CMAKE_COMMAND}" -E copy_if_different
-    "${HVC_LIVEKIT_SDK_ROOT}/bin/livekit_ffi.dll"
-    "$<TARGET_FILE_DIR:hvc_livekit_quality_gate>"
-  VERBATIM
-)
+if(WIN32)
+  add_custom_command(
+    TARGET hvc_livekit_quality_gate
+    POST_BUILD
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy_if_different
+      "${HVC_LIVEKIT_SDK_ROOT}/bin/livekit.dll"
+      "$<TARGET_FILE_DIR:hvc_livekit_quality_gate>"
+    COMMAND
+      "${CMAKE_COMMAND}" -E copy_if_different
+      "${HVC_LIVEKIT_SDK_ROOT}/bin/livekit_ffi.dll"
+      "$<TARGET_FILE_DIR:hvc_livekit_quality_gate>"
+    VERBATIM
+  )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set_target_properties(
+    hvc_livekit_quality_gate
+    PROPERTIES
+      BUILD_RPATH "${HVC_LIVEKIT_SDK_ROOT}/lib"
+      INSTALL_RPATH "$ORIGIN/../lib"
+  )
+endif()

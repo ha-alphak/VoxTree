@@ -188,3 +188,44 @@ if(WIN32)
       DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   )
 endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_library(HVC_UDEV_LIBRARY NAMES udev REQUIRED)
+
+  add_library(hvc_client_linux_evdev_input STATIC)
+  add_library(hvc::client_linux_evdev_input ALIAS hvc_client_linux_evdev_input)
+
+  target_sources(
+    hvc_client_linux_evdev_input
+    PRIVATE src/linux_evdev_input.cpp
+    PUBLIC
+      FILE_SET public_headers
+      TYPE HEADERS
+      BASE_DIRS include
+      FILES include/hvc/client/linux_evdev_input.hpp
+  )
+  target_compile_features(hvc_client_linux_evdev_input PUBLIC cxx_std_20)
+  target_link_libraries(
+    hvc_client_linux_evdev_input
+    PUBLIC hvc::client
+    PRIVATE
+      "${HVC_UDEV_LIBRARY}"
+      "$<BUILD_INTERFACE:hvc_project_options>"
+  )
+  set_target_properties(
+    hvc_client_linux_evdev_input
+    PROPERTIES
+      CXX_EXTENSIONS OFF
+      EXPORT_NAME client_linux_evdev_input
+      OUTPUT_NAME hvc-client-linux-evdev-input
+  )
+
+  install(
+    TARGETS hvc_client_linux_evdev_input
+    EXPORT HvcFoundationTargets
+    FILE_SET public_headers
+      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    ARCHIVE
+      DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  )
+endif()

@@ -37,6 +37,7 @@ Checks: >
   -readability-redundant-member-init
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*[/\\](apps|libs|tests)[/\\].*'
+ExcludeHeaderFilterRegex: '.*[/\\](out[/\\]build|[^/\\]*_autogen)[/\\].*|.*\.moc$'
 FormatStyle: file
 CheckOptions:
   readability-identifier-naming.NamespaceCase: lower_case

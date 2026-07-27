@@ -8,6 +8,12 @@ set(
   "SHA-256 of the pinned LiveKit Windows x64 SDK archive"
 )
 set(
+  HVC_LIVEKIT_SDK_SHA256_LINUX_X64
+  "7b4b0e5e86b597e0ff108dd36559d57879d46021b0190943f409dfcd58b80bb7"
+  CACHE STRING
+  "SHA-256 of the pinned LiveKit Linux x64 SDK archive"
+)
+set(
   HVC_LIVEKIT_SDK_ROOT
   ""
   CACHE PATH
@@ -15,10 +21,25 @@ set(
 )
 
 function(hvc_find_livekit_sdk)
-  if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+  if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(
       FATAL_ERROR
-      "The LiveKit quality gate currently supports Windows x64 only."
+      "The LiveKit quality gate supports x64 builds only."
+    )
+  endif()
+
+  if(WIN32)
+    set(_platform "windows")
+    set(_archive_extension "zip")
+    set(_archive_hash "${HVC_LIVEKIT_SDK_SHA256_WINDOWS_X64}")
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(_platform "linux")
+    set(_archive_extension "tar.gz")
+    set(_archive_hash "${HVC_LIVEKIT_SDK_SHA256_LINUX_X64}")
+  else()
+    message(
+      FATAL_ERROR
+      "The LiveKit quality gate supports Windows x64 and Linux x64 only."
     )
   endif()
 
@@ -26,12 +47,12 @@ function(hvc_find_livekit_sdk)
     set(_sdk_root "${HVC_LIVEKIT_SDK_ROOT}")
   else()
     set(_archive_name
-        "livekit-sdk-windows-x64-${HVC_LIVEKIT_SDK_VERSION}.zip")
+        "livekit-sdk-${_platform}-x64-${HVC_LIVEKIT_SDK_VERSION}.${_archive_extension}")
     set(_download_dir "${CMAKE_BINARY_DIR}/_downloads")
     set(_sdk_dir "${CMAKE_BINARY_DIR}/_deps/livekit-sdk")
     set(
       _sdk_root
-      "${_sdk_dir}/livekit-sdk-windows-x64-${HVC_LIVEKIT_SDK_VERSION}"
+      "${_sdk_dir}/livekit-sdk-${_platform}-x64-${HVC_LIVEKIT_SDK_VERSION}"
     )
     set(_archive "${_download_dir}/${_archive_name}")
     set(
@@ -44,7 +65,7 @@ function(hvc_find_livekit_sdk)
       message(STATUS "Downloading pinned LiveKit C++ SDK ${HVC_LIVEKIT_SDK_VERSION}")
       file(
         DOWNLOAD "${_url}" "${_archive}"
-        EXPECTED_HASH "SHA256=${HVC_LIVEKIT_SDK_SHA256_WINDOWS_X64}"
+        EXPECTED_HASH "SHA256=${_archive_hash}"
         TLS_VERIFY ON
         SHOW_PROGRESS
         STATUS _download_status

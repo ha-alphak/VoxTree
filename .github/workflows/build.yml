@@ -44,6 +44,7 @@ jobs:
             ca-certificates \
             cmake \
             libsqlite3-dev \
+            libudev-dev \
             ninja-build
 
       - name: Check out sources
@@ -69,6 +70,7 @@ jobs:
             doxygen \
             g++ \
             libsqlite3-dev \
+            libudev-dev \
             ninja-build
 
       - name: Check out sources
