@@ -13,6 +13,8 @@ Communication**.
 | [state-machines.md](state-machines.md) | Verbindungs- und Transmission-Zustandsautomaten |
 | [control-plane.md](control-plane.md) | Anwendungsschicht und Control-Plane-Schnittstellen |
 | [network-contract-v1.md](network-contract-v1.md) | Versionierter HTTP-Vertrag der Control-Plane |
+| [network-contract-v1-api-01.md](network-contract-v1-api-01.md) | Verbindliche v1-Verträge für Directory, Presence, Identity und Verwaltung |
+| [api-01-contract-tests.md](api-01-contract-tests.md) | Positiv-, Negativ-, Datenschutz- und Autorisierungstests für API-01 |
 | [identity-and-account-lifecycle.md](identity-and-account-lifecycle.md) | Verbindliches Identitäts-, Account-, Credential-, Session-, Bootstrap- und Migrationsmodell |
 | [livekit-quality-gate.md](livekit-quality-gate.md) | Native SDK-Anbindung und Zwei-Client-Probe |
 | [voice-client.md](voice-client.md) | UI-unabhängiger Client-Core und LiveKit-Transportadapter |

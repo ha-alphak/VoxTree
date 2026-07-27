@@ -21,7 +21,10 @@ Qt-Widgets-Prototyp. Die eigentliche Debian-Produktoberfläche bleibt offen.
 IAM-01 hat außerdem den geschlossenen Account-Lebenszyklus, den lokalen
 Identity-Adapter, Argon2id, Geräte-/Sessionwiderruf, Identity-Datei-Migration
 sowie Bootstrap und Recovery verbindlich festgelegt; die Implementierung folgt
-in IAM-02/IAM-03.
+in IAM-02/IAM-03. API-01 hat darauf aufbauend die additiven v1-Verträge für
+Directory, Presence, persistente Authentifizierung, Account-Selbstverwaltung,
+Hierarchie, Membership, Rollen, Moderation und Audit einschließlich
+Datenschutz-, Paging-, Konflikt- und Autorisierungsregeln eingefroren.
 
 Vor Abschnitt 10.3 müssen die Clientoberfläche, das Identitäts- und
 Verwaltungsmodell sowie die Clientdiagnose vervollständigt werden. Der zuvor
@@ -36,6 +39,7 @@ Validierung sind archiviert:
 - [PRE-01: Kurze PTT-Impulse](archive/pre-01-short-ptt-2026-07-26.md)
 - [UX-01: Präsentations- und Fensterarchitektur](archive/ux-01-presentation-and-window-architecture-2026-07-26.md)
 - [IAM-01: Identitäts- und Account-Lebenszyklus](archive/iam-01-identity-and-account-lifecycle-2026-07-27.md)
+- [API-01: Directory-, Identity- und Verwaltungsverträge](archive/api-01-directory-identity-administration-contract-2026-07-27.md)
 - [Last- und Sicherheitstests](load-and-security-tests.md)
 
 ## Belastbarer Ausgangsstand
@@ -43,7 +47,7 @@ Validierung sind archiviert:
 | Bereich | Stand |
 |---|---|
 | Domäne und Routing | Datengetriebene Hierarchie, Rollenrechte, atomare Membership-Versionen und Isolation implementiert |
-| Control Plane | Mehrbenutzersitzungen, Memberships, Transmissionen, Moderation, Sprecherlimits, Audit, Jobs und Metriken implementiert |
+| Control Plane | Mehrbenutzersitzungen, Memberships, Transmissionen, Moderation, Sprecherlimits, Audit, Jobs und Metriken implementiert; additive Directory-, Identity- und Verwaltungsverträge mit API-01 verbindlich festgelegt |
 | Identität und Accounts | IAM-01-Zielmodell für geschlossene Provisionierung, Argon2id, Einladungen, Geräte/Sessions, Migration, Bootstrap und Recovery verbindlich entschieden; persistenter Dienst noch nicht implementiert |
 | Voice | Drei getrennte LiveKit-Scope-Räume, servergesteuerte Publish-Rechte, bestätigungsgebundene PTT-Publikation, Opus-Aufnahme sowie XAudio2- und PipeWire-Backends implementiert |
 | Last und Sicherheit | Reproduzierbarer 200-Spieler-Lauf und native Sicherheitsproben bestanden |
@@ -63,9 +67,10 @@ Transportereignisse für verbundene Teilnehmer werden im `VoiceClient` derzeit
 nicht an die Oberfläche weitergereicht; sichtbar werden Teilnehmer erst bei
 einer aktiven Audiospur. Rollen und Anzeigenamen entfernter Teilnehmer fehlen.
 
-Für eine Kanaldarstellung wird ein datenschutzbegrenztes Gruppenverzeichnis
-benötigt. Es liefert die sichtbare Hierarchie und Teilnehmerdaten; der Client
-verknüpft sie mit Transportpräsenz und Sprechzustand. Ein Kanal bleibt eine
+Der datenschutzbegrenzte Vertrag für das Gruppenverzeichnis und die getrennte
+Presence ist mit API-01 festgelegt, aber noch nicht implementiert. DIR-01
+liefert die sichtbare Hierarchie und Teilnehmerdaten; der Client verknüpft sie
+später mit Transportpräsenz und Sprechzustand. Ein Kanal bleibt eine
 serverabgeleitete Scope-Ansicht und ist keine frei wählbare Sicherheitsgrenze.
 
 ### SET-01: Einstellungen
@@ -168,11 +173,13 @@ Diagnose- und Integrationsdokumentation sind nicht abgeschlossen.
 
 ## Nächster Schritt
 
-Nicht mit Abschnitt 10.3 beginnen. Als nächstes API-01 des
-[aktuellen Umsetzungsplans](implementation-plan.md) umsetzen: die versionierten
-Directory-, Presence-, Account- und Verwaltungsverträge einschließlich
-Autorisierungs-, Datenschutz-, Paging- und Konfliktregeln festlegen. Danach
-folgen DIR-01 und die darauf aufbauenden Clientfunktionen.
+Nicht mit Abschnitt 10.3 beginnen. Als nächstes DIR-01 des
+[aktuellen Umsetzungsplans](implementation-plan.md) umsetzen: die in
+[API-01](network-contract-v1-api-01.md) festgelegte datenschutzbegrenzte
+Directory- und Presence-Schnittstelle serverseitig implementieren und mit den
+`API-DIR-*`- und `API-PRE-*`-Fällen aus den
+[Vertragstests](api-01-contract-tests.md) absichern. Erst danach folgen
+DIR-02 und die Teilnehmeroberfläche.
 
 ## Release-Gates
 
@@ -197,8 +204,8 @@ Der Wechsel zu Abschnitt 10.3 ist erst zulässig, wenn:
 
 | Risiko | Auswirkung | Behandlung |
 |---|---|---|
-| Fehlender Directory-/Presence-Vertrag | Kanalansicht kann keine vollständigen Teilnehmer zeigen | DIR-01 vor der Teilnehmer-UI implementieren |
-| Statische Identity-Datei | Kein sicherer Account-Lebenszyklus im Produktbetrieb | IAM-01-Entscheidung in IAM-02/IAM-03 und API-01 umsetzen; Datei nur als Migrationspfad |
+| Noch nicht implementierte Directory-/Presence-Schnittstelle | Kanalansicht kann trotz abgeschlossenem API-01-Vertrags-Freeze noch keine vollständigen Teilnehmer zeigen | DIR-01 vor der Teilnehmer-UI implementieren und gegen `API-DIR-*`/`API-PRE-*` testen |
+| Statische Identity-Datei | Kein sicherer Account-Lebenszyklus im Produktbetrieb | IAM-01-Entscheidung und API-01-Vertrag in IAM-02/IAM-03 implementieren; Datei nur als Migrationspfad |
 | Verwaltungs-API nur teilweise vorhanden | Rechteoberfläche wäre unvollständig oder unsicher | ADM-01 serverseitig vervollständigen, danach UI anbinden |
 | Unzureichende Clientlogs | Feldprobleme sind nicht reproduzierbar | DIA-01 früh als Querschnittsfunktion einführen |
 | AEC und physischer HID-Hot-Plug noch nicht auf Debian-Hardware qualifiziert | Echoqualität oder einzelne Controller können im Produktbetrieb abweichen | Reverse-Audiopfad implementieren; Hardwarematrix vor Release abnehmen |

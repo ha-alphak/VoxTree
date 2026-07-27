@@ -16,6 +16,13 @@ Die abgeschlossene IAM-01-Entscheidung ist in
 verbindlich und unter
 [archive/iam-01-identity-and-account-lifecycle-2026-07-27.md](archive/iam-01-identity-and-account-lifecycle-2026-07-27.md)
 abgenommen.
+Die abgeschlossenen Directory-, Identity- und Verwaltungsverträge aus API-01
+stehen verbindlich in
+[network-contract-v1-api-01.md](network-contract-v1-api-01.md); Testmatrix und
+Abnahme sind unter
+[api-01-contract-tests.md](api-01-contract-tests.md) und
+[archive/api-01-directory-identity-administration-contract-2026-07-27.md](archive/api-01-directory-identity-administration-contract-2026-07-27.md)
+nachgewiesen.
 
 ## Arbeitsregeln
 
@@ -57,43 +64,20 @@ Die Kanalansicht bildet serverdefinierte Scopes ab. Sie darf kein freies
 Beitreten zu einem LiveKit-Raum anbieten und keine clientseitige
 Empfängerauswahl erzeugen.
 
-## Phase 0: Verträge festlegen
-
-### API-01 – Verzeichnis- und Verwaltungsverträge
-
-Vor der UI werden versionierte Verträge für folgende Sichten festgelegt:
-
-- sichtbare Hierarchie und Mitglieder des eigenen Groups;
-- öffentliches Teilnehmerprofil und Presence-Zustand;
-- paginierte Accountliste und Account-Lifecycle;
-- Anmeldung, Aktivierung, Erneuerung, Passwortänderung sowie Geräte- und
-  Sessionwiderruf gemäß
-  [identity-and-account-lifecycle.md](identity-and-account-lifecycle.md);
-- Hierarchie-, Membership- und Rollenkatalog;
-- effektive Sende-/Empfangsrechte;
-- aktive Transmissionen für autorisierte Moderatoren;
-- optimistic concurrency beziehungsweise strikt steigende Versionen;
-- Audit-Datensätze für jede administrative Änderung.
-
-Abnahme:
-
-- Positiv-, Negativ-, Datenschutz- und Autorisierungstests sind spezifiziert;
-- ein normaler Teilnehmer kann weder fremde Groups auflisten noch
-  Verwaltungsmetadaten abrufen;
-- öffentliche Authentifizierungsfehler ermöglichen keine Account-Enumeration;
-- die bestehenden v1-Voice-Verträge bleiben kompatibel oder erhalten einen
-  dokumentierten Migrationspfad.
-
 ## Phase 1: Verzeichnis, Presence und neue Hauptansichten
 
 ### DIR-01 – Serververzeichnis
 
-1. Eine datenschutzbegrenzte Directory-Anwendungsschnittstelle implementieren.
+1. Die in API-01 festgelegte datenschutzbegrenzte
+   Directory-Anwendungsschnittstelle implementieren.
 2. Die sichtbare Group-Hierarchie und Teilnehmer mit stabiler ID,
    Anzeigename, Primär-Team und freigegebenen Rollen liefern.
 3. Änderungen versionieren und inkrementell oder durch begrenztes Polling
    aktualisieren.
 4. Transportpräsenz getrennt von Membership modellieren.
+5. Die Fälle `API-DIR-*` und `API-PRE-*` aus
+   [api-01-contract-tests.md](api-01-contract-tests.md) auf Anwendungs- und
+   HTTP-Ebene ausführbar machen.
 
 ### DIR-02 – Client-Präsenz
 

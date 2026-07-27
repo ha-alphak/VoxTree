@@ -146,6 +146,20 @@
 - Der initiale Bootstrap-Authenticator liest sein Credential aus einer Datei.
   Er ist eine klar abgegrenzte Integrationsstufe und wird durch einen
   produktionsfähigen Account-/Identity-Adapter ersetzt.
+- API-01 erweitert `/api/v1` additiv. Der bestehende opake
+  `POST /api/v1/sessions`-Vertrag wird nicht als Passwortanmeldung
+  umgedeutet; persistente Clients verwenden getrennte `/auth`-Ressourcen.
+- Directory wird ausschließlich aus der aktuellen eigenen Group abgeleitet
+  und besitzt keinen frei wählbaren Group-Parameter. Membership, öffentlicher
+  Directory-Datensatz und zusammengeführte Transport-Presence bleiben
+  getrennt versioniert.
+- Änderbare Account-, Profil-, Hierarchie-, Membership- und Rollenressourcen
+  verwenden starke ETags und `If-Match`. Listen verwenden an Akteur, Filter
+  und Snapshot gebundene opake Cursor.
+- Öffentliche Authentifizierungsfehler unterscheiden unbekannte, deaktivierte,
+  abgelaufene oder widerrufene Accounts und Secrets nicht. Verwaltungs- und
+  Moderationsrechte werden für jeden Request serverseitig aus dem aktuellen
+  autoritativen Kontext neu abgeleitet.
 
 ## Identität und Account-Lebenszyklus
 
