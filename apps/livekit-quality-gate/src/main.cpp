@@ -36,6 +36,7 @@ struct Arguments
     std::optional<std::string> switch_playout_device_id;
     std::optional<std::chrono::seconds> ptt_duration;
     std::optional<std::size_t> transport_ptt_cycles;
+    std::optional<std::chrono::seconds> transport_scope_cycle;
     std::optional<std::chrono::seconds> device_switch_after;
     std::chrono::seconds wait_for_peer{30};
     bool hold_connection{false};
@@ -49,7 +50,7 @@ struct Arguments
     bool expect_publish_denied{false};
 };
 
-void print_usage()
+void printUsage()
 {
     std::cerr << "Usage:\n"
               << "  hvc-livekit-quality-gate --list-audio-devices\n"
@@ -65,23 +66,24 @@ void print_usage()
               << "  hvc-livekit-quality-gate --url <ws-url>\n"
               << "    --team-token <jwt> --specialization-token <jwt> --group-token <jwt>\n"
               << "    [--transport-ptt-cycles <count>] [--recording-device <id>]\n"
+              << "    [--transport-scope-cycle <seconds>] [--expect-audio]\n"
               << "    [--expect-audio] [--playout-device <id>]\n"
               << "    (--wait-for-peer <seconds> | --hold <seconds>)\n";
 }
 
-[[nodiscard]] auto has_any_scope_token(const Arguments& arguments) -> bool
+[[nodiscard]] auto hasAnyScopeToken(const Arguments& arguments) -> bool
 {
     return !arguments.team_token.empty() || !arguments.specialization_token.empty() ||
            !arguments.group_token.empty();
 }
 
-[[nodiscard]] auto has_all_scope_tokens(const Arguments& arguments) -> bool
+[[nodiscard]] auto hasAllScopeTokens(const Arguments& arguments) -> bool
 {
     return !arguments.team_token.empty() && !arguments.specialization_token.empty() &&
            !arguments.group_token.empty();
 }
 
-auto parse_arguments(const int argc, char** argv) -> Arguments
+auto parseArguments(const int argc, char** argv) -> Arguments
 {
     Arguments arguments;
     for (int index = 1; index < argc; ++index)
@@ -134,6 +136,10 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         else if (option == "--transport-ptt-cycles" && index + 1 < argc)
         {
             arguments.transport_ptt_cycles = static_cast<std::size_t>(std::stoull(argv[++index]));
+        }
+        else if (option == "--transport-scope-cycle" && index + 1 < argc)
+        {
+            arguments.transport_scope_cycle = std::chrono::seconds{std::stoll(argv[++index])};
         }
         else if (option == "--wait-for-peer" && index + 1 < argc)
         {
@@ -194,11 +200,15 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     {
         throw std::invalid_argument{"transport PTT cycle count must be positive"};
     }
+    if (arguments.transport_scope_cycle.has_value() && arguments.transport_scope_cycle->count() < 1)
+    {
+        throw std::invalid_argument{"transport scope duration must be at least one second"};
+    }
     if (arguments.device_switch_after.has_value() && arguments.device_switch_after->count() < 1)
     {
         throw std::invalid_argument{"device switch delay must be at least one second"};
     }
-    const auto has_scope_tokens = has_any_scope_token(arguments);
+    const auto has_scope_tokens = hasAnyScopeToken(arguments);
     const auto has_device_switch = arguments.switch_recording_device_id.has_value() ||
                                    arguments.switch_playout_device_id.has_value();
     if (!arguments.list_audio_devices && arguments.url.empty())
@@ -209,7 +219,7 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     {
         throw std::invalid_argument{"missing required token"};
     }
-    if (has_scope_tokens && !has_all_scope_tokens(arguments))
+    if (has_scope_tokens && !hasAllScopeTokens(arguments))
     {
         throw std::invalid_argument{
             "the team, specialization, and group tokens must be provided together"};
@@ -219,9 +229,13 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         throw std::invalid_argument{
             "--token cannot be combined with the three scope-token options"};
     }
-    if (arguments.transport_ptt_cycles.has_value() && !has_all_scope_tokens(arguments))
+    if (arguments.transport_ptt_cycles.has_value() && !hasAllScopeTokens(arguments))
     {
         throw std::invalid_argument{"--transport-ptt-cycles requires all three scope tokens"};
+    }
+    if (arguments.transport_scope_cycle.has_value() && !hasAllScopeTokens(arguments))
+    {
+        throw std::invalid_argument{"--transport-scope-cycle requires all three scope tokens"};
     }
     if (has_scope_tokens && (arguments.publish_audio || arguments.ptt_duration.has_value()))
     {
@@ -249,6 +263,14 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
     {
         throw std::invalid_argument{
             "--transport-ptt-cycles cannot be combined with another room probe"};
+    }
+    if (arguments.transport_scope_cycle.has_value() &&
+        (arguments.transport_ptt_cycles.has_value() || arguments.expect_ptt ||
+         arguments.expect_reconnect || arguments.expect_no_audio || arguments.expect_empty_room ||
+         arguments.expect_publish_denied || arguments.hold_connection))
+    {
+        throw std::invalid_argument{
+            "--transport-scope-cycle cannot be combined with another room probe"};
     }
     if (arguments.publish_audio && arguments.ptt_duration.has_value())
     {
@@ -321,9 +343,11 @@ auto parse_arguments(const int argc, char** argv) -> Arguments
         throw std::invalid_argument{"initial and switched playout devices must differ"};
     }
     if (arguments.recording_device_id.has_value() && !arguments.publish_audio &&
-        !arguments.ptt_duration.has_value() && !arguments.transport_ptt_cycles.has_value())
+        !arguments.ptt_duration.has_value() && !arguments.transport_ptt_cycles.has_value() &&
+        (!arguments.transport_scope_cycle.has_value() || arguments.expect_audio))
     {
-        throw std::invalid_argument{"--recording-device requires --publish-audio or --ptt"};
+        throw std::invalid_argument{
+            "--recording-device requires an audio publication or transport PTT probe"};
     }
     if (arguments.playout_device_id.has_value() && !arguments.expect_audio && !arguments.expect_ptt)
     {
@@ -381,12 +405,12 @@ class ProbeObserver final : public livekit::RoomDelegate
 
     void onTrackUnsubscribed(livekit::Room&, const livekit::TrackUnsubscribedEvent& event) override
     {
-        observe_audio_stop(event.publication);
+        observeAudioStop(event.publication);
     }
 
     void onTrackUnpublished(livekit::Room&, const livekit::TrackUnpublishedEvent& event) override
     {
-        observe_audio_stop(event.publication);
+        observeAudioStop(event.publication);
     }
 
     void onReconnecting(livekit::Room&, const livekit::ReconnectingEvent&) override
@@ -442,7 +466,7 @@ class ProbeObserver final : public livekit::RoomDelegate
 
   private:
     template <typename Publication>
-    void observe_audio_stop(const std::shared_ptr<Publication>& publication)
+    void observeAudioStop(const std::shared_ptr<Publication>& publication)
     {
         if (publication == nullptr || publication->kind() != livekit::TrackKind::KIND_AUDIO)
         {
@@ -466,28 +490,30 @@ class ProbeObserver final : public livekit::RoomDelegate
     bool remote_audio_stopped_{false};
 };
 
-void print_audio_devices(const livekit::PlatformAudio& platform_audio)
+void printAudioDevices()
 {
-    const auto recording_devices = platform_audio.recordingDevices();
-    const auto playout_devices = platform_audio.playoutDevices();
+    hvc::livekit::LiveKitVoiceTransport transport;
+    const auto recording_devices = transport.recordingDevices();
+    const auto playout_devices = transport.playoutDevices();
 
     std::cout << "Recording devices (" << recording_devices.size() << "):\n";
-    for (const auto& device : recording_devices)
+    for (std::size_t index = 0; index < recording_devices.size(); ++index)
     {
-        std::cout << "  [" << device.index << "] " << device.name << "\n"
+        const auto& device = recording_devices[index];
+        std::cout << "  [" << index << "] " << device.display_name << "\n"
                   << "      id: " << device.id << '\n';
     }
 
     std::cout << "Playout devices (" << playout_devices.size() << "):\n";
-    for (const auto& device : playout_devices)
+    for (std::size_t index = 0; index < playout_devices.size(); ++index)
     {
-        std::cout << "  [" << device.index << "] " << device.name << "\n"
+        const auto& device = playout_devices[index];
+        std::cout << "  [" << index << "] " << device.display_name << "\n"
                   << "      id: " << device.id << '\n';
     }
 }
 
-void configure_audio_devices(const Arguments& arguments,
-                             const livekit::PlatformAudio& platform_audio)
+void configureAudioDevices(const Arguments& arguments, const livekit::PlatformAudio& platform_audio)
 {
     if (arguments.recording_device_id.has_value())
     {
@@ -501,14 +527,14 @@ void configure_audio_devices(const Arguments& arguments,
     }
 }
 
-[[nodiscard]] auto has_device_switch(const Arguments& arguments) -> bool
+[[nodiscard]] auto hasDeviceSwitch(const Arguments& arguments) -> bool
 {
     return arguments.switch_recording_device_id.has_value() ||
            arguments.switch_playout_device_id.has_value();
 }
 
-[[nodiscard]] auto switch_audio_devices(const Arguments& arguments,
-                                        livekit::PlatformAudio& platform_audio) -> bool
+[[nodiscard]] auto switchAudioDevices(const Arguments& arguments,
+                                      livekit::PlatformAudio& platform_audio) -> bool
 {
     auto playout_reconnect_required = false;
     if (arguments.switch_recording_device_id.has_value())
@@ -542,7 +568,7 @@ struct PublishedAudio
     std::shared_ptr<livekit::LocalAudioTrack> track;
 };
 
-auto publish_microphone(livekit::Room& room, const livekit::PlatformAudio& platform_audio)
+auto publishMicrophone(livekit::Room& room, const livekit::PlatformAudio& platform_audio)
     -> PublishedAudio
 {
     if (platform_audio.recordingDeviceCount() < 1)
@@ -578,7 +604,7 @@ auto publish_microphone(livekit::Room& room, const livekit::PlatformAudio& platf
     return published_audio;
 }
 
-void stop_microphone(livekit::Room& room, const PublishedAudio& published_audio)
+void stopMicrophone(livekit::Room& room, const PublishedAudio& published_audio)
 {
     const auto local_participant = room.localParticipant().lock();
     if (local_participant == nullptr)
@@ -602,7 +628,7 @@ void stop_microphone(livekit::Room& room, const PublishedAudio& published_audio)
     }
 }
 
-auto probe_succeeded(const Arguments& arguments, const ProbeObserver& observer) -> bool
+auto probeSucceeded(const Arguments& arguments, const ProbeObserver& observer) -> bool
 {
     if (arguments.expect_ptt)
     {
@@ -629,7 +655,7 @@ struct ScopeRoomProbe
     livekit::Room room;
 };
 
-[[nodiscard]] auto scope_probe_succeeded(const Arguments& arguments, const ScopeRoomProbe& probe)
+[[nodiscard]] auto scopeProbeSucceeded(const Arguments& arguments, const ScopeRoomProbe& probe)
     -> bool
 {
     const auto peer_present = !probe.room.remoteParticipants().empty();
@@ -640,25 +666,19 @@ struct ScopeRoomProbe
     return peer_present;
 }
 
-[[nodiscard]] auto all_scope_probes_succeeded(
+[[nodiscard]] auto allScopeProbesSucceeded(
     const Arguments& arguments, const std::vector<std::unique_ptr<ScopeRoomProbe>>& probes) -> bool
 {
-    for (const auto& probe : probes)
-    {
-        if (!scope_probe_succeeded(arguments, *probe))
-        {
-            return false;
-        }
-    }
-    return true;
+    return std::ranges::all_of(
+        probes, [&](const auto& probe) { return scopeProbeSucceeded(arguments, *probe); });
 }
 
-void print_scope_probe_failures(const Arguments& arguments,
-                                const std::vector<std::unique_ptr<ScopeRoomProbe>>& probes)
+void printScopeProbeFailures(const Arguments& arguments,
+                             const std::vector<std::unique_ptr<ScopeRoomProbe>>& probes)
 {
     for (const auto& probe : probes)
     {
-        if (scope_probe_succeeded(arguments, *probe))
+        if (scopeProbeSucceeded(arguments, *probe))
         {
             continue;
         }
@@ -680,6 +700,168 @@ void print_scope_probe_failures(const Arguments& arguments,
                       << "]: no second participant appeared before the timeout.\n";
         }
     }
+}
+
+class TransportScopeObserver final : public hvc::client::IVoiceClientObserver
+{
+  public:
+    void onVoiceStateChanged(hvc::client::VoiceTransportState) override
+    {
+    }
+
+    void onSpeakerStarted(hvc::domain::VoiceScope scope, const std::string&) override
+    {
+        started_[static_cast<std::size_t>(scope)].store(true);
+        std::cerr << "EVENT: remote audio started in scope " << static_cast<unsigned int>(scope)
+                  << ".\n";
+    }
+
+    void onSpeakerStopped(hvc::domain::VoiceScope scope, const std::string&) override
+    {
+        const auto index = static_cast<std::size_t>(scope);
+        if (started_[index].load())
+        {
+            stopped_[index].store(true);
+        }
+        std::cerr << "EVENT: remote audio stopped in scope " << static_cast<unsigned int>(scope)
+                  << ".\n";
+    }
+
+    void onVoiceError(hvc::client::VoiceTransportError, const std::string& message) override
+    {
+        const std::scoped_lock lock{error_mutex_};
+        error_ = message;
+        std::cerr << "EVENT: transport error: " << message << '\n';
+    }
+
+    [[nodiscard]] auto complete() const noexcept -> bool
+    {
+        for (std::size_t index = 0; index < started_.size(); ++index)
+        {
+            if (!started_[index].load() || !stopped_[index].load())
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] auto error() const -> std::string
+    {
+        const std::scoped_lock lock{error_mutex_};
+        return error_;
+    }
+
+  private:
+    std::array<std::atomic_bool, 3> started_{};
+    std::array<std::atomic_bool, 3> stopped_{};
+    mutable std::mutex error_mutex_;
+    std::string error_;
+};
+
+auto runTransportScopeCycle(const Arguments& arguments) -> int
+{
+    hvc::livekit::LiveKitVoiceTransport transport;
+    if (arguments.recording_device_id.has_value())
+    {
+        const auto selected = transport.selectRecordingDevice(*arguments.recording_device_id);
+        if (!selected)
+        {
+            throw std::runtime_error{"recording device selection failed: " + selected.message};
+        }
+    }
+    if (arguments.playout_device_id.has_value())
+    {
+        const auto selected = transport.selectPlayoutDevice(*arguments.playout_device_id);
+        if (!selected)
+        {
+            throw std::runtime_error{"playout device selection failed: " + selected.message};
+        }
+    }
+
+    hvc::client::VoiceClient client{transport};
+    TransportScopeObserver observer;
+    client.setObserver(&observer);
+    const std::array grants{
+        hvc::client::VoiceRoomGrant{hvc::domain::VoiceScope::team, arguments.url,
+                                    arguments.team_token},
+        hvc::client::VoiceRoomGrant{hvc::domain::VoiceScope::specialization, arguments.url,
+                                    arguments.specialization_token},
+        hvc::client::VoiceRoomGrant{hvc::domain::VoiceScope::group, arguments.url,
+                                    arguments.group_token},
+    };
+    const auto connected = client.connect(grants);
+    if (!connected)
+    {
+        throw std::runtime_error{"transport connection failed: " + connected.message};
+    }
+
+    const std::array scopes{
+        std::pair{hvc::domain::VoiceScope::team, std::string_view{"team"}},
+        std::pair{hvc::domain::VoiceScope::specialization, std::string_view{"specialization"}},
+        std::pair{hvc::domain::VoiceScope::group, std::string_view{"group"}},
+    };
+
+    if (arguments.expect_audio)
+    {
+        std::cout << "Receiver connected through the productive transport. Waiting up to "
+                  << arguments.wait_for_peer.count()
+                  << " seconds for start and unpublish in all three scopes...\n";
+        const auto deadline = std::chrono::steady_clock::now() + arguments.wait_for_peer;
+        while (!observer.complete() && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds{100});
+        }
+        const auto disconnected = client.disconnect();
+        client.setObserver(nullptr);
+        if (!disconnected)
+        {
+            throw std::runtime_error{"transport disconnect failed: " + disconnected.message};
+        }
+        if (!observer.complete())
+        {
+            const auto transport_error = observer.error();
+            throw std::runtime_error{
+                transport_error.empty()
+                    ? "not every scope produced a complete audio start/stop cycle"
+                    : "transport receiver failed: " + transport_error};
+        }
+        std::cout << "PASS: productive transport selectively played and stopped Team, "
+                     "Specialization, and Group audio.\n";
+        return EXIT_SUCCESS;
+    }
+
+    for (const auto& [scope, name] : scopes)
+    {
+        const auto pressed = client.pressPushToTalk(scope);
+        if (!pressed)
+        {
+            throw std::runtime_error{"PTT press failed for " + std::string{name} + ": " +
+                                     pressed.message};
+        }
+        std::cout << "Publishing microphone to " << name << " for "
+                  << arguments.transport_scope_cycle->count() << " seconds...\n";
+        std::this_thread::sleep_for(*arguments.transport_scope_cycle);
+        const auto released = client.releasePushToTalk();
+        if (!released ||
+            client.microphonePublicationState() != hvc::client::MicrophonePublicationState::idle ||
+            client.activeTransmissionScope().has_value())
+        {
+            throw std::runtime_error{"PTT release failed for " + std::string{name} + ": " +
+                                     released.message};
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{500});
+    }
+
+    const auto disconnected = client.disconnect();
+    client.setObserver(nullptr);
+    if (!disconnected)
+    {
+        throw std::runtime_error{"transport disconnect failed: " + disconnected.message};
+    }
+    std::cout << "PASS: productive transport published and unpublished the microphone in Team, "
+                 "Specialization, and Group.\n";
+    return EXIT_SUCCESS;
 }
 
 auto runTransportPttStress(const Arguments& arguments) -> int
@@ -770,7 +952,7 @@ auto runTransportPttStress(const Arguments& arguments) -> int
     return EXIT_SUCCESS;
 }
 
-auto run_three_scope_probe(const Arguments& arguments) -> int
+auto runThreeScopeProbe(const Arguments& arguments) -> int
 {
     const std::array scope_tokens{
         std::pair<std::string_view, const std::string*>{"team", &arguments.team_token},
@@ -807,15 +989,15 @@ auto run_three_scope_probe(const Arguments& arguments) -> int
     {
         const auto deadline = std::chrono::steady_clock::now() + arguments.wait_for_peer;
         while (std::chrono::steady_clock::now() < deadline &&
-               !all_scope_probes_succeeded(arguments, probes))
+               !allScopeProbesSucceeded(arguments, probes))
         {
             std::this_thread::sleep_for(std::chrono::milliseconds{100});
         }
     }
 
-    if (!all_scope_probes_succeeded(arguments, probes))
+    if (!allScopeProbesSucceeded(arguments, probes))
     {
-        print_scope_probe_failures(arguments, probes);
+        printScopeProbeFailures(arguments, probes);
         return EXIT_FAILURE;
     }
 
@@ -833,7 +1015,7 @@ auto run_three_scope_probe(const Arguments& arguments) -> int
     return EXIT_SUCCESS;
 }
 
-auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform_audio) -> int
+auto runRoomProbe(const Arguments& arguments, livekit::PlatformAudio* platform_audio) -> int
 {
     ProbeObserver observer;
     livekit::Room room;
@@ -857,7 +1039,7 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
         std::optional<PublishedAudio> attempted_audio;
         try
         {
-            attempted_audio = publish_microphone(room, *platform_audio);
+            attempted_audio = publishMicrophone(room, *platform_audio);
         }
         catch (const std::exception& error)
         {
@@ -901,7 +1083,7 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
         {
             throw std::logic_error{"platform audio was not initialized"};
         }
-        published_audio = publish_microphone(room, *platform_audio);
+        published_audio = publishMicrophone(room, *platform_audio);
     }
 
     if (arguments.ptt_duration.has_value())
@@ -909,7 +1091,7 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
         std::cout << "PTT pressed. Publishing for " << arguments.ptt_duration->count()
                   << " seconds...\n";
         std::this_thread::sleep_for(*arguments.ptt_duration);
-        stop_microphone(room, *published_audio);
+        stopMicrophone(room, *published_audio);
         published_audio.reset();
         std::cout << "PTT released. Microphone track unpublished; room remains connected.\n";
 
@@ -1007,7 +1189,7 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
     {
         std::cout << "Connected. Holding the room connection for "
                   << arguments.wait_for_peer.count() << " seconds...\n";
-        if (has_device_switch(arguments))
+        if (hasDeviceSwitch(arguments))
         {
             const auto switch_after =
                 arguments.device_switch_after.value_or(std::chrono::seconds{3});
@@ -1016,8 +1198,7 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
             {
                 throw std::logic_error{"platform audio was not initialized for device switching"};
             }
-            const auto playout_reconnect_required =
-                switch_audio_devices(arguments, *platform_audio);
+            const auto playout_reconnect_required = switchAudioDevices(arguments, *platform_audio);
             if (playout_reconnect_required)
             {
                 if (!room.disconnect())
@@ -1052,13 +1233,13 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
             return EXIT_FAILURE;
         }
         if (arguments.expect_audio &&
-            (has_device_switch(arguments) ? !observer.hasActiveOpusMicrophone()
-                                          : !observer.receivedOpusMicrophone()))
+            (hasDeviceSwitch(arguments) ? !observer.hasActiveOpusMicrophone()
+                                        : !observer.receivedOpusMicrophone()))
         {
             std::cerr << "FAIL: " << observer.subscribedAudioDescription() << ".\n";
             return EXIT_FAILURE;
         }
-        if (has_device_switch(arguments))
+        if (hasDeviceSwitch(arguments))
         {
             const auto local_participant = active_room->localParticipant().lock();
             if (active_room->connectionState() != livekit::ConnectionState::Connected ||
@@ -1096,15 +1277,21 @@ auto run_room_probe(const Arguments& arguments, livekit::PlatformAudio* platform
         return EXIT_SUCCESS;
     }
 
+    auto expected_peer_activity = std::string_view{"a second participant"};
+    if (arguments.expect_audio)
+    {
+        expected_peer_activity = "a remote Opus microphone track";
+    }
+    else if (arguments.expect_ptt)
+    {
+        expected_peer_activity = "a remote Opus PTT start and stop";
+    }
     std::cout << "Connected. Waiting up to " << arguments.wait_for_peer.count() << " seconds for "
-              << (arguments.expect_audio ? "a remote Opus microphone track"
-                  : arguments.expect_ptt ? "a remote Opus PTT start and stop"
-                                         : "a second participant")
-              << "...\n";
+              << expected_peer_activity << "...\n";
     const auto deadline = std::chrono::steady_clock::now() + arguments.wait_for_peer;
     while (std::chrono::steady_clock::now() < deadline)
     {
-        if (probe_succeeded(arguments, observer) ||
+        if (probeSucceeded(arguments, observer) ||
             (!arguments.expect_audio && !arguments.expect_ptt &&
              !room.remoteParticipants().empty()))
         {
@@ -1148,26 +1335,30 @@ auto main(const int argc, char** argv) -> int
 {
     try
     {
-        const auto arguments = parse_arguments(argc, argv);
+        std::cout << std::unitbuf;
+        const auto arguments = parseArguments(argc, argv);
         if (arguments.transport_ptt_cycles.has_value())
         {
             return runTransportPttStress(arguments);
         }
+        if (arguments.transport_scope_cycle.has_value())
+        {
+            return runTransportScopeCycle(arguments);
+        }
+        if (arguments.list_audio_devices)
+        {
+            printAudioDevices();
+            return EXIT_SUCCESS;
+        }
         const LiveKitLifetime livekit_lifetime;
 
         std::optional<livekit::PlatformAudio> platform_audio;
-        if (arguments.list_audio_devices || arguments.publish_audio || arguments.expect_audio ||
+        if (arguments.publish_audio || arguments.expect_audio ||
             arguments.ptt_duration.has_value() || arguments.expect_ptt ||
             arguments.expect_no_audio || arguments.expect_publish_denied)
         {
             platform_audio.emplace();
-            configure_audio_devices(arguments, *platform_audio);
-        }
-
-        if (arguments.list_audio_devices)
-        {
-            print_audio_devices(*platform_audio);
-            return EXIT_SUCCESS;
+            configureAudioDevices(arguments, *platform_audio);
         }
         if ((arguments.expect_audio || arguments.expect_no_audio) &&
             platform_audio->playoutDeviceCount() < 1)
@@ -1175,16 +1366,16 @@ auto main(const int argc, char** argv) -> int
             throw std::runtime_error{"no audio playout device is available"};
         }
 
-        if (has_all_scope_tokens(arguments))
+        if (hasAllScopeTokens(arguments))
         {
-            return run_three_scope_probe(arguments);
+            return runThreeScopeProbe(arguments);
         }
-        return run_room_probe(arguments, platform_audio ? &*platform_audio : nullptr);
+        return runRoomProbe(arguments, platform_audio ? &*platform_audio : nullptr);
     }
     catch (const std::exception& error)
     {
         std::cerr << error.what() << '\n';
-        print_usage();
+        printUsage();
         return EXIT_FAILURE;
     }
 }

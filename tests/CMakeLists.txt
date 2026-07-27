@@ -235,6 +235,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME load_driver.help COMMAND hvc_load_driver --help)
 
   find_package(Threads REQUIRED)
+  add_executable(hvc_client_linux_evdev_input_tests client/linux_evdev_input_tests.cpp)
+  target_link_libraries(
+    hvc_client_linux_evdev_input_tests
+    PRIVATE
+      hvc::client_linux_evdev_input
+      hvc::project_options
+  )
+  set_target_properties(
+    hvc_client_linux_evdev_input_tests
+    PROPERTIES CXX_EXTENSIONS OFF
+  )
+  add_test(NAME client.linux_evdev_input COMMAND hvc_client_linux_evdev_input_tests)
+
   add_executable(
     hvc_linux_http_server_tests
     control_plane/linux_http_server_tests.cpp

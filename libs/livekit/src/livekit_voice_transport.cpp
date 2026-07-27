@@ -1,3 +1,5 @@
+#include "audio_playout.hpp"
+
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -15,12 +17,8 @@
 #include <string_view>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
-#include <windows.h>
-#include <wrl/client.h>
-#include <xaudio2.h>
 
 namespace hvc::livekit
 {
@@ -28,7 +26,6 @@ namespace
 {
 constexpr std::uint64_t opus_bitrate = 64'000;
 constexpr std::size_t voice_scope_count = 3;
-constexpr std::uint32_t maximum_queued_audio_frames = 12;
 constexpr auto publication_confirmation_timeout = std::chrono::seconds{10};
 constexpr auto maximum_publication_settle_time = std::chrono::milliseconds{250};
 
@@ -94,292 +91,16 @@ class LiveKitLifetime final
     auto operator=(LiveKitLifetime&&) -> LiveKitLifetime& = delete;
 };
 
-[[nodiscard]] auto toAudioDevices(const std::vector<::livekit::AudioDeviceInfo>& devices)
-    -> std::vector<client::AudioDevice>
+struct PublishedAudio final
 {
-    std::vector<client::AudioDevice> result;
-    result.reserve(devices.size());
-    for (const auto& device : devices)
-    {
-        result.push_back(client::AudioDevice{device.id, device.name});
-    }
-    return result;
-}
-
-class XAudio2Engine final
-{
-  public:
-    XAudio2Engine()
-    {
-        IXAudio2* engine = nullptr;
-        if (FAILED(XAudio2Create(&engine)))
-        {
-            throw std::runtime_error{"XAudio2 initialization failed"};
-        }
-        engine_.Attach(engine);
-        if (FAILED(engine_->CreateMasteringVoice(&mastering_voice_)))
-        {
-            throw std::runtime_error{"XAudio2 mastering voice initialization failed"};
-        }
-    }
-
-    ~XAudio2Engine()
-    {
-        if (mastering_voice_ != nullptr)
-        {
-            mastering_voice_->DestroyVoice();
-        }
-    }
-
-    XAudio2Engine(const XAudio2Engine&) = delete;
-    auto operator=(const XAudio2Engine&) -> XAudio2Engine& = delete;
-    XAudio2Engine(XAudio2Engine&&) = delete;
-    auto operator=(XAudio2Engine&&) -> XAudio2Engine& = delete;
-
-    [[nodiscard]] auto engine() const noexcept -> IXAudio2*
-    {
-        return engine_.Get();
-    }
-
-    void selectDevice(const std::string& device_id)
-    {
-        const auto required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, device_id.data(),
-                                                  static_cast<int>(device_id.size()), nullptr, 0);
-        if (required <= 0)
-        {
-            throw std::runtime_error{"XAudio2 playout device ID is not valid UTF-8"};
-        }
-        std::wstring wide_id(static_cast<std::size_t>(required), L'\0');
-        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, device_id.data(),
-                                static_cast<int>(device_id.size()), wide_id.data(),
-                                required) != required)
-        {
-            throw std::runtime_error{"XAudio2 playout device ID conversion failed"};
-        }
-
-        if (mastering_voice_ != nullptr)
-        {
-            mastering_voice_->DestroyVoice();
-            mastering_voice_ = nullptr;
-        }
-        if (FAILED(engine_->CreateMasteringVoice(&mastering_voice_, XAUDIO2_DEFAULT_CHANNELS,
-                                                 XAUDIO2_DEFAULT_SAMPLERATE, 0, wide_id.c_str())))
-        {
-            static_cast<void>(engine_->CreateMasteringVoice(&mastering_voice_));
-            throw std::runtime_error{"XAudio2 playout device switch failed"};
-        }
-    }
-
-  private:
-    Microsoft::WRL::ComPtr<IXAudio2> engine_;
-    IXAudio2MasteringVoice* mastering_voice_{nullptr};
+    domain::VoiceScope scope{domain::VoiceScope::team};
+    std::uint64_t generation{0};
+    std::shared_ptr<detail::MicrophoneSource> source;
+    std::shared_ptr<::livekit::LocalAudioTrack> track;
+    std::string publication_id;
+    std::chrono::steady_clock::time_point safe_unpublish_at{};
 };
 
-class RemoteTrackPlayout final : private IXAudio2VoiceCallback
-{
-  public:
-    RemoteTrackPlayout(XAudio2Engine& engine, const std::shared_ptr<::livekit::Track>& track,
-                       float gain)
-        : engine_(engine), stream_(::livekit::AudioStream::fromTrack(
-                               track, ::livekit::AudioStream::Options{8, {}, {}})),
-          gain_(gain)
-    {
-        if (stream_ == nullptr)
-        {
-            throw std::runtime_error{"LiveKit remote audio stream initialization failed"};
-        }
-        thread_ = std::jthread{[this](std::stop_token stop_token) { run(stop_token); }};
-    }
-
-    ~RemoteTrackPlayout()
-    {
-        stream_->close();
-        thread_.request_stop();
-        if (thread_.joinable())
-        {
-            thread_.join();
-        }
-        const std::scoped_lock lock{voice_mutex_};
-        if (voice_ != nullptr)
-        {
-            static_cast<void>(voice_->Stop());
-            static_cast<void>(voice_->FlushSourceBuffers());
-            voice_->DestroyVoice();
-            voice_ = nullptr;
-        }
-        releasePendingBuffers();
-    }
-
-    RemoteTrackPlayout(const RemoteTrackPlayout&) = delete;
-    auto operator=(const RemoteTrackPlayout&) -> RemoteTrackPlayout& = delete;
-    RemoteTrackPlayout(RemoteTrackPlayout&&) = delete;
-    auto operator=(RemoteTrackPlayout&&) -> RemoteTrackPlayout& = delete;
-
-    void setGain(float gain) noexcept
-    {
-        gain_.store(gain);
-        const std::scoped_lock lock{voice_mutex_};
-        if (voice_ != nullptr)
-        {
-            static_cast<void>(voice_->SetVolume(gain));
-        }
-    }
-
-  private:
-    void run(std::stop_token stop_token) noexcept
-    {
-        try
-        {
-            ::livekit::AudioFrameEvent event;
-            while (!stop_token.stop_requested() && stream_->read(event))
-            {
-                if (event.frame.totalSamples() == 0 || event.frame.sampleRate() <= 0 ||
-                    event.frame.numChannels() <= 0 ||
-                    !ensureVoice(event.frame.sampleRate(), event.frame.numChannels()))
-                {
-                    continue;
-                }
-                waitForQueue(stop_token);
-                if (stop_token.stop_requested())
-                {
-                    return;
-                }
-
-                auto samples = std::make_unique<std::vector<std::int16_t>>(event.frame.data());
-                auto* samples_pointer = samples.get();
-                {
-                    const std::scoped_lock lock{buffers_mutex_};
-                    pending_buffers_.insert(samples_pointer);
-                }
-                samples_pointer = samples.release();
-                XAUDIO2_BUFFER buffer{};
-                buffer.AudioBytes =
-                    static_cast<UINT32>(samples_pointer->size() * sizeof(std::int16_t));
-                buffer.pAudioData = reinterpret_cast<const BYTE*>(samples_pointer->data());
-                buffer.pContext = samples_pointer;
-
-                const std::scoped_lock lock{voice_mutex_};
-                if (voice_ == nullptr || FAILED(voice_->SubmitSourceBuffer(&buffer)))
-                {
-                    releaseBuffer(samples_pointer);
-                    return;
-                }
-            }
-        }
-        catch (...)
-        {
-            // Audio callback threads must never terminate the process on allocation/SDK failures.
-            stream_->close();
-        }
-    }
-
-    [[nodiscard]] auto ensureVoice(int sample_rate, int channels) noexcept -> bool
-    {
-        const std::scoped_lock lock{voice_mutex_};
-        if (voice_ != nullptr)
-        {
-            return sample_rate_ == sample_rate && channels_ == channels;
-        }
-
-        WAVEFORMATEX format{};
-        format.wFormatTag = WAVE_FORMAT_PCM;
-        format.nChannels = static_cast<WORD>(channels);
-        format.nSamplesPerSec = static_cast<DWORD>(sample_rate);
-        format.wBitsPerSample = 16;
-        format.nBlockAlign = static_cast<WORD>(format.nChannels * (format.wBitsPerSample / 8U));
-        format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
-
-        if (FAILED(engine_.engine()->CreateSourceVoice(&voice_, &format, 0,
-                                                       XAUDIO2_DEFAULT_FREQ_RATIO, this)) ||
-            voice_ == nullptr)
-        {
-            return false;
-        }
-        sample_rate_ = sample_rate;
-        channels_ = channels;
-        if (FAILED(voice_->SetVolume(gain_.load())) || FAILED(voice_->Start()))
-        {
-            voice_->DestroyVoice();
-            voice_ = nullptr;
-            return false;
-        }
-        return true;
-    }
-
-    void waitForQueue(std::stop_token stop_token) const noexcept
-    {
-        while (!stop_token.stop_requested())
-        {
-            XAUDIO2_VOICE_STATE state{};
-            {
-                const std::scoped_lock lock{voice_mutex_};
-                if (voice_ == nullptr)
-                {
-                    return;
-                }
-                voice_->GetState(&state, XAUDIO2_VOICE_NOSAMPLESPLAYED);
-            }
-            if (state.BuffersQueued < maximum_queued_audio_frames)
-            {
-                return;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds{2});
-        }
-    }
-
-    void STDMETHODCALLTYPE OnVoiceProcessingPassStart(UINT32) noexcept override
-    {
-    }
-    void STDMETHODCALLTYPE OnVoiceProcessingPassEnd() noexcept override
-    {
-    }
-    void STDMETHODCALLTYPE OnStreamEnd() noexcept override
-    {
-    }
-    void STDMETHODCALLTYPE OnBufferStart(void*) noexcept override
-    {
-    }
-    void STDMETHODCALLTYPE OnBufferEnd(void* context) noexcept override
-    {
-        releaseBuffer(static_cast<std::vector<std::int16_t>*>(context));
-    }
-    void STDMETHODCALLTYPE OnLoopEnd(void*) noexcept override
-    {
-    }
-    void STDMETHODCALLTYPE OnVoiceError(void*, HRESULT) noexcept override
-    {
-    }
-
-    void releaseBuffer(std::vector<std::int16_t>* buffer) noexcept
-    {
-        const std::scoped_lock lock{buffers_mutex_};
-        if (pending_buffers_.erase(buffer) > 0)
-        {
-            delete buffer;
-        }
-    }
-
-    void releasePendingBuffers() noexcept
-    {
-        const std::scoped_lock lock{buffers_mutex_};
-        for (auto* buffer : pending_buffers_)
-        {
-            delete buffer;
-        }
-        pending_buffers_.clear();
-    }
-
-    XAudio2Engine& engine_;
-    std::shared_ptr<::livekit::AudioStream> stream_;
-    std::atomic<float> gain_{1.0F};
-    std::jthread thread_;
-    mutable std::mutex voice_mutex_;
-    IXAudio2SourceVoice* voice_{nullptr};
-    int sample_rate_{0};
-    int channels_{0};
-    std::mutex buffers_mutex_;
-    std::unordered_set<std::vector<std::int16_t>*> pending_buffers_;
-};
 } // namespace
 
 class LiveKitVoiceTransport::Impl final
@@ -413,8 +134,12 @@ class LiveKitVoiceTransport::Impl final
         void onTrackSubscribed(::livekit::Room&,
                                const ::livekit::TrackSubscribedEvent& event) override
         {
-            if (isOpusMicrophone(event.publication))
+            if (isVoiceTrack(event.track))
             {
+                // LiveKit may report subscription before publication. Registering the
+                // publication first makes admission independent of callback ordering.
+                owner_.remoteAudioAvailable(scope_, event.publication,
+                                            participantIdentity(event.participant));
                 owner_.remoteAudioStarted(scope_, event.publication->sid(), event.track,
                                           participantIdentity(event.participant));
             }
@@ -423,7 +148,7 @@ class LiveKitVoiceTransport::Impl final
         void onTrackPublished(::livekit::Room&,
                               const ::livekit::TrackPublishedEvent& event) override
         {
-            if (isOpusMicrophone(event.publication))
+            if (isVoicePublication(event.publication))
             {
                 owner_.remoteAudioAvailable(scope_, event.publication,
                                             participantIdentity(event.participant));
@@ -433,7 +158,7 @@ class LiveKitVoiceTransport::Impl final
         void onTrackUnsubscribed(::livekit::Room&,
                                  const ::livekit::TrackUnsubscribedEvent& event) override
         {
-            if (isOpusMicrophone(event.publication))
+            if (isVoiceTrack(event.track))
             {
                 owner_.remoteAudioStopped(scope_, event.publication->sid(),
                                           participantIdentity(event.participant));
@@ -443,7 +168,7 @@ class LiveKitVoiceTransport::Impl final
         void onTrackUnpublished(::livekit::Room&,
                                 const ::livekit::TrackUnpublishedEvent& event) override
         {
-            if (isOpusMicrophone(event.publication))
+            if (isVoicePublication(event.publication))
             {
                 owner_.remoteAudioStopped(scope_, event.publication->sid(),
                                           participantIdentity(event.participant));
@@ -469,13 +194,23 @@ class LiveKitVoiceTransport::Impl final
 
       private:
         template <typename Publication>
-        [[nodiscard]] static auto isOpusMicrophone(const std::shared_ptr<Publication>& publication)
+        [[nodiscard]] static auto isVoicePublication(
+            const std::shared_ptr<Publication>& publication) -> bool
+        {
+            // The Linux SDK can deliver callbacks before kind/source metadata is
+            // populated. HVC rooms carry voice only; a positively identified video
+            // publication is the only publication rejected at this stage.
+            return publication != nullptr &&
+                   publication->kind() != ::livekit::TrackKind::KIND_VIDEO;
+        }
+
+        [[nodiscard]] static auto isVoiceTrack(const std::shared_ptr<::livekit::Track>& track)
             -> bool
         {
-            return publication != nullptr &&
-                   publication->kind() == ::livekit::TrackKind::KIND_AUDIO &&
-                   publication->mimeType() == "audio/opus" &&
-                   publication->source() == ::livekit::TrackSource::SOURCE_MICROPHONE;
+            // Track kind can still be unknown in the subscription callback. The
+            // room is voice-only and createPlayout validates the media stream;
+            // only a positively identified video track is rejected here.
+            return track != nullptr && track->kind() != ::livekit::TrackKind::KIND_VIDEO;
         }
 
         template <typename Participant>
@@ -509,30 +244,28 @@ class LiveKitVoiceTransport::Impl final
         stopping
     };
 
-    struct PublishedAudio final
-    {
-        domain::VoiceScope scope{domain::VoiceScope::team};
-        std::uint64_t generation{0};
-        std::shared_ptr<::livekit::PlatformAudioSource> source;
-        std::shared_ptr<::livekit::LocalAudioTrack> track;
-        std::string publication_id;
-        std::chrono::steady_clock::time_point safe_unpublish_at{};
-    };
-
     struct RemoteAudioPublication final
     {
         std::string publication_id;
         std::shared_ptr<::livekit::RemoteTrackPublication> publication;
         bool admitted{false};
         float gain{0.0F};
-        std::shared_ptr<RemoteTrackPlayout> playout;
+        std::shared_ptr<detail::RemoteAudioPlayout> playout;
     };
 
     Impl()
     {
         try
         {
-            playout_engine_ = std::make_unique<XAudio2Engine>();
+            microphone_backend_ = detail::createMicrophoneBackend(platform_audio_);
+        }
+        catch (const std::exception& error)
+        {
+            microphone_initialization_error_ = error.what();
+        }
+        try
+        {
+            playout_backend_ = detail::createAudioPlayoutBackend(platform_audio_);
         }
         catch (const std::exception& error)
         {
@@ -573,7 +306,10 @@ class LiveKitVoiceTransport::Impl final
             {
                 auto scope_room = std::make_shared<ScopeRoom>(*this, grant);
                 ::livekit::RoomOptions room_options;
-                room_options.auto_subscribe = false;
+                // LiveKit C++ 1.4.0 does not surface TrackPublished while manual
+                // subscription is active. Auto-subscribe guarantees the first track
+                // callback; VoiceClient admission immediately keeps or removes it.
+                room_options.auto_subscribe = true;
                 if (!scope_room->room.connect(grant.url, grant.token, room_options))
                 {
                     static_cast<void>(disconnectRooms(new_rooms));
@@ -662,7 +398,14 @@ class LiveKitVoiceTransport::Impl final
 
         try
         {
-            if (platform_audio_.recordingDeviceCount() < 1)
+            if (microphone_backend_ == nullptr)
+            {
+                resetFailedPublication(generation);
+                return failure(client::VoiceTransportError::audio_device_unavailable,
+                               publicationDiagnostic(scope, generation, "starting", "idle",
+                                                     microphone_initialization_error_));
+            }
+            if (microphone_backend_->devices().empty())
             {
                 resetFailedPublication(generation);
                 return failure(client::VoiceTransportError::audio_device_unavailable,
@@ -670,17 +413,11 @@ class LiveKitVoiceTransport::Impl final
                                                      "no microphone is available"));
             }
 
-            ::livekit::PlatformAudioOptions audio_options;
-            audio_options.echo_cancellation = true;
-            audio_options.noise_suppression = true;
-            audio_options.auto_gain_control = true;
-
             PublishedAudio published_audio;
             published_audio.scope = scope;
             published_audio.generation = generation;
-            published_audio.source = platform_audio_.createAudioSource(audio_options);
-            published_audio.track = ::livekit::LocalAudioTrack::createLocalAudioTrack(
-                "hvc-microphone", published_audio.source);
+            published_audio.source = microphone_backend_->createSource();
+            published_audio.track = published_audio.source->track();
 
             const auto local_participant = scope_room->room.localParticipant().lock();
             if (local_participant == nullptr)
@@ -830,7 +567,13 @@ class LiveKitVoiceTransport::Impl final
     {
         try
         {
-            return toAudioDevices(platform_audio_.recordingDevices());
+            if (microphone_backend_ == nullptr)
+            {
+                notifyError(client::VoiceTransportError::audio_device_unavailable,
+                            microphone_initialization_error_);
+                return {};
+            }
+            return microphone_backend_->devices();
         }
         catch (const std::exception& error)
         {
@@ -843,7 +586,13 @@ class LiveKitVoiceTransport::Impl final
     {
         try
         {
-            return toAudioDevices(platform_audio_.playoutDevices());
+            if (playout_backend_ == nullptr)
+            {
+                notifyError(client::VoiceTransportError::audio_device_unavailable,
+                            playout_initialization_error_);
+                return {};
+            }
+            return playout_backend_->devices();
         }
         catch (const std::exception& error)
         {
@@ -860,9 +609,23 @@ class LiveKitVoiceTransport::Impl final
             return failure(client::VoiceTransportError::invalid_argument,
                            "recording device ID must not be empty");
         }
+        if (activeTransmissionScope().has_value())
+        {
+            const auto stopped = stopMicrophoneIfActive();
+            if (!stopped)
+            {
+                return failure(client::VoiceTransportError::audio_device_switch_failed,
+                               "active microphone could not be stopped before device selection");
+            }
+        }
         try
         {
-            platform_audio_.setRecordingDevice(device_id);
+            if (microphone_backend_ == nullptr)
+            {
+                return failure(client::VoiceTransportError::audio_device_unavailable,
+                               microphone_initialization_error_);
+            }
+            microphone_backend_->selectDevice(device_id);
             return client::VoiceTransportResult::success();
         }
         catch (const std::exception& error)
@@ -885,13 +648,12 @@ class LiveKitVoiceTransport::Impl final
         }
         try
         {
-            platform_audio_.setPlayoutDevice(device_id);
-            if (playout_engine_ == nullptr)
+            if (playout_backend_ == nullptr)
             {
                 return failure(client::VoiceTransportError::audio_device_unavailable,
                                playout_initialization_error_);
             }
-            playout_engine_->selectDevice(device_id);
+            playout_backend_->selectDevice(device_id);
             return client::VoiceTransportResult::success();
         }
         catch (const std::exception& error)
@@ -910,7 +672,7 @@ class LiveKitVoiceTransport::Impl final
                 client::VoiceTransportError::invalid_argument,
                 "remote audio policy requires a participant ID and gain from zero to one");
         }
-        if (admitted && playout_engine_ == nullptr)
+        if (admitted && playout_backend_ == nullptr)
         {
             return failure(client::VoiceTransportError::audio_device_unavailable,
                            playout_initialization_error_);
@@ -1030,7 +792,7 @@ class LiveKitVoiceTransport::Impl final
     void participantDisconnected(domain::VoiceScope scope, const std::string& participant_id)
     {
         clearParticipantAudio(scope, participant_id);
-        std::shared_ptr<RemoteTrackPlayout> playout;
+        std::shared_ptr<detail::RemoteAudioPlayout> playout;
         auto publication_removed = false;
         {
             const std::scoped_lock lock{remote_publications_mutex_};
@@ -1071,14 +833,14 @@ class LiveKitVoiceTransport::Impl final
             }
             try
             {
-                if (playout_engine_ == nullptr)
+                if (playout_backend_ == nullptr)
                 {
                     notifyError(client::VoiceTransportError::audio_device_unavailable,
                                 playout_initialization_error_);
                     return;
                 }
-                publication->second.playout = std::make_shared<RemoteTrackPlayout>(
-                    *playout_engine_, track, publication->second.gain);
+                publication->second.playout =
+                    playout_backend_->createPlayout(track, publication->second.gain);
             }
             catch (const std::exception& error)
             {
@@ -1108,14 +870,31 @@ class LiveKitVoiceTransport::Impl final
                               const std::shared_ptr<::livekit::RemoteTrackPublication>& publication,
                               const std::string& participant_id)
     {
+        auto notify_available = false;
         {
             const std::scoped_lock lock{remote_publications_mutex_};
-            remote_publications_[scopeIndex(scope)].insert_or_assign(
-                participant_id,
-                RemoteAudioPublication{publication->sid(), publication, false, 0.0F, nullptr});
+            auto& publications = remote_publications_[scopeIndex(scope)];
+            const auto existing = publications.find(participant_id);
+            if (existing == publications.end())
+            {
+                publications.emplace(
+                    participant_id,
+                    RemoteAudioPublication{publication->sid(), publication, false, 0.0F, nullptr});
+                notify_available = true;
+            }
+            else if (existing->second.publication_id == publication->sid())
+            {
+                existing->second.publication = publication;
+            }
+            else
+            {
+                existing->second =
+                    RemoteAudioPublication{publication->sid(), publication, false, 0.0F, nullptr};
+                notify_available = true;
+            }
         }
         auto* const observer = observer_.load();
-        if (observer != nullptr)
+        if (notify_available && observer != nullptr)
         {
             observer->onRemoteAudioAvailable(scope, participant_id);
         }
@@ -1124,7 +903,7 @@ class LiveKitVoiceTransport::Impl final
     void remoteAudioUnavailable(domain::VoiceScope scope, const std::string& publication_id,
                                 const std::string& participant_id)
     {
-        std::shared_ptr<RemoteTrackPlayout> playout;
+        std::shared_ptr<detail::RemoteAudioPlayout> playout;
         {
             const std::scoped_lock lock{remote_publications_mutex_};
             auto& publications = remote_publications_[scopeIndex(scope)];
@@ -1147,7 +926,7 @@ class LiveKitVoiceTransport::Impl final
     void remoteAudioStopped(domain::VoiceScope scope, const std::string& publication_id,
                             const std::string& participant_id)
     {
-        std::shared_ptr<RemoteTrackPlayout> playout;
+        std::shared_ptr<detail::RemoteAudioPlayout> playout;
         {
             const std::scoped_lock lock{remote_audio_mutex_};
             if (remote_audio_tracks_[scopeIndex(scope)].erase(publication_id) == 0)
@@ -1468,12 +1247,11 @@ class LiveKitVoiceTransport::Impl final
 
         try
         {
-            platform_audio_.setPlayoutDevice(device_id);
-            if (playout_engine_ == nullptr)
+            if (playout_backend_ == nullptr)
             {
                 throw std::runtime_error{playout_initialization_error_};
             }
-            playout_engine_->selectDevice(device_id);
+            playout_backend_->selectDevice(device_id);
         }
         catch (const std::exception& error)
         {
@@ -1590,9 +1368,11 @@ class LiveKitVoiceTransport::Impl final
     }
 
     LiveKitLifetime lifetime_;
-    std::unique_ptr<XAudio2Engine> playout_engine_;
-    std::string playout_initialization_error_;
     ::livekit::PlatformAudio platform_audio_;
+    std::unique_ptr<detail::MicrophoneBackend> microphone_backend_;
+    std::string microphone_initialization_error_;
+    std::unique_ptr<detail::AudioPlayoutBackend> playout_backend_;
+    std::string playout_initialization_error_;
     std::atomic<client::IVoiceTransportObserver*> observer_{nullptr};
     std::atomic<client::VoiceTransportState> state_{client::VoiceTransportState::disconnected};
     std::atomic<bool> controlled_reconnect_{false};

@@ -95,6 +95,16 @@
       }
     },
     {
+      "name": "linux-kde-quality-gate",
+      "displayName": "Debian 13/KDE - LiveKit, PipeWire, portal, and input quality gate",
+      "inherits": "linux-gcc-release",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "HVC_BUILD_DEBIAN_QUALITY_GATE": "ON",
+        "HVC_BUILD_LIVEKIT_QUALITY_GATE": "ON"
+      }
+    },
+    {
       "name": "linux-clang-analysis",
       "displayName": "Debian/Linux Clang - Static analysis",
       "inherits": "base",
@@ -179,6 +189,11 @@
       "jobs": 0
     },
     {
+      "name": "linux-kde-quality-gate",
+      "configurePreset": "linux-kde-quality-gate",
+      "jobs": 0
+    },
+    {
       "name": "linux-clang-analysis",
       "configurePreset": "linux-clang-analysis",
       "jobs": 0
@@ -227,6 +242,13 @@
     {
       "name": "linux-gcc-release",
       "configurePreset": "linux-gcc-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-kde-quality-gate",
+      "configurePreset": "linux-kde-quality-gate",
       "output": {
         "outputOnFailure": true
       }
@@ -344,6 +366,23 @@
         {
           "type": "test",
           "name": "linux-gcc-release"
+        }
+      ]
+    },
+    {
+      "name": "linux-kde-quality-gate",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "linux-kde-quality-gate"
+        },
+        {
+          "type": "build",
+          "name": "linux-kde-quality-gate"
+        },
+        {
+          "type": "test",
+          "name": "linux-kde-quality-gate"
         }
       ]
     },

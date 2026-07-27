@@ -24,6 +24,11 @@ option(
   "Build the Windows App SDK / WinUI 3 client"
   OFF
 )
+option(
+  HVC_BUILD_DEBIAN_QUALITY_GATE
+  "Build the Qt/PipeWire/portal/HID Debian desktop quality-gate prototype"
+  OFF
+)
 option(HVC_BUILD_EXAMPLES "Build documented SDK integration examples" "${PROJECT_IS_TOP_LEVEL}")
 option(HVC_BUILD_DOCUMENTATION "Build the C++ API documentation with Doxygen" OFF)
 
@@ -64,6 +69,9 @@ add_subdirectory(apps/control-plane)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_subdirectory(apps/load-driver)
+  if(HVC_BUILD_DEBIAN_QUALITY_GATE)
+    add_subdirectory(apps/debian-quality-gate)
+  endif()
 endif()
 
 if(HVC_BUILD_EXAMPLES)

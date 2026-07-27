@@ -21,7 +21,8 @@ Communication**.
 | [input-system.md](input-system.md) | Windows-Raw-Input, PTT-Aktionen und Bindings |
 | [windows-client.md](windows-client.md) | WinUI-Clientschale, Anmeldung und Bereitschaftszustand |
 | [presentation-architecture.md](presentation-architecture.md) | Gemeinsame Präsentationszustände, Fensterbesitz und Threading |
-| [debian-kde-client.md](debian-kde-client.md) | Geplanter nativer Debian-Client für KDE Plasma und Wayland |
+| [debian-kde-client.md](debian-kde-client.md) | Qualifizierte Grundlage des nativen Debian-Clients für KDE Plasma und Wayland |
+| [kde-00-quality-gate.md](kde-00-quality-gate.md) | LiveKit-, PipeWire-, Wayland-, Eingabe- und Qt-6-Plattformnachweis |
 | [server-runtime.md](server-runtime.md) | Mehrbenutzerbetrieb, LiveKit-Control, Jobs, HTTP und Container |
 | [load-and-security-tests.md](load-and-security-tests.md) | Reproduzierbarer 200-Spieler-Last-, Ausfall- und Sicherheitsnachweis |
 | [development.md](development.md) | Entwicklungsumgebung, Build und Qualitätsregeln |

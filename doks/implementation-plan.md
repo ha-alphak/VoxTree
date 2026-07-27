@@ -1,7 +1,7 @@
 # Umsetzungsplan vor der Auslieferungsreife
 
 **Projekt:** Hierarchical Voice Communication<br>
-**Stand:** 26. Juli 2026<br>
+**Stand:** 27. Juli 2026<br>
 **Geltungsbereich:** Offene Arbeiten nach dem bestandenen Abschnitt 10.2<br>
 **Ziel:** Produktreife Windows- und Debian/KDE-Client-, Verwaltungs- und
 Diagnosepfade als Voraussetzung für Abschnitt 10.3
@@ -9,6 +9,8 @@ Diagnosepfade als Voraussetzung für Abschnitt 10.3
 Der abgeschlossene ursprüngliche Plan ist unter
 [archive/implementation-plan-through-10.2-2026-07-26.md](archive/implementation-plan-through-10.2-2026-07-26.md)
 archiviert. Dieses Dokument enthält bewusst nur noch offene Arbeiten.
+Das abgeschlossene technische Debian-/KDE-Paket KDE-00 ist in
+[kde-00-quality-gate.md](kde-00-quality-gate.md) nachgewiesen.
 
 ## Arbeitsregeln
 
@@ -51,40 +53,6 @@ Beitreten zu einem LiveKit-Raum anbieten und keine clientseitige
 Empfängerauswahl erzeugen.
 
 ## Phase 0: Stabilisieren und Verträge festlegen
-
-### KDE-00 – Technisches Debian-/KDE-Quality-Gate
-
-Vor dem Bau der Qt-Oberfläche:
-
-1. Das gepinnte native LiveKit-C++-SDK reproduzierbar für Debian 13 x64 bauen
-   oder eine kompatible Linux-Distribution des SDK festlegen.
-2. Verbindung zu Team-, Specialization- und Group-Räumen, Opus-Publikation,
-   selektiven Empfang und Unpublish mit zwei nativen Linux-Prozessen
-   nachweisen.
-3. Den Windows-spezifischen XAudio2-Teil hinter eine Audio-Backend-Grenze
-   verschieben und Aufnahme/Wiedergabe über PipeWire prüfen.
-4. Geräteauflistung, Default-Gerätewechsel, Hot-Plugging, AEC,
-   Noise Suppression und AGC bewerten.
-5. Press/Release für globale Tastatur-PTT-Aktionen unter KDE/Wayland über das
-   XDG-Global-Shortcuts-Portal nachweisen.
-6. Gamepad-, Joystick- und HOTAS-Buttons über einen unprivilegierten
-   Linux-HID-Adapter samt Hot-Plugging prüfen.
-7. Reconnect, Serverneustart, Rechteentzug und kurze PTT-Impulse mit denselben
-   Sicherheitsinvarianten wie unter Windows testen.
-8. Einen kleinen Qt-6-/KDE-Prototyp einschließlich CMake- und
-   Lokalisierungsintegration bauen.
-
-Abnahme:
-
-- zwei Debian/KDE-Prozesse senden und empfangen echtes Mikrofon-Audio in allen
-  autorisierten Scopes;
-- mindestens ein globales PTT-Binding funktioniert bei Fremdfokus unter
-  Wayland mit expliziter Desktopfreigabe;
-- Gerätewechsel und Reconnect setzen keine Transmission automatisch fort;
-- fehlende Portal- oder HID-Fähigkeiten werden als Capability erkannt und
-  verständlich angezeigt;
-- das Ergebnis entscheidet verbindlich über Qt Widgets oder Qt Quick/Kirigami,
-  Linux-Audioadapter und Paketformat.
 
 ### IAM-01 – Identität und Account-Lebenszyklus
 
