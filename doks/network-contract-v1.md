@@ -17,14 +17,15 @@ hinter einem TLS-terminierenden Reverse Proxy vorgesehen. Ohne einen solchen
 Proxy darf er nur an Loopback oder ein anderweitig geschütztes internes Netz
 gebunden werden.
 
-Die mit API-01 verbindlich festgelegten, noch in DIR-01, IAM-02, IAM-03,
-ADM-01 und MOD-01 zu implementierenden v1-Erweiterungen für Directory,
+Die mit API-01 verbindlich festgelegten v1-Erweiterungen für Directory,
 Presence, persistente Accounts und Verwaltung stehen in
 [`network-contract-v1-api-01.md`](network-contract-v1-api-01.md). Die
 zugehörige Abnahmespezifikation steht in
 [`api-01-contract-tests.md`](api-01-contract-tests.md). Beide Dokumente
 erweitern diesen Vertrag additiv; die nachfolgend beschriebenen bestehenden
-Voice-Endpunkte und Felder bleiben unverändert.
+Voice-Endpunkte und Felder bleiben unverändert. Directory und Presence sind
+seit DIR-01 implementiert; Identity- und Verwaltungsressourcen folgen in ihren
+jeweiligen Arbeitspaketen.
 
 ## Gemeinsame Regeln
 

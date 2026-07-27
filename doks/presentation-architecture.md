@@ -39,7 +39,8 @@ nicht spezifizierte Netzwerkverträge vorwegzunehmen. Der aktuelle
 `ClientSession`-Vertrag meldet nur hörbare Sprecher. Ein Teilnehmer kann deshalb
 bereits getrennte `audio_available`- und `speaking`-Zustände besitzen, wird in
 der heutigen Hauptansicht aber nur während `speaking` angezeigt. Vollständige
-Presence folgt mit DIR-01 und DIR-02.
+Die serverseitigen Directory-/Presence-Daten sind mit DIR-01 verfügbar; ihre
+clientseitige Transportzusammenführung folgt mit DIR-02.
 
 Membership-Updates werden nur mit strikt höherer Version angewendet. Beim
 Reconnect wird ein bestätigter Sendescope sofort gelöscht und nie automatisch

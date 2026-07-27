@@ -62,9 +62,14 @@ class Socket final
 class Handler final : public network::IHttpRequestHandler
 {
   public:
-    [[nodiscard]] auto handle(const network::HttpRequest&, hvc::application::TimePoint)
+    [[nodiscard]] auto handle(const network::HttpRequest& request, hvc::application::TimePoint)
         -> network::HttpResponse override
     {
+        if (request.target == "/not-modified")
+        {
+            return network::HttpResponse{
+                304, {{"cache-control", "no-store"}, {"etag", "\"directory-42\""}}, {}};
+        }
         return network::HttpResponse{
             200, {{"content-type", "application/json"}}, R"({"status":"ready"})"};
     }
@@ -234,6 +239,29 @@ auto main() -> int
         std::fputs("Linux HTTP server did not become ready.\n", stderr);
         return 1;
     }
+
+    Socket conditional{connectTo(port)};
+    constexpr std::string_view conditional_request{
+        "GET /not-modified HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"};
+    if (conditional.get() < 0 || !sendBytes(conditional.get(), conditional_request))
+    {
+        conditional.close();
+        static_cast<void>(stopServer(process));
+        std::fputs("Could not submit the conditional HTTP request.\n", stderr);
+        return 1;
+    }
+    const auto conditional_response = readResponse(conditional.get());
+    if (conditional_response.find("HTTP/1.1 304 Not Modified\r\n") == std::string::npos ||
+        conditional_response.find("content-length: 0\r\n") == std::string::npos ||
+        !conditional_response.ends_with("\r\n\r\n"))
+    {
+        conditional.close();
+        static_cast<void>(stopServer(process));
+        std::fputs("The conditional request did not receive a valid empty HTTP 304 response.\n",
+                   stderr);
+        return 1;
+    }
+    conditional.close();
 
     Socket worker{connectTo(port)};
     if (worker.get() < 0 ||

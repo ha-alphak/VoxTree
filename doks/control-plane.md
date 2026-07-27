@@ -144,6 +144,32 @@ gestartet wurde. Membership- und Rechteänderungen mit höherer Version sowie da
 Entfernen einer Session beenden betroffene Transmissionen atomar und liefern
 den jeweiligen Abbruchgrund zurück.
 
+## Directory und Presence
+
+`DirectoryApplicationService` erzeugt aus dem autoritativen Snapshot
+ausschließlich die Group des authentifizierten Spielers. Der Snapshot enthält
+die sichtbaren Group-, Specialization- und Team-Knoten, höchstens 200
+Teilnehmer, deren stabile `PlayerId`, Anzeigenamen, Primär-Teams sowie nur
+explizit freigegebene Rollen. Account-, Login-, Credential-, Geräte-,
+Session-, IP-, Audit- und interne Berechtigungsdaten gehören nicht zu diesem
+Modell.
+
+Directory-Versionen werden pro sichtbarer Group geführt. Eine Änderung an
+einer fremden Group oder an ausschließlich privaten Rollen verändert weder
+Inhalt noch Version der eigenen Sicht. Profil- und öffentliche
+Rollenprojektion sind vom Account- und Rollenmodell getrennt; bis IAM-02
+liefert der dateibasierte Migrationsmodus ohne Profilprojektion die stabile
+`PlayerId` als Anzeigename und veröffentlicht keine Rolle.
+
+`ITransportPresenceProvider` ist eine getrennte Anwendungsschnittstelle. Sie
+liefert intern die Anzahl verbundener autorisierter Voice-Scopes, während der
+Directory-Vertrag nur `online` oder `offline` offenlegt. Der Dienst fasst damit
+mehrere Scope-Verbindungen eines Spielers zusammen, führt eine begrenzte
+gruppenlokale Änderungshistorie und liefert entweder einen vollständigen
+Snapshot oder die neueste sichtbare Änderung je Spieler. Ungültige,
+zukünftige oder nicht mehr vorgehaltene Delta-Basen verlangen einen neuen
+Snapshot.
+
 ## Lebenszyklusregeln
 
 `TransmissionApplicationService` wendet konfigurierbare, frameworkunabhängige
@@ -201,9 +227,10 @@ nicht die interne Empfängerliste.
 ## HTTP-v1-Adapter
 
 `ControlPlaneHttpAdapter` stellt Session-Erstellung, Abfrage der eigenen
-Membership, kurzlebige Voice-Grants sowie Start, Ende und Moderationsabbruch
-von Transmissionen unter `/api/v1` bereit. Die vollständige Feld- und
-Fehlerdefinition steht in `network-contract-v1.md`.
+Membership, gruppenbegrenztes Directory und Presence, kurzlebige Voice-Grants
+sowie Start, Ende und Moderationsabbruch von Transmissionen unter `/api/v1`
+bereit. Die vollständige Feld- und Fehlerdefinition steht in
+`network-contract-v1.md` und `network-contract-v1-api-01.md`.
 
 Die Authentifizierungsgrenze ist explizit: Nur die Session-Erstellung akzeptiert
 ein externes Bearer-Credential und übergibt es an `ISessionAuthenticator`.

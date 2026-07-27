@@ -2,8 +2,9 @@
 
 **Arbeitspaket:** API-01  
 **Stand:** 27. Juli 2026  
-**Status:** Verbindlicher Vertrag; Laufzeitimplementierung folgt in DIR-01,
-IAM-02, IAM-03, ADM-01 und MOD-01  
+**Status:** Verbindlicher Vertrag; Directory und Presence sind mit DIR-01
+implementiert, die übrige Laufzeitimplementierung folgt in IAM-02, IAM-03,
+ADM-01 und MOD-01
 **Basis-Pfad:** `/api/v1`  
 **Medientyp:** `application/json; charset=utf-8`
 

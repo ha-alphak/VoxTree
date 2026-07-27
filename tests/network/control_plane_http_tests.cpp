@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -7,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -105,6 +107,37 @@ class Authenticator final : public application::ISessionAuthenticator
         std::make_shared<const domain::MembershipSnapshot>(42, std::move(hierarchy),
                                                            std::move(memberships)),
         std::make_shared<const domain::RolePolicy>(std::move(permissions))};
+}
+
+[[nodiscard]] auto makeLargeContext() -> application::AuthoritativeMembershipContext
+{
+    const auto base = makeContext();
+    const auto& hierarchy = base.snapshot->hierarchy();
+    std::vector<domain::VoiceMembership> memberships;
+    memberships.reserve(201);
+    memberships.emplace_back(domain::PlayerId{"sender"}, domain::GroupId{"group-1"},
+                             domain::SpecializationId{"specialization-1"}, domain::TeamId{"team-1"},
+                             std::vector<domain::RoleId>{});
+    for (std::size_t index = 0; index < 200; ++index)
+    {
+        memberships.emplace_back(domain::PlayerId{"listener-" + std::to_string(index)},
+                                 domain::GroupId{"group-1"},
+                                 domain::SpecializationId{"specialization-1"},
+                                 domain::TeamId{"team-1"}, std::vector<domain::RoleId>{});
+    }
+    return {
+        std::make_shared<const domain::MembershipSnapshot>(
+            43,
+            domain::Hierarchy{
+                hierarchy.id(),
+                std::vector<domain::ScopeDefinition>{hierarchy.scopes().begin(),
+                                                     hierarchy.scopes().end()},
+                std::vector<domain::Group>{hierarchy.groups().begin(), hierarchy.groups().end()},
+                std::vector<domain::Specialization>{hierarchy.specializations().begin(),
+                                                    hierarchy.specializations().end()},
+                std::vector<domain::Team>{hierarchy.teams().begin(), hierarchy.teams().end()}},
+            std::move(memberships)),
+        base.role_policy};
 }
 
 class MembershipProvider final : public application::IMutableAuthoritativeMembershipRepository
@@ -212,10 +245,24 @@ class VoiceGrantIssuer final : public application::IVoiceGrantIssuer
     }
 };
 
+class TransportPresenceProvider final : public application::ITransportPresenceProvider
+{
+  public:
+    [[nodiscard]] auto connectedScopeCount(const domain::PlayerId& player_id) const
+        -> std::size_t override
+    {
+        const auto count = connected_scopes.find(player_id);
+        return count == connected_scopes.end() ? 0 : count->second;
+    }
+
+    std::map<domain::PlayerId, std::size_t> connected_scopes{
+        {domain::PlayerId{"sender"}, 3}, {domain::PlayerId{"private-listener"}, 0}};
+};
+
 struct Fixture final
 {
     Fixture()
-        : runtime{sessions, memberships},
+        : runtime{sessions, memberships}, directory{runtime, transport_presence},
           service{runtime,
                   runtime,
                   ids,
@@ -233,8 +280,14 @@ struct Fixture final
                   &membership_administrator,
                   &grant_authorization,
                   &grant_issuer,
-                  "ws://voice.example"}
+                  "ws://voice.example",
+                  &directory}
     {
+        static_cast<void>(directory.upsertProfile({domain::PlayerId{"sender"}, "Alex", 42}));
+        static_cast<void>(
+            directory.upsertProfile({domain::PlayerId{"private-listener"}, "Pat", 42}));
+        static_cast<void>(
+            directory.replacePublicRoles(42, {{domain::RoleId{"speaker"}, "Speaker", 42}}));
     }
 
     [[nodiscard]] static auto request(std::string method, std::string target,
@@ -254,6 +307,8 @@ struct Fixture final
     Authenticator authenticator;
     MembershipProvider memberships;
     application::InMemoryControlPlaneStore runtime;
+    TransportPresenceProvider transport_presence;
+    application::DirectoryApplicationService directory;
     TransmissionIds ids;
     RateLimiter rate_limiter;
     ModerationAuthorizer moderation;
@@ -325,6 +380,97 @@ struct Fixture final
            response.body.find("\"membership_version\":42") != std::string::npos &&
            response.body.find("\"player_id\":\"sender\"") != std::string::npos &&
            response.body.find("private-listener") == std::string::npos;
+}
+
+[[nodiscard]] auto exposesPrivacyLimitedDirectoryWithConditionalRequests() -> bool
+{
+    Fixture fixture;
+    static_cast<void>(fixture.adapter.handle(
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
+    const auto response = fixture.adapter.handle(
+        Fixture::request("GET", "/api/v1/directory", "Session session-1"), fixture.now);
+    if (response.status_code != 200 || !response.headers.contains("etag"))
+    {
+        return false;
+    }
+
+    auto conditional = Fixture::request("GET", "/api/v1/directory", "Session session-1");
+    conditional.headers.emplace("if-none-match", response.headers.at("etag"));
+    const auto not_modified = fixture.adapter.handle(conditional, fixture.now);
+
+    constexpr std::array forbidden_fields{"account_id", "login_name", "credential", "device_id",
+                                          "session_id", "ip_address", "audit_event"};
+    return response.body.find("\"group_id\":\"group-1\"") != std::string::npos &&
+           response.body.find("\"display_name\":\"Alex\"") != std::string::npos &&
+           response.body.find("\"primary_team_id\":\"team-1\"") != std::string::npos &&
+           response.body.find("\"role_id\":\"speaker\"") != std::string::npos &&
+           response.body.find("\"public_role_ids\":[\"speaker\"]") != std::string::npos &&
+           response.body.find("\"listener\"") == std::string::npos &&
+           std::ranges::none_of(forbidden_fields,
+                                [&response](std::string_view field) {
+                                    return response.body.find(field) != std::string::npos;
+                                }) &&
+           not_modified.status_code == 304 && not_modified.body.empty() &&
+           not_modified.headers.at("etag") == response.headers.at("etag") &&
+           !not_modified.headers.contains("content-type");
+}
+
+[[nodiscard]] auto returnsAggregatedPresenceSnapshotsAndDeltas() -> bool
+{
+    Fixture fixture;
+    static_cast<void>(fixture.adapter.handle(
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
+    const auto snapshot = fixture.adapter.handle(
+        Fixture::request("GET", "/api/v1/directory/presence", "Session session-1"), fixture.now);
+    fixture.transport_presence.connected_scopes.insert_or_assign(
+        domain::PlayerId{"private-listener"}, 2);
+    const auto delta = fixture.adapter.handle(
+        Fixture::request("GET", "/api/v1/directory/presence?after_version=1", "Session session-1"),
+        fixture.now);
+    const auto invalid = fixture.adapter.handle(
+        Fixture::request("GET", "/api/v1/directory/presence?after_version=0", "Session session-1"),
+        fixture.now);
+    const auto unexpected_query = fixture.adapter.handle(
+        Fixture::request("GET", "/api/v1/directory/presence?group_id=other", "Session session-1"),
+        fixture.now);
+    const auto foreign_group = fixture.adapter.handle(
+        Fixture::request("GET", "/api/v1/directory?group_id=other", "Session session-1"),
+        fixture.now);
+
+    return snapshot.status_code == 200 &&
+           snapshot.body.find("\"mode\":\"snapshot\"") != std::string::npos &&
+           snapshot.body.find("\"player_id\":\"sender\",\"state\":\"online\"") !=
+               std::string::npos &&
+           snapshot.body.find("\"player_id\":\"private-listener\",\"state\":\"offline\"") !=
+               std::string::npos &&
+           snapshot.body.find("last_seen") == std::string::npos &&
+           snapshot.body.find("device") == std::string::npos &&
+           snapshot.body.find("speaking") == std::string::npos &&
+           snapshot.headers.at("retry-after") == "1" && delta.status_code == 200 &&
+           delta.body.find("\"mode\":\"delta\"") != std::string::npos &&
+           delta.body.find("\"player_id\":\"private-listener\",\"state\":\"online\"") !=
+               std::string::npos &&
+           invalid.status_code == 409 &&
+           invalid.body.find("presence_snapshot_required") != std::string::npos &&
+           unexpected_query.status_code == 400 &&
+           unexpected_query.body.find("invalid_query") != std::string::npos &&
+           foreign_group.status_code == 404 &&
+           foreign_group.body.find("route_not_found") != std::string::npos;
+}
+
+[[nodiscard]] auto rejectsOversizedDirectoriesWithoutPartialData() -> bool
+{
+    Fixture fixture;
+    static_cast<void>(fixture.adapter.handle(
+        Fixture::request("POST", "/api/v1/sessions", "Bearer external-secret"), fixture.now));
+    fixture.memberships.context = makeLargeContext();
+    const auto response = fixture.adapter.handle(
+        Fixture::request("GET", "/api/v1/directory", "Session session-1"), fixture.now);
+
+    return response.status_code == 413 &&
+           response.body.find("directory_limit_exceeded") != std::string::npos &&
+           response.body.find("listener-") == std::string::npos &&
+           !response.headers.contains("etag");
 }
 
 [[nodiscard]] auto startsAndEndsWithoutExposingRecipientIds() -> bool
@@ -439,6 +585,10 @@ auto main() noexcept -> int
             Check{"session device binding", &rejectsAValidSessionFromAnotherDevice},
             Check{"readiness", &reportsReadinessWithoutAuthentication},
             Check{"membership privacy", &exposesOnlyTheAuthenticatedPlayersMembership},
+            Check{"directory privacy and caching",
+                  &exposesPrivacyLimitedDirectoryWithConditionalRequests},
+            Check{"presence snapshot and delta", &returnsAggregatedPresenceSnapshotsAndDeltas},
+            Check{"directory participant limit", &rejectsOversizedDirectoriesWithoutPartialData},
             Check{"transmission lifecycle", &startsAndEndsWithoutExposingRecipientIds},
             Check{"voice grant issuance", &issuesOnlyServerAuthorizedVoiceGrants},
             Check{"administrative membership authorization",

@@ -2,7 +2,8 @@
 
 **Stand:** 27. Juli 2026  
 **Bezug:** [Directory-, Identity- und Verwaltungsvertrag v1](network-contract-v1-api-01.md)  
-**Status:** Verbindliche Abnahmespezifikation für DIR-01, IAM-02, IAM-03,
+**Status:** Verbindliche Abnahmespezifikation; `API-DIR-*` und `API-PRE-*`
+sind mit DIR-01 implementiert, die übrigen Fälle folgen in IAM-02, IAM-03,
 ADM-01 und MOD-01
 
 ## Testregeln
@@ -47,6 +48,17 @@ Zugriffssession, Erneuerung, Reauthentifizierung und Voice-Grant.
 | API-PRE-04 | Zu alte, null oder zukünftige Version | `409 presence_snapshot_required` |
 | API-PRE-05 | Fremde Group ändert Presence | weder Eintrag noch erkennbare Versionsänderung in der eigenen Sicht |
 | API-PRE-06 | Presence-JSON wird auf Historie geprüft | kein Last-Seen, keine Geräteanzahl, keine IP und kein Sprechzustand |
+
+### Umsetzungsnachweis DIR-01
+
+Die Fälle `API-DIR-01` bis `API-DIR-08` und `API-PRE-01` bis `API-PRE-06`
+laufen auf Anwendungsschicht und am HTTP-Adapter. Der Anwendungstest prüft
+Gruppenisolation, öffentliche Rollenfilterung, sichtbare Versionsänderungen,
+das 200-Teilnehmer-Limit, zusammengeführte Mehrfachpräsenz, Deltas sowie das
+begrenzte Deltafenster. Der HTTP-Test prüft zusätzlich JSON-Datenminimierung,
+Query-Manipulation, `ETag`/`304`, Snapshot-/Delta-Formen und stabile
+Fehlercodes. Der Linux-Listenertest sichert die leere HTTP-304-Antwort
+einschließlich Statuszeile und `Content-Length: 0`.
 
 ## Öffentliche Authentifizierung und Secrets
 

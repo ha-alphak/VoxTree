@@ -91,6 +91,25 @@ lädt passende Grants, ersetzt die Raumverbindungen und Empfangsabonnements und
 aktualisiert die Membership-Anzeige. Damit liegt der normale Pfad unter dem
 Ein-Sekunden-Ziel.
 
+## Directory- und Presence-Laufzeit
+
+Der Server-Entry-Point verdrahtet `DirectoryApplicationService` mit dem
+autoritativen Membership-Store. `GET /api/v1/directory` leitet die Group
+ausschließlich aus der Session-Membership ab und unterstützt starke
+`"directory-<version>"`-ETags. `GET /api/v1/directory/presence` liefert
+vollständige Snapshots oder begrenzte Deltas und gibt mit `Retry-After: 1` das
+Pollingintervall an.
+
+Die Laufzeit implementiert die getrennte Presence-Grenze derzeit über den
+autoritativen Membership-Wert `connected`, der eine verbundene Voice-Session
+repräsentiert. Die Anwendungsschnittstelle arbeitet bereits mit einer
+aggregierten Scope-Anzahl und veröffentlicht nur `online`/`offline`; ein
+späterer LiveKit-Ereignisadapter kann diese Quelle ersetzen, ohne Directory-,
+HTTP- oder Clientvertrag zu ändern. Im dateibasierten Identity-Modus fehlen
+persistente öffentliche Profile bis IAM-02. Daher wird als datensparsamer,
+stabiler Anzeigename die `PlayerId` verwendet und ohne expliziten
+Freigabekatalog keine Rolle veröffentlicht.
+
 ## HTTP, Readiness und Metriken
 
 Der Linux-Listener verwendet einen festen Worker-Pool und eine begrenzte

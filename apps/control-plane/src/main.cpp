@@ -428,6 +428,31 @@ class MembershipRoleAuthorizer final : public application::ITransmissionModerati
     const application::IAuthoritativeMembershipProvider& memberships_;
 };
 
+class MembershipTransportPresenceProvider final : public application::ITransportPresenceProvider
+{
+  public:
+    explicit MembershipTransportPresenceProvider(
+        const application::IAuthoritativeMembershipProvider& memberships)
+        : memberships_(memberships)
+    {
+    }
+
+    [[nodiscard]] auto connectedScopeCount(const domain::PlayerId& player_id) const
+        -> std::size_t override
+    {
+        const auto context = memberships_.currentFor(player_id);
+        if (!context)
+        {
+            return 0;
+        }
+        const auto* membership = context->snapshot->find(player_id);
+        return membership != nullptr && membership->connected ? 1 : 0;
+    }
+
+  private:
+    const application::IAuthoritativeMembershipProvider& memberships_;
+};
+
 class RuntimeHttpHandler final : public network::IHttpRequestHandler
 {
   public:
@@ -574,6 +599,8 @@ auto main(int argument_count, char** arguments) -> int
             application::TransmissionRateLimit{10, std::chrono::seconds{1}},
             application::TransmissionRateLimit{20, std::chrono::seconds{1}}};
         MembershipRoleAuthorizer deployment_authorization{runtime_store};
+        MembershipTransportPresenceProvider transport_presence{runtime_store};
+        application::DirectoryApplicationService directory{runtime_store, transport_presence};
         application::TransmissionApplicationService transmissions{
             runtime_store,
             runtime_store,
@@ -600,7 +627,8 @@ auto main(int argument_count, char** arguments) -> int
                                              &deployment_authorization,
                                              voice_grants ? &*voice_grants : nullptr,
                                              voice_grant_issuer ? &*voice_grant_issuer : nullptr,
-                                             options.livekit_url};
+                                             options.livekit_url,
+                                             &directory};
         RuntimeHttpHandler runtime_api{api, runtime_store, repository,
                                        publication_controller ? &*publication_controller : nullptr};
         std::jthread maintenance{[&](std::stop_token stop_token) {

@@ -66,19 +66,6 @@ Empfängerauswahl erzeugen.
 
 ## Phase 1: Verzeichnis, Presence und neue Hauptansichten
 
-### DIR-01 – Serververzeichnis
-
-1. Die in API-01 festgelegte datenschutzbegrenzte
-   Directory-Anwendungsschnittstelle implementieren.
-2. Die sichtbare Group-Hierarchie und Teilnehmer mit stabiler ID,
-   Anzeigename, Primär-Team und freigegebenen Rollen liefern.
-3. Änderungen versionieren und inkrementell oder durch begrenztes Polling
-   aktualisieren.
-4. Transportpräsenz getrennt von Membership modellieren.
-5. Die Fälle `API-DIR-*` und `API-PRE-*` aus
-   [api-01-contract-tests.md](api-01-contract-tests.md) auf Anwendungs- und
-   HTTP-Ebene ausführbar machen.
-
 ### DIR-02 – Client-Präsenz
 
 1. Remote-Participant-Connect/-Disconnect als strukturierte Clientereignisse

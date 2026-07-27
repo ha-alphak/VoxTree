@@ -5,6 +5,7 @@ target_sources(
   hvc_application
   PRIVATE
     src/control_plane.cpp
+    src/directory.cpp
     src/identity.cpp
     src/in_memory_control_plane.cpp
   PUBLIC
@@ -13,6 +14,7 @@ target_sources(
     BASE_DIRS include
     FILES
       include/hvc/application/control_plane.hpp
+      include/hvc/application/directory.hpp
       include/hvc/application/identity.hpp
       include/hvc/application/in_memory_control_plane.hpp
       include/hvc/application/transmission_audit.hpp

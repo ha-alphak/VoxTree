@@ -153,6 +153,8 @@ class AddressInfo final
         return "OK";
     case 201:
         return "Created";
+    case 304:
+        return "Not Modified";
     case 400:
         return "Bad Request";
     case 401:

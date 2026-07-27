@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hvc/application/control_plane.hpp>
+#include <hvc/application/directory.hpp>
 #include <map>
 #include <string>
 #include <string_view>
@@ -88,6 +89,7 @@ class ControlPlaneHttpAdapter final : public IHttpRequestHandler
      * @param voice_grants Optional voice-grant authorization service.
      * @param voice_grant_issuer Optional signed room-grant issuer.
      * @param voice_server_url Voice service URL included with issued grants.
+     * @param directory Optional privacy-limited directory application service.
      * @throws std::invalid_argument Thrown when optional collaborators are
      *     supplied in an inconsistent combination.
      */
@@ -100,7 +102,8 @@ class ControlPlaneHttpAdapter final : public IHttpRequestHandler
         const application::IAdministrativeMembershipAuthorizer* administration_authorizer = nullptr,
         const application::VoiceGrantAuthorizationService* voice_grants = nullptr,
         const application::IVoiceGrantIssuer* voice_grant_issuer = nullptr,
-        std::string voice_server_url = {});
+        std::string voice_server_url = {},
+        application::DirectoryApplicationService* directory = nullptr);
 
     /// @copydoc IHttpRequestHandler::handle
     [[nodiscard]] auto handle(const HttpRequest& request, application::TimePoint now)
@@ -116,5 +119,6 @@ class ControlPlaneHttpAdapter final : public IHttpRequestHandler
     const application::VoiceGrantAuthorizationService* voice_grants_;
     const application::IVoiceGrantIssuer* voice_grant_issuer_;
     std::string voice_server_url_;
+    application::DirectoryApplicationService* directory_;
 };
 } // namespace hvc::network

@@ -586,6 +586,209 @@ void skipWhitespace(std::string_view input, std::size_t& position) noexcept
     return RequestSession{std::move(*session), device_id, correlation_id};
 }
 
+[[nodiscard]] auto directoryNodeTypeName(application::DirectoryNodeType type) noexcept
+    -> std::string_view
+{
+    switch (type)
+    {
+    case application::DirectoryNodeType::group:
+        return "group";
+    case application::DirectoryNodeType::specialization:
+        return "specialization";
+    case application::DirectoryNodeType::team:
+        return "team";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] auto presenceStateName(application::DirectoryPresenceState state) noexcept
+    -> std::string_view
+{
+    switch (state)
+    {
+    case application::DirectoryPresenceState::offline:
+        return "offline";
+    case application::DirectoryPresenceState::online:
+        return "online";
+    }
+    return "offline";
+}
+
+[[nodiscard]] auto parsePresenceVersion(std::string_view target)
+    -> std::variant<std::optional<std::uint64_t>, HttpResponse>
+{
+    constexpr std::string_view path{"/api/v1/directory/presence"};
+    if (target == path)
+    {
+        return std::optional<std::uint64_t>{};
+    }
+    if (!target.starts_with(path) || target.size() <= path.size() || target[path.size()] != '?')
+    {
+        return errorResponse(404, "route_not_found", "No v1 route matches the request.");
+    }
+
+    const auto query = target.substr(path.size() + 1);
+    constexpr std::string_view prefix{"after_version="};
+    if (!query.starts_with(prefix) || query.size() == prefix.size() ||
+        query.find('&') != std::string_view::npos)
+    {
+        return errorResponse(400, "invalid_query",
+                             "Presence accepts only one after_version parameter.");
+    }
+    const auto value = query.substr(prefix.size());
+    std::uint64_t version{};
+    const auto conversion = std::from_chars(value.data(), value.data() + value.size(), version);
+    if (conversion.ec != std::errc{} || conversion.ptr != value.data() + value.size())
+    {
+        return errorResponse(400, "invalid_query", "after_version must be an unsigned integer.");
+    }
+    return std::optional<std::uint64_t>{version};
+}
+
+[[nodiscard]] auto directoryResponse(const HttpRequest& request, const domain::PlayerId& actor,
+                                     application::DirectoryApplicationService& directory)
+    -> HttpResponse
+{
+    const auto result = directory.directoryFor(actor);
+    if (!result.successful())
+    {
+        switch (*result.error)
+        {
+        case application::DirectoryReadError::directory_unavailable:
+            return errorResponse(404, "directory_unavailable", "No active directory is available.");
+        case application::DirectoryReadError::directory_limit_exceeded:
+            return errorResponse(413, "directory_limit_exceeded",
+                                 "The visible directory exceeds the participant limit.");
+        }
+    }
+
+    const auto& snapshot = *result.snapshot;
+    const auto etag = "\"directory-" + std::to_string(snapshot.version) + '"';
+    if (request.header("if-none-match") == etag)
+    {
+        return HttpResponse{304,
+                            {{"cache-control", "no-store"},
+                             {"etag", etag},
+                             {"x-hvc-api-version", std::string{control_plane_api_version}}},
+                            {}};
+    }
+
+    std::string body{"{\"api_version\":\"v1\",\"directory_version\":"};
+    body += std::to_string(snapshot.version);
+    body += ",\"group_id\":";
+    body += escapeJson(snapshot.group_id.value());
+    body += ",\"nodes\":[";
+    for (std::size_t index = 0; index < snapshot.nodes.size(); ++index)
+    {
+        if (index != 0)
+        {
+            body.push_back(',');
+        }
+        const auto& node = snapshot.nodes[index];
+        body += "{\"node_id\":";
+        body += escapeJson(node.node_id);
+        body += ",\"node_type\":";
+        body += escapeJson(directoryNodeTypeName(node.node_type));
+        body += ",\"parent_node_id\":";
+        body += node.parent_node_id ? escapeJson(*node.parent_node_id) : "null";
+        body += ",\"display_name\":";
+        body += escapeJson(node.display_name);
+        body += ",\"sort_index\":";
+        body += std::to_string(node.sort_index);
+        body.push_back('}');
+    }
+    body += "],\"public_roles\":[";
+    for (std::size_t index = 0; index < snapshot.public_roles.size(); ++index)
+    {
+        if (index != 0)
+        {
+            body.push_back(',');
+        }
+        const auto& role = snapshot.public_roles[index];
+        body += "{\"role_id\":";
+        body += escapeJson(role.role_id.value());
+        body += ",\"display_name\":";
+        body += escapeJson(role.display_name);
+        body.push_back('}');
+    }
+    body += "],\"participants\":[";
+    for (std::size_t index = 0; index < snapshot.participants.size(); ++index)
+    {
+        if (index != 0)
+        {
+            body.push_back(',');
+        }
+        const auto& participant = snapshot.participants[index];
+        body += "{\"player_id\":";
+        body += escapeJson(participant.player_id.value());
+        body += ",\"display_name\":";
+        body += escapeJson(participant.display_name);
+        body += ",\"primary_team_id\":";
+        body += escapeJson(participant.primary_team_id.value());
+        body += ",\"public_role_ids\":[";
+        for (std::size_t role_index = 0; role_index < participant.public_role_ids.size();
+             ++role_index)
+        {
+            if (role_index != 0)
+            {
+                body.push_back(',');
+            }
+            body += escapeJson(participant.public_role_ids[role_index].value());
+        }
+        body += "]}";
+    }
+    body += "]}";
+    auto response = jsonResponse(200, std::move(body));
+    response.headers.emplace("etag", etag);
+    return response;
+}
+
+[[nodiscard]] auto presenceResponse(const domain::PlayerId& actor,
+                                    std::optional<std::uint64_t> after_version,
+                                    application::DirectoryApplicationService& directory,
+                                    application::TimePoint now) -> HttpResponse
+{
+    const auto result = directory.presenceFor(actor, after_version, now);
+    if (!result.successful())
+    {
+        switch (*result.error)
+        {
+        case application::DirectoryPresenceReadError::directory_unavailable:
+            return errorResponse(404, "directory_unavailable", "No active directory is available.");
+        case application::DirectoryPresenceReadError::snapshot_required:
+            return errorResponse(409, "presence_snapshot_required",
+                                 "A complete presence snapshot is required.");
+        }
+    }
+
+    const auto& snapshot = *result.snapshot;
+    std::string body{"{\"api_version\":\"v1\",\"presence_version\":"};
+    body += std::to_string(snapshot.version);
+    body += ",\"mode\":";
+    body += escapeJson(snapshot.mode == application::DirectoryPresenceMode::snapshot ? "snapshot"
+                                                                                     : "delta");
+    body += ",\"observed_at_unix_ms\":";
+    body += std::to_string(unixMilliseconds(snapshot.observed_at));
+    body += ",\"entries\":[";
+    for (std::size_t index = 0; index < snapshot.entries.size(); ++index)
+    {
+        if (index != 0)
+        {
+            body.push_back(',');
+        }
+        const auto& entry = snapshot.entries[index];
+        body += "{\"player_id\":";
+        body += escapeJson(entry.player_id.value());
+        body += ",\"state\":";
+        body += escapeJson(presenceStateName(entry.state));
+        body.push_back('}');
+    }
+    body += "]}";
+    auto response = jsonResponse(200, std::move(body));
+    response.headers.emplace("retry-after", "1");
+    return response;
+}
+
 [[nodiscard]] auto sessionResponse(const application::AuthenticatedSession& session) -> HttpResponse
 {
     return jsonResponse(
@@ -921,11 +1124,13 @@ ControlPlaneHttpAdapter::ControlPlaneHttpAdapter(
     application::IAdministrativeMembershipService* administration,
     const application::IAdministrativeMembershipAuthorizer* administration_authorizer,
     const application::VoiceGrantAuthorizationService* voice_grants,
-    const application::IVoiceGrantIssuer* voice_grant_issuer, std::string voice_server_url)
+    const application::IVoiceGrantIssuer* voice_grant_issuer, std::string voice_server_url,
+    application::DirectoryApplicationService* directory)
     : authenticator_(authenticator), sessions_(sessions), memberships_(memberships),
       transmissions_(transmissions), administration_(administration),
       administration_authorizer_(administration_authorizer), voice_grants_(voice_grants),
-      voice_grant_issuer_(voice_grant_issuer), voice_server_url_(std::move(voice_server_url))
+      voice_grant_issuer_(voice_grant_issuer), voice_server_url_(std::move(voice_server_url)),
+      directory_(directory)
 {
 }
 
@@ -990,6 +1195,47 @@ auto ControlPlaneHttpAdapter::handle(const HttpRequest& request, application::Ti
             return std::get<HttpResponse>(std::move(authenticated));
         }
         const auto& session = std::get<RequestSession>(authenticated);
+
+        if (request.target == "/api/v1/directory" && request.method == "GET")
+        {
+            if (!request.body.empty())
+            {
+                return errorResponse(400, "body_not_allowed",
+                                     "Directory retrieval does not accept a request body.");
+            }
+            if (directory_ == nullptr)
+            {
+                return errorResponse(503, "directory_unavailable",
+                                     "Directory service is not configured.");
+            }
+            return directoryResponse(request, session.session.player_id, *directory_);
+        }
+
+        if (request.target.starts_with("/api/v1/directory/presence"))
+        {
+            if (request.method != "GET")
+            {
+                return errorResponse(404, "route_not_found", "No v1 route matches the request.");
+            }
+            if (!request.body.empty())
+            {
+                return errorResponse(400, "body_not_allowed",
+                                     "Presence retrieval does not accept a request body.");
+            }
+            const auto after_version = parsePresenceVersion(request.target);
+            if (std::holds_alternative<HttpResponse>(after_version))
+            {
+                return std::get<HttpResponse>(after_version);
+            }
+            if (directory_ == nullptr)
+            {
+                return errorResponse(503, "directory_unavailable",
+                                     "Directory service is not configured.");
+            }
+            return presenceResponse(session.session.player_id,
+                                    std::get<std::optional<std::uint64_t>>(after_version),
+                                    *directory_, now);
+        }
 
         constexpr std::string_view membership_admin_prefix{"/api/v1/admin/memberships/"};
         if (request.target.starts_with(membership_admin_prefix))

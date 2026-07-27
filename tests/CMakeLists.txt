@@ -170,6 +170,19 @@ set_target_properties(hvc_application_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME application.control_plane COMMAND hvc_application_tests)
 
+add_executable(hvc_application_directory_tests application/directory_tests.cpp)
+
+target_link_libraries(
+  hvc_application_directory_tests
+  PRIVATE
+    hvc::application
+    hvc::project_options
+)
+
+set_target_properties(hvc_application_directory_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME application.directory COMMAND hvc_application_directory_tests)
+
 add_executable(hvc_application_identity_tests application/identity_tests.cpp)
 
 target_link_libraries(
