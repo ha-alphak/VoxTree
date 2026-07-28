@@ -2,6 +2,7 @@
 
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <hvc/client/control_plane_client.hpp>
 #include <hvc/client/ptt_input.hpp>
@@ -54,6 +55,21 @@ enum class PresenceState : std::uint8_t
     offline,
     /// At least one authorized scope presence is connected.
     online
+};
+
+/// Identify the availability of the current Directory and Presence view.
+enum class DirectoryPhase : std::uint8_t
+{
+    /// No authenticated Directory is available.
+    unavailable,
+    /// A complete Directory or its matching Presence basis is being loaded.
+    loading,
+    /// Directory and Presence are current and may be presented.
+    ready,
+    /// The last complete view is retained while a refresh or reconnect is pending.
+    stale,
+    /// The server rejected access to the Directory.
+    unauthorized
 };
 
 /// Identify stable failures shared by WinUI and Qt presentation adapters.
@@ -114,6 +130,25 @@ struct ChannelSelection final
      * @returns `true` when scope and node identifier match.
      */
     [[nodiscard]] auto operator==(const ChannelSelection&) const -> bool = default;
+};
+
+/// Hold one flattened, deterministically ordered hierarchy node for desktop navigation.
+struct ChannelNodeState final
+{
+    /// Scope and stable identifier selected by this node.
+    ChannelSelection channel;
+    /// Parent node identifier; absent for the Group root.
+    std::optional<std::string> parent_node_id;
+    /// Public server-provided node label.
+    std::string display_name;
+    /// Hierarchy depth where Group is zero, Specialization one, and Team two.
+    std::uint8_t depth{0};
+    /// Stable sibling ordering supplied by the server.
+    std::uint64_t sort_index{0};
+    /// Number of visible participants derived for this node and its descendants.
+    std::size_t participant_count{0};
+    /// Whether the authenticated player's Membership belongs to this node.
+    bool contains_local_player{false};
 };
 
 /// Hold a toolkit-independent participant row.
@@ -205,14 +240,20 @@ struct DesktopState final
     std::optional<client::MembershipView> membership;
     /// Selected hierarchy node.
     std::optional<ChannelSelection> selected_channel;
+    /// Current availability of the Directory and Presence presentation.
+    DirectoryPhase directory_phase{DirectoryPhase::unavailable};
     /// Latest complete visible Directory snapshot.
     std::optional<client::DirectoryView> directory;
+    /// Flattened Group, Specialization, and Team navigation in display order.
+    std::vector<ChannelNodeState> channel_nodes;
     /// Latest applied server Presence version.
     std::optional<std::uint64_t> presence_version;
     /// Observation time of the latest applied Presence response.
     std::optional<std::chrono::system_clock::time_point> presence_observed_at;
     /// Participants keyed by stable public identifier.
     std::map<std::string, ParticipantState, std::less<>> participants;
+    /// Participants derived for `selected_channel`, ordered for presentation.
+    std::vector<std::string> selected_participant_ids;
     /// Confirmed active local transmission scope.
     std::optional<domain::VoiceScope> active_transmission_scope;
     /// Editable settings snapshot.
@@ -356,6 +397,12 @@ class DesktopModel final
      */
     [[nodiscard]] auto applyPresence(client::DirectoryPresenceView presence) -> ValidationResult;
     /**
+     * Mark the retained Directory view after a failed refresh.
+     *
+     * @param error_code Stable server or transport failure code.
+     */
+    void directoryRefreshFailed(std::string_view error_code) noexcept;
+    /**
      * Apply one ordered, generation-bound remote transport transition.
      *
      * @param event Normalized VoiceClient event.
@@ -394,6 +441,15 @@ class DesktopModel final
      */
     [[nodiscard]] auto setParticipantMuted(std::string_view participant_id, bool muted)
         -> ValidationResult;
+    /**
+     * Apply a confirmed local participant block state.
+     *
+     * @param participant_id Stable participant identifier.
+     * @param blocked Whether every local track from the participant is blocked.
+     * @returns Validation outcome.
+     */
+    [[nodiscard]] auto setParticipantBlocked(std::string_view participant_id, bool blocked)
+        -> ValidationResult;
 
     /**
      * Record a privacy-bounded adapter or protocol failure.
@@ -414,7 +470,13 @@ class DesktopModel final
     [[nodiscard]] static auto validateSettings(const SettingsState& settings) -> ValidationResult;
     [[nodiscard]] static auto administrationFor(const client::MembershipView& membership)
         -> AdministrationState;
+    [[nodiscard]] auto isKnownChannel(const ChannelSelection& selection) const noexcept -> bool;
+    [[nodiscard]] auto participantBelongsToChannel(const ParticipantState& participant,
+                                                   const ChannelSelection& selection) const noexcept
+        -> bool;
     void applyMembership(client::MembershipView membership);
+    void rebuildChannelState();
+    void refreshSelectedParticipants();
     void clearRemoteTransportState() noexcept;
     void refreshParticipantDerivedState(ParticipantState& participant) noexcept;
     void clearAuthenticatedState() noexcept;

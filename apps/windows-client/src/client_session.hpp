@@ -37,6 +37,10 @@ enum class SessionEventKind : std::uint8_t
     directory_updated,
     /// A newer Presence snapshot or delta was loaded.
     presence_updated,
+    /// A Directory refresh failed and the retained view may be stale or unavailable.
+    directory_error,
+    /// A Presence refresh failed and the retained view may be stale or unavailable.
+    presence_error,
     /// A session operation failed.
     error
 };
@@ -208,6 +212,15 @@ class ClientSession final : private client::IClientIdentifierGenerator,
      * @returns Transport outcome or an invalid-state failure while disconnected.
      */
     [[nodiscard]] auto setParticipantMuted(const std::string& participant_id, bool muted)
+        -> client::VoiceTransportResult;
+    /**
+     * Change one participant's local block state.
+     *
+     * @param participant_id Non-empty transport participant identifier.
+     * @param blocked Whether every local track from the participant must be suppressed.
+     * @returns Transport outcome or an invalid-state failure while disconnected.
+     */
+    [[nodiscard]] auto setParticipantBlocked(const std::string& participant_id, bool blocked)
         -> client::VoiceTransportResult;
 
   private:

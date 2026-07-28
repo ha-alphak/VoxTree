@@ -39,7 +39,6 @@ using namespace Microsoft::UI;
 using namespace Microsoft::UI::Xaml;
 using namespace Microsoft::UI::Xaml::Controls;
 using namespace Microsoft::UI::Xaml::Media;
-using Microsoft::UI::Xaml::Controls::Primitives::ToggleButton;
 
 namespace
 {
@@ -205,6 +204,65 @@ constexpr double sidebar_width = 292.0;
         return Symbol::World;
     }
     return Symbol::People;
+}
+
+[[nodiscard]] auto directoryPhaseText(presentation::DirectoryPhase phase) -> hstring
+{
+    switch (phase)
+    {
+    case presentation::DirectoryPhase::unavailable:
+        return text(IDS_DIRECTORY_UNAVAILABLE);
+    case presentation::DirectoryPhase::loading:
+        return text(IDS_DIRECTORY_LOADING);
+    case presentation::DirectoryPhase::ready:
+        return {};
+    case presentation::DirectoryPhase::stale:
+        return text(IDS_DIRECTORY_STALE);
+    case presentation::DirectoryPhase::unauthorized:
+        return text(IDS_DIRECTORY_UNAUTHORIZED);
+    }
+    return text(IDS_DIRECTORY_UNAVAILABLE);
+}
+
+[[nodiscard]] auto presenceText(presentation::PresenceState presence) -> hstring
+{
+    switch (presence)
+    {
+    case presentation::PresenceState::unknown:
+        return text(IDS_PRESENCE_UNKNOWN);
+    case presentation::PresenceState::offline:
+        return text(IDS_PRESENCE_OFFLINE);
+    case presentation::PresenceState::online:
+        return text(IDS_PRESENCE_ONLINE);
+    }
+    return text(IDS_PRESENCE_UNKNOWN);
+}
+
+[[nodiscard]] auto publicRolesText(const presentation::ParticipantState& participant,
+                                   const std::optional<client::DirectoryView>& directory) -> hstring
+{
+    hstring result;
+    for (const auto& role_id : participant.role_ids)
+    {
+        auto label = role_id;
+        if (directory.has_value())
+        {
+            const auto role =
+                std::ranges::find_if(directory->public_roles, [&role_id](const auto& candidate) {
+                    return candidate.role_id == role_id;
+                });
+            if (role != directory->public_roles.end())
+            {
+                label = role->display_name;
+            }
+        }
+        if (!result.empty())
+        {
+            result = result + text(IDS_ROLE_SEPARATOR);
+        }
+        result = result + to_hstring(label);
+    }
+    return result.empty() ? text(IDS_PUBLIC_ROLES_NONE) : result;
 }
 
 [[nodiscard]] auto bindingLabel(const std::vector<client::InputBinding>& bindings,
@@ -526,53 +584,18 @@ void MainWindow::buildSidebar()
     hierarchy_container.Children().Append(hierarchy_label);
     hierarchy_panel_ = StackPanel{};
     hierarchy_panel_.Spacing(4.0);
-
-    const auto build_scope_button = [this, weak](domain::VoiceScope scope, Button& button,
-                                                 TextBlock& identifier) {
-        button = Button{};
-        button.HorizontalAlignment(HorizontalAlignment::Stretch);
-        button.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-        button.MinHeight(54.0);
-        button.Padding(Thickness{11.0, 7.0, 10.0, 7.0});
-        button.BorderThickness(Thickness{1.0});
-        button.CornerRadius(CornerRadius{9.0});
-
-        auto content = Grid{};
-        auto icon_column = ColumnDefinition{};
-        icon_column.Width(GridLength{30.0, GridUnitType::Pixel});
-        auto text_column = ColumnDefinition{};
-        text_column.Width(GridLength{1.0, GridUnitType::Star});
-        content.ColumnDefinitions().Append(icon_column);
-        content.ColumnDefinitions().Append(text_column);
-        auto icon = symbolIcon(scopeSymbol(scope));
-        icon.VerticalAlignment(VerticalAlignment::Center);
-        content.Children().Append(icon);
-        auto labels = StackPanel{};
-        labels.Spacing(1.0);
-        labels.Children().Append(texts_.block(scopeText(scope), 14.0));
-        identifier = texts_.block({}, 11.0);
-        identifier.Foreground(mutedBrush());
-        labels.Children().Append(identifier);
-        Grid::SetColumn(labels, 1);
-        content.Children().Append(labels);
-        button.Content(content);
-        Automation::AutomationProperties::SetName(button, scopeText(scope));
-        button.Click([weak, scope](auto const&, RoutedEventArgs const&) {
-            if (const auto self = weak.lock())
-            {
-                self->selectScope(scope);
-            }
-        });
-        hierarchy_panel_.Children().Append(button);
-    };
-
-    build_scope_button(domain::VoiceScope::group, group_button_, group_id_text_);
-    build_scope_button(domain::VoiceScope::specialization, specialization_button_,
-                       specialization_id_text_);
-    build_scope_button(domain::VoiceScope::team, team_button_, team_id_text_);
+    hierarchy_status_text_ = texts_.block(text(IDS_DIRECTORY_LOADING), 12.0);
+    hierarchy_status_text_.Foreground(mutedBrush());
+    hierarchy_status_text_.TextWrapping(TextWrapping::Wrap);
+    hierarchy_status_text_.Margin(Thickness{8.0, 10.0, 8.0, 0.0});
+    hierarchy_panel_.Children().Append(hierarchy_status_text_);
     hierarchy_container.Children().Append(hierarchy_panel_);
-    Grid::SetRow(hierarchy_container, 1);
-    sidebar.Children().Append(hierarchy_container);
+    auto hierarchy_scroll = ScrollViewer{};
+    hierarchy_scroll.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
+    hierarchy_scroll.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+    hierarchy_scroll.Content(hierarchy_container);
+    Grid::SetRow(hierarchy_scroll, 1);
+    sidebar.Children().Append(hierarchy_scroll);
 
     auto diagnostics = Button{};
     diagnostics.HorizontalAlignment(HorizontalAlignment::Stretch);
@@ -647,6 +670,9 @@ void MainWindow::buildChannelView()
     channel_description_text_ = texts_.block({}, 13.0);
     channel_description_text_.Foreground(mutedBrush());
     heading_text.Children().Append(channel_description_text_);
+    channel_access_text_ = texts_.block({}, 11.0);
+    channel_access_text_.Foreground(mutedBrush());
+    heading_text.Children().Append(channel_access_text_);
     Grid::SetColumn(heading_text, 1);
     heading.Children().Append(heading_text);
 
@@ -658,16 +684,29 @@ void MainWindow::buildChannelView()
     heading.Children().Append(participant_count_text_);
     content.Children().Append(heading);
 
+    auto banner_panel = StackPanel{};
+    banner_panel.Spacing(8.0);
+    directory_status_banner_ = Border{};
+    directory_status_banner_.Padding(Thickness{12.0, 9.0, 12.0, 9.0});
+    directory_status_banner_.Background(warningSoftBrush());
+    directory_status_banner_.CornerRadius(CornerRadius{8.0});
+    directory_status_text_ = texts_.block({}, 12.0);
+    directory_status_text_.TextWrapping(TextWrapping::Wrap);
+    directory_status_banner_.Child(directory_status_text_);
+    directory_status_banner_.Visibility(Visibility::Collapsed);
+    banner_panel.Children().Append(directory_status_banner_);
+
     error_banner_ = Border{};
     error_banner_.Padding(Thickness{12.0, 9.0, 12.0, 9.0});
-    error_banner_.Margin(Thickness{0.0, 0.0, 0.0, 12.0});
     error_banner_.Background(dangerSoftBrush());
     error_banner_.CornerRadius(CornerRadius{8.0});
     error_status_text_ = texts_.block({}, 12.0);
     error_banner_.Child(error_status_text_);
     error_banner_.Visibility(Visibility::Collapsed);
-    Grid::SetRow(error_banner_, 1);
-    content.Children().Append(error_banner_);
+    banner_panel.Children().Append(error_banner_);
+    banner_panel.Margin(Thickness{0.0, 0.0, 0.0, 12.0});
+    Grid::SetRow(banner_panel, 1);
+    content.Children().Append(banner_panel);
 
     auto speakers_scroll = ScrollViewer{};
     speakers_scroll.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
@@ -798,26 +837,12 @@ void MainWindow::buildVoiceDock()
     ready_root_.Children().Append(dock);
 }
 
-void MainWindow::selectScope(domain::VoiceScope scope)
+void MainWindow::selectChannel(presentation::ChannelSelection selection)
 {
-    const auto& membership = *model_.state().membership;
-    std::string node_id;
-    switch (scope)
-    {
-    case domain::VoiceScope::group:
-        node_id = membership.group_id.value();
-        break;
-    case domain::VoiceScope::specialization:
-        node_id = membership.specialization_id.value();
-        break;
-    case domain::VoiceScope::team:
-        node_id = membership.team_id.value();
-        break;
-    }
-    if (model_.selectChannel(presentation::ChannelSelection{scope, std::move(node_id)}))
+    if (model_.selectChannel(std::move(selection)))
     {
         renderHierarchy();
-        rebuildSpeakers();
+        rebuildParticipants();
     }
 }
 
@@ -1025,6 +1050,11 @@ void MainWindow::handleSessionEvent(std::uint64_t generation, SessionEvent event
             }
         }
         break;
+    case SessionEventKind::directory_error:
+    case SessionEventKind::presence_error:
+        model_.directoryRefreshFailed(event.error_code);
+        model_.recordError(std::move(event.error_code), std::move(event.diagnostic));
+        break;
     case SessionEventKind::error:
         model_.recordError(std::move(event.error_code), std::move(event.diagnostic));
         break;
@@ -1087,7 +1117,7 @@ void MainWindow::settingsChanged(const presentation::SettingsState& settings)
     model_.replaceSettings(settings);
     applyTextScale();
     rebuildBindingSummary();
-    rebuildSpeakers();
+    rebuildParticipants();
 }
 
 void MainWindow::render()
@@ -1113,7 +1143,7 @@ void MainWindow::render()
     renderHierarchy();
     renderStatus();
     rebuildBindingSummary();
-    rebuildSpeakers();
+    rebuildParticipants();
     moderation_panel_.Visibility(state.administration.can_moderate ||
                                          state.administration.can_administrate
                                      ? Visibility::Visible
@@ -1124,35 +1154,144 @@ void MainWindow::renderHierarchy()
 {
     const auto& state = model_.state();
     const auto& membership = *state.membership;
-    identity_name_text_.Text(to_hstring(membership.player_id.value()));
-    identity_detail_text_.Text(rolesText(membership) + L" · " +
-                               to_hstring(membership.team_id.value()));
-    group_id_text_.Text(to_hstring(membership.group_id.value()));
-    specialization_id_text_.Text(to_hstring(membership.specialization_id.value()));
-    team_id_text_.Text(to_hstring(membership.team_id.value()));
+    const auto local = state.participants.find(membership.player_id.value());
+    identity_name_text_.Text(local == state.participants.end()
+                                 ? to_hstring(membership.player_id.value())
+                                 : to_hstring(local->second.display_name));
+    identity_detail_text_.Text(
+        to_hstring(membership.team_id.value()) + L" · " +
+        (membership.can_receive_voice ? text(IDS_RECEIVE_ALLOWED) : text(IDS_RECEIVE_DISABLED)) +
+        L" · " +
+        (membership.transmit_muted ? text(IDS_TRANSMIT_MUTED) : text(IDS_TRANSMIT_ALLOWED)));
+
+    const auto directory_version =
+        state.directory.has_value() ? std::optional{state.directory->version} : std::nullopt;
+    if (directory_version != rendered_directory_version_ ||
+        state.directory_phase != rendered_directory_phase_)
+    {
+        rendered_directory_version_ = directory_version;
+        rendered_directory_phase_ = state.directory_phase;
+        rebuildHierarchyTree();
+    }
 
     const auto selected = state.selected_channel.value_or(presentation::ChannelSelection{
         domain::VoiceScope::team, std::string{membership.team_id.value()}});
+    const auto selected_node =
+        std::ranges::find_if(state.channel_nodes, [&selected](const auto& candidate) {
+            return candidate.channel == selected;
+        });
     channel_icon_.Symbol(scopeSymbol(selected.scope));
-    channel_title_text_.Text(to_hstring(selected.node_id));
+    channel_title_text_.Text(selected_node == state.channel_nodes.end()
+                                 ? to_hstring(selected.node_id)
+                                 : to_hstring(selected_node->display_name));
     channel_description_text_.Text(scopeDescription(selected.scope));
-    switch (selected.scope)
+    channel_access_text_.Text(
+        (membership.can_receive_voice ? text(IDS_RECEIVE_ALLOWED) : text(IDS_RECEIVE_DISABLED)) +
+        L" · " +
+        (membership.transmit_muted ? text(IDS_TRANSMIT_MUTED) : text(IDS_TRANSMIT_ALLOWED)));
+
+    std::vector<hstring> breadcrumb;
+    auto current = selected_node;
+    while (current != state.channel_nodes.end())
     {
-    case domain::VoiceScope::group:
-        channel_breadcrumb_text_.Text(scopeText(domain::VoiceScope::group));
-        break;
-    case domain::VoiceScope::specialization:
-        channel_breadcrumb_text_.Text(to_hstring(membership.group_id.value()) + L" / " +
-                                      scopeText(domain::VoiceScope::specialization));
-        break;
-    case domain::VoiceScope::team:
-        channel_breadcrumb_text_.Text(to_hstring(membership.group_id.value()) + L" / " +
-                                      to_hstring(membership.specialization_id.value()) + L" / " +
-                                      scopeText(domain::VoiceScope::team));
-        break;
+        breadcrumb.push_back(to_hstring(current->display_name));
+        if (!current->parent_node_id.has_value())
+        {
+            break;
+        }
+        const auto parent_id = *current->parent_node_id;
+        current = std::ranges::find_if(state.channel_nodes, [&parent_id](const auto& candidate) {
+            return candidate.channel.node_id == parent_id;
+        });
     }
+    std::ranges::reverse(breadcrumb);
+    hstring breadcrumb_text;
+    for (const auto& part : breadcrumb)
+    {
+        breadcrumb_text = breadcrumb_text.empty() ? part : breadcrumb_text + L" / " + part;
+    }
+    channel_breadcrumb_text_.Text(breadcrumb_text.empty() ? scopeText(selected.scope)
+                                                          : breadcrumb_text);
+
+    const auto directory_message = directoryPhaseText(state.directory_phase);
+    directory_status_text_.Text(directory_message);
+    directory_status_banner_.Visibility(directory_message.empty() ? Visibility::Collapsed
+                                                                  : Visibility::Visible);
+    directory_status_banner_.Background(
+        state.directory_phase == presentation::DirectoryPhase::unauthorized ||
+                state.directory_phase == presentation::DirectoryPhase::unavailable
+            ? dangerSoftBrush()
+            : warningSoftBrush());
     updateScopeButtonStyles();
     updatePttCardStyles();
+}
+
+void MainWindow::rebuildHierarchyTree()
+{
+    hierarchy_panel_.Children().Clear();
+    channel_buttons_.clear();
+    const auto& state = model_.state();
+    if (state.channel_nodes.empty())
+    {
+        hierarchy_status_text_.Text(directoryPhaseText(state.directory_phase));
+        hierarchy_panel_.Children().Append(hierarchy_status_text_);
+        return;
+    }
+
+    const auto weak = weak_from_this();
+    for (const auto& node : state.channel_nodes)
+    {
+        auto button = Button{};
+        button.HorizontalAlignment(HorizontalAlignment::Stretch);
+        button.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+        button.MinHeight(48.0);
+        button.Margin(Thickness{static_cast<double>(node.depth) * 14.0, 0.0, 0.0, 0.0});
+        button.Padding(Thickness{10.0, 6.0, 8.0, 6.0});
+        button.BorderThickness(Thickness{1.0});
+        button.CornerRadius(CornerRadius{9.0});
+
+        auto content = Grid{};
+        auto icon_column = ColumnDefinition{};
+        icon_column.Width(GridLength{28.0, GridUnitType::Pixel});
+        auto text_column = ColumnDefinition{};
+        text_column.Width(GridLength{1.0, GridUnitType::Star});
+        content.ColumnDefinitions().Append(icon_column);
+        content.ColumnDefinitions().Append(text_column);
+        auto icon = symbolIcon(scopeSymbol(node.channel.scope));
+        icon.VerticalAlignment(VerticalAlignment::Center);
+        content.Children().Append(icon);
+
+        auto labels = StackPanel{};
+        labels.Spacing(1.0);
+        auto name = texts_.block(to_hstring(node.display_name), 13.0);
+        name.FontWeight(node.contains_local_player ? Windows::UI::Text::FontWeights::SemiBold()
+                                                   : Windows::UI::Text::FontWeights::Normal());
+        labels.Children().Append(name);
+        auto detail = scopeText(node.channel.scope) + L" · " + to_hstring(node.participant_count) +
+                      L" " + text(IDS_PARTICIPANTS);
+        if (node.contains_local_player)
+        {
+            detail = detail + L" · " + text(IDS_YOU_ARE_HERE);
+        }
+        auto detail_text = texts_.block(detail, 10.0);
+        detail_text.Foreground(mutedBrush());
+        labels.Children().Append(detail_text);
+        Grid::SetColumn(labels, 1);
+        content.Children().Append(labels);
+        button.Content(content);
+        Automation::AutomationProperties::SetName(button, to_hstring(node.display_name) + L", " +
+                                                              scopeText(node.channel.scope));
+        const auto selection = node.channel;
+        button.Click([weak, selection](auto const&, RoutedEventArgs const&) {
+            if (const auto self = weak.lock())
+            {
+                self->selectChannel(selection);
+            }
+        });
+        channel_buttons_.emplace(node.channel.node_id, button);
+        hierarchy_panel_.Children().Append(button);
+    }
+    updateScopeButtonStyles();
 }
 
 void MainWindow::renderStatus()
@@ -1209,7 +1348,7 @@ void MainWindow::rebuildBindingSummary()
     group_binding_text_.Text(bindingLabel(bindings, client::PushToTalkAction::group) + L" · PTT");
 }
 
-void MainWindow::rebuildSpeakers()
+void MainWindow::rebuildParticipants()
 {
     speaker_panel_.Children().Clear();
     const auto& state = model_.state();
@@ -1218,8 +1357,8 @@ void MainWindow::rebuildSpeakers()
     const auto weak = weak_from_this();
     const auto selected_scope = state.selected_channel.has_value() ? state.selected_channel->scope
                                                                    : domain::VoiceScope::team;
-    auto participant_count = std::size_t{1};
-    auto found_speaker = false;
+    const auto participant_count = state.selected_participant_ids.size();
+    auto found_participant = false;
 
     const auto avatar = [this](const hstring& name, bool speaking) {
         auto result = Border{};
@@ -1248,50 +1387,70 @@ void MainWindow::rebuildSpeakers()
         return result;
     };
 
-    auto self_row = Grid{};
-    self_row.Padding(Thickness{4.0, 12.0, 4.0, 12.0});
-    auto self_avatar_column = ColumnDefinition{};
-    self_avatar_column.Width(GridLength{52.0, GridUnitType::Pixel});
-    auto self_name_column = ColumnDefinition{};
-    self_name_column.Width(GridLength{1.0, GridUnitType::Star});
-    auto self_status_column = ColumnDefinition{};
-    self_status_column.Width(GridLength{0.0, GridUnitType::Auto});
-    self_row.ColumnDefinitions().Append(self_avatar_column);
-    self_row.ColumnDefinitions().Append(self_name_column);
-    self_row.ColumnDefinitions().Append(self_status_column);
-    self_row.Children().Append(avatar(to_hstring(membership.player_id.value()),
-                                      state.active_transmission_scope.has_value() &&
-                                          *state.active_transmission_scope == selected_scope));
-    auto self_copy = StackPanel{};
-    self_copy.Spacing(2.0);
-    auto self_name = texts_.block(to_hstring(membership.player_id.value()), 15.0);
-    self_name.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
-    self_copy.Children().Append(self_name);
-    auto self_detail = texts_.block(text(IDS_YOU) + L" · " + rolesText(membership), 11.0);
-    self_detail.Foreground(mutedBrush());
-    self_copy.Children().Append(self_detail);
-    Grid::SetColumn(self_copy, 1);
-    self_row.Children().Append(self_copy);
-    auto self_status =
-        scope_pill(state.active_transmission_scope.has_value()
-                       ? scopeText(*state.active_transmission_scope) + L" · " + text(IDS_SPEAKING)
-                       : text(IDS_CONNECTION_CONNECTED),
-                   state.active_transmission_scope.has_value());
-    self_status.VerticalAlignment(VerticalAlignment::Center);
-    Grid::SetColumn(self_status, 2);
-    self_row.Children().Append(self_status);
-    speaker_panel_.Children().Append(self_row);
-    speaker_panel_.Children().Append(separator());
-
-    for (const auto& [participant_id, participant] : state.participants)
+    const auto show_self =
+        std::ranges::find(state.selected_participant_ids, membership.player_id.value()) !=
+        state.selected_participant_ids.end();
+    if (show_self)
     {
-        if (!participant.speaking || !participant.speaking_scope.has_value() ||
-            *participant.speaking_scope != selected_scope)
+        auto self_row = Grid{};
+        self_row.Padding(Thickness{4.0, 12.0, 4.0, 12.0});
+        auto self_avatar_column = ColumnDefinition{};
+        self_avatar_column.Width(GridLength{52.0, GridUnitType::Pixel});
+        auto self_name_column = ColumnDefinition{};
+        self_name_column.Width(GridLength{1.0, GridUnitType::Star});
+        auto self_status_column = ColumnDefinition{};
+        self_status_column.Width(GridLength{0.0, GridUnitType::Auto});
+        self_row.ColumnDefinitions().Append(self_avatar_column);
+        self_row.ColumnDefinitions().Append(self_name_column);
+        self_row.ColumnDefinitions().Append(self_status_column);
+        auto self_copy = StackPanel{};
+        self_copy.Spacing(2.0);
+        const auto self_participant = state.participants.find(membership.player_id.value());
+        const auto self_display_name = self_participant == state.participants.end()
+                                           ? to_hstring(membership.player_id.value())
+                                           : to_hstring(self_participant->second.display_name);
+        self_row.Children().Append(
+            avatar(self_display_name, state.active_transmission_scope.has_value() &&
+                                          *state.active_transmission_scope == selected_scope));
+        auto self_name = texts_.block(self_display_name, 15.0);
+        self_name.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+        self_copy.Children().Append(self_name);
+        auto self_detail =
+            texts_.block(text(IDS_YOU) + L" · " +
+                             (self_participant == state.participants.end()
+                                  ? rolesText(membership)
+                                  : publicRolesText(self_participant->second, state.directory)),
+                         11.0);
+        self_detail.Foreground(mutedBrush());
+        self_copy.Children().Append(self_detail);
+        Grid::SetColumn(self_copy, 1);
+        self_row.Children().Append(self_copy);
+        auto self_status = scope_pill(state.active_transmission_scope.has_value()
+                                          ? scopeText(*state.active_transmission_scope) + L" · " +
+                                                text(IDS_SPEAKING)
+                                          : text(IDS_CONNECTION_CONNECTED),
+                                      state.active_transmission_scope.has_value());
+        self_status.VerticalAlignment(VerticalAlignment::Center);
+        Grid::SetColumn(self_status, 2);
+        self_row.Children().Append(self_status);
+        speaker_panel_.Children().Append(self_row);
+        speaker_panel_.Children().Append(separator());
+        found_participant = true;
+    }
+
+    for (const auto& participant_id : state.selected_participant_ids)
+    {
+        if (participant_id == membership.player_id.value())
         {
             continue;
         }
-        found_speaker = true;
-        ++participant_count;
+        const auto participant_entry = state.participants.find(participant_id);
+        if (participant_entry == state.participants.end())
+        {
+            continue;
+        }
+        const auto& participant = participant_entry->second;
+        found_participant = true;
         auto row = Grid{};
         row.Padding(Thickness{4.0, 12.0, 4.0, 12.0});
         auto avatar_column = ColumnDefinition{};
@@ -1301,17 +1460,20 @@ void MainWindow::rebuildSpeakers()
         auto scope_column = ColumnDefinition{};
         scope_column.Width(GridLength{0.0, GridUnitType::Auto});
         auto volume_column = ColumnDefinition{};
-        volume_column.Width(GridLength{148.0, GridUnitType::Pixel});
+        volume_column.Width(GridLength{188.0, GridUnitType::Pixel});
         auto mute_column = ColumnDefinition{};
         mute_column.Width(GridLength{48.0, GridUnitType::Pixel});
+        auto block_column = ColumnDefinition{};
+        block_column.Width(GridLength{48.0, GridUnitType::Pixel});
         row.ColumnDefinitions().Append(avatar_column);
         row.ColumnDefinitions().Append(name_column);
         row.ColumnDefinitions().Append(scope_column);
         row.ColumnDefinitions().Append(volume_column);
         row.ColumnDefinitions().Append(mute_column);
+        row.ColumnDefinitions().Append(block_column);
 
         const auto display_name = to_hstring(participant.display_name);
-        row.Children().Append(avatar(display_name, true));
+        row.Children().Append(avatar(display_name, participant.speaking));
 
         auto copy = StackPanel{};
         copy.Spacing(2.0);
@@ -1319,19 +1481,29 @@ void MainWindow::rebuildSpeakers()
         name.FontWeight(strong ? Windows::UI::Text::FontWeights::Bold()
                                : Windows::UI::Text::FontWeights::SemiBold());
         copy.Children().Append(name);
-        auto detail = texts_.block(
-            text(IDS_SPEAKER_ROLE_UNKNOWN) + L" · " + to_hstring(participant_id), 11.0);
+        auto detail = texts_.block(publicRolesText(participant, state.directory) + L" · " +
+                                       presenceText(participant.presence) + L" · " +
+                                       (participant.audio_available ? text(IDS_AUDIO_AVAILABLE)
+                                                                    : text(IDS_AUDIO_UNAVAILABLE)),
+                                   11.0);
         detail.Foreground(mutedBrush());
         copy.Children().Append(detail);
         Grid::SetColumn(copy, 1);
         row.Children().Append(copy);
 
-        auto speaking =
-            scope_pill(scopeText(*participant.speaking_scope) + L" · " + text(IDS_SPEAKING), true);
-        speaking.Margin(Thickness{8.0, 0.0, 10.0, 0.0});
-        speaking.VerticalAlignment(VerticalAlignment::Center);
-        Grid::SetColumn(speaking, 2);
-        row.Children().Append(speaking);
+        auto participant_status =
+            participant.speaking && participant.speaking_scope.has_value()
+                ? scopeText(*participant.speaking_scope) + L" · " + text(IDS_SPEAKING)
+                : text(IDS_NOT_SPEAKING);
+        if (participant.blocked)
+        {
+            participant_status = participant_status + L" · " + text(IDS_BLOCKED);
+        }
+        auto status_pill = scope_pill(participant_status, participant.speaking);
+        status_pill.Margin(Thickness{8.0, 0.0, 10.0, 0.0});
+        status_pill.VerticalAlignment(VerticalAlignment::Center);
+        Grid::SetColumn(status_pill, 2);
+        row.Children().Append(status_pill);
 
         auto volume = Slider{};
         volume.Minimum(0.0);
@@ -1351,33 +1523,95 @@ void MainWindow::rebuildSpeakers()
             });
         volume.VerticalAlignment(VerticalAlignment::Center);
         Automation::AutomationProperties::SetName(volume, text(IDS_VOLUME));
-        Grid::SetColumn(volume, 3);
-        row.Children().Append(volume);
+        Automation::AutomationProperties::SetAutomationId(volume, L"participant-volume-" +
+                                                                      to_hstring(participant_id));
 
-        auto mute = ToggleButton{};
+        auto volume_controls = Grid{};
+        auto volume_down_column = ColumnDefinition{};
+        volume_down_column.Width(GridLength{30.0, GridUnitType::Pixel});
+        auto volume_slider_column = ColumnDefinition{};
+        volume_slider_column.Width(GridLength{1.0, GridUnitType::Star});
+        auto volume_up_column = ColumnDefinition{};
+        volume_up_column.Width(GridLength{30.0, GridUnitType::Pixel});
+        volume_controls.ColumnDefinitions().Append(volume_down_column);
+        volume_controls.ColumnDefinitions().Append(volume_slider_column);
+        volume_controls.ColumnDefinitions().Append(volume_up_column);
+
+        const auto volume_button = [this](const hstring& label, const hstring& accessible_name,
+                                          const hstring& automation_id) {
+            auto button = Button{};
+            button.Width(28.0);
+            button.Height(32.0);
+            button.Padding(Thickness{0.0});
+            button.Content(texts_.block(label, 15.0));
+            button.HorizontalContentAlignment(HorizontalAlignment::Center);
+            button.VerticalContentAlignment(VerticalAlignment::Center);
+            button.Background(colorBrush(0, 0, 0, 0));
+            button.BorderBrush(borderBrush());
+            button.CornerRadius(CornerRadius{7.0});
+            Automation::AutomationProperties::SetName(button, accessible_name);
+            Automation::AutomationProperties::SetAutomationId(button, automation_id);
+            ToolTipService::SetToolTip(button, box_value(accessible_name));
+            return button;
+        };
+        auto volume_down = volume_button(L"\u2212", text(IDS_VOLUME_DOWN),
+                                         L"participant-volume-down-" + to_hstring(participant_id));
+        volume_down.Click([volume](auto const&, RoutedEventArgs const&) {
+            volume.Value(std::max(volume.Minimum(), volume.Value() - volume.StepFrequency()));
+        });
+        volume_controls.Children().Append(volume_down);
+        Grid::SetColumn(volume, 1);
+        volume_controls.Children().Append(volume);
+        auto volume_up = volume_button(L"+", text(IDS_VOLUME_UP),
+                                       L"participant-volume-up-" + to_hstring(participant_id));
+        volume_up.Click([volume](auto const&, RoutedEventArgs const&) {
+            volume.Value(std::min(volume.Maximum(), volume.Value() + volume.StepFrequency()));
+        });
+        Grid::SetColumn(volume_up, 2);
+        volume_controls.Children().Append(volume_up);
+        Grid::SetColumn(volume_controls, 3);
+        row.Children().Append(volume_controls);
+
+        auto mute =
+            iconButton(participant.muted ? Symbol::Mute : Symbol::Volume, text(IDS_LOCAL_MUTE));
         mute.Width(38.0);
         mute.Height(38.0);
-        mute.Padding(Thickness{0.0});
-        mute.Content(symbolIcon(participant.muted ? Symbol::Mute : Symbol::Volume));
-        mute.IsChecked(box_value(participant.muted).as<Windows::Foundation::IReference<bool>>());
-        mute.Background(colorBrush(0, 0, 0, 0));
+        mute.Background(participant.muted ? accentSoftBrush() : colorBrush(0, 0, 0, 0));
         mute.BorderBrush(borderBrush());
-        mute.CornerRadius(CornerRadius{8.0});
-        Automation::AutomationProperties::SetName(mute, text(IDS_LOCAL_MUTE));
-        mute.Click([weak, participant_id](auto const& sender, RoutedEventArgs const&) {
+        Automation::AutomationProperties::SetAutomationId(mute, L"participant-mute-" +
+                                                                    to_hstring(participant_id));
+        mute.Click([weak, participant_id, muted = !participant.muted](auto const&,
+                                                                      RoutedEventArgs const&) {
             if (const auto self = weak.lock())
             {
-                const auto toggle = sender.as<ToggleButton>();
-                self->queueParticipantMuted(participant_id, toggle.IsChecked().Value());
+                self->queueParticipantMuted(participant_id, muted);
             }
         });
         mute.VerticalAlignment(VerticalAlignment::Center);
         Grid::SetColumn(mute, 4);
         row.Children().Append(mute);
+
+        auto block = iconButton(Symbol::Cancel, text(IDS_LOCAL_BLOCK));
+        block.Width(38.0);
+        block.Height(38.0);
+        block.Background(participant.blocked ? dangerSoftBrush() : colorBrush(0, 0, 0, 0));
+        block.BorderBrush(borderBrush());
+        Automation::AutomationProperties::SetAutomationId(block, L"participant-block-" +
+                                                                     to_hstring(participant_id));
+        block.Click([weak, participant_id, blocked = !participant.blocked](auto const&,
+                                                                           RoutedEventArgs const&) {
+            if (const auto self = weak.lock())
+            {
+                self->queueParticipantBlocked(participant_id, blocked);
+            }
+        });
+        block.VerticalAlignment(VerticalAlignment::Center);
+        Grid::SetColumn(block, 5);
+        row.Children().Append(block);
         speaker_panel_.Children().Append(row);
         speaker_panel_.Children().Append(separator());
     }
-    if (!found_speaker)
+    if (!found_participant)
     {
         auto empty = Border{};
         empty.Margin(Thickness{0.0, 18.0, 0.0, 0.0});
@@ -1387,15 +1621,15 @@ void MainWindow::rebuildSpeakers()
         auto content = StackPanel{};
         content.Spacing(6.0);
         content.HorizontalAlignment(HorizontalAlignment::Center);
-        auto icon = symbolIcon(Symbol::Microphone);
+        auto icon = symbolIcon(Symbol::People);
         icon.Width(24.0);
         icon.Height(24.0);
         content.Children().Append(icon);
-        auto title = texts_.block(text(IDS_NO_ACTIVE_SPEAKERS_TITLE), 16.0);
+        auto title = texts_.block(text(IDS_EMPTY_CHANNEL_TITLE), 16.0);
         title.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
         title.HorizontalAlignment(HorizontalAlignment::Center);
         content.Children().Append(title);
-        auto detail = texts_.block(text(IDS_NO_ACTIVE_SPEAKERS_DETAIL), 12.0);
+        auto detail = texts_.block(text(IDS_EMPTY_CHANNEL_DETAIL), 12.0);
         detail.Foreground(mutedBrush());
         detail.TextAlignment(TextAlignment::Center);
         content.Children().Append(detail);
@@ -1403,28 +1637,17 @@ void MainWindow::rebuildSpeakers()
         speaker_panel_.Children().Append(empty);
     }
 
-    auto directory_note = texts_.block(text(IDS_DIRECTORY_LIMITATION), 11.0);
-    directory_note.Foreground(mutedBrush());
-    directory_note.Margin(Thickness{4.0, 14.0, 4.0, 0.0});
-    speaker_panel_.Children().Append(directory_note);
     participant_count_text_.Text(to_hstring(participant_count) + L" " + text(IDS_PARTICIPANTS));
 }
 
 void MainWindow::updateScopeButtonStyles()
 {
-    const auto selected_scope = model_.state().selected_channel.has_value()
-                                    ? model_.state().selected_channel->scope
-                                    : domain::VoiceScope::team;
-    const std::array buttons{
-        std::pair{domain::VoiceScope::group, group_button_},
-        std::pair{domain::VoiceScope::specialization, specialization_button_},
-        std::pair{domain::VoiceScope::team, team_button_},
-    };
-    for (const auto& [scope, button] : buttons)
+    const auto& selected = model_.state().selected_channel;
+    for (const auto& [node_id, button] : channel_buttons_)
     {
-        const auto selected = scope == selected_scope;
-        button.Background(selected ? accentSoftBrush() : colorBrush(0, 0, 0, 0));
-        button.BorderBrush(selected ? accentBrush() : colorBrush(0, 0, 0, 0));
+        const auto is_selected = selected.has_value() && node_id == selected->node_id;
+        button.Background(is_selected ? accentSoftBrush() : colorBrush(0, 0, 0, 0));
+        button.BorderBrush(is_selected ? accentBrush() : colorBrush(0, 0, 0, 0));
     }
 }
 
@@ -1475,6 +1698,12 @@ void MainWindow::queueParticipantMuted(const std::string& participant_id, bool m
     startParticipantUpdateTimer();
 }
 
+void MainWindow::queueParticipantBlocked(const std::string& participant_id, bool blocked)
+{
+    pending_participant_updates_[participant_id].blocked = blocked;
+    startParticipantUpdateTimer();
+}
+
 void MainWindow::startParticipantUpdateTimer()
 {
     if (!participant_updates_running_ && participant_update_timer_ != nullptr)
@@ -1498,6 +1727,7 @@ fire_and_forget MainWindow::applyParticipantUpdatesAsync()
     const auto session = session_;
     const auto generation = session_generation_;
     std::vector<std::pair<std::string, client::VoiceTransportResult>> results;
+    std::map<std::string, PendingParticipantUpdate, std::less<>> applied_updates;
     co_await resume_background();
     for (const auto& [participant_id, update] : updates)
     {
@@ -1505,10 +1735,26 @@ fire_and_forget MainWindow::applyParticipantUpdatesAsync()
         if (update.volume.has_value())
         {
             result = session->setParticipantVolume(participant_id, *update.volume);
+            if (result)
+            {
+                applied_updates[participant_id].volume = update.volume;
+            }
         }
         if (result && update.muted.has_value())
         {
             result = session->setParticipantMuted(participant_id, *update.muted);
+            if (result)
+            {
+                applied_updates[participant_id].muted = update.muted;
+            }
+        }
+        if (result && update.blocked.has_value())
+        {
+            result = session->setParticipantBlocked(participant_id, *update.blocked);
+            if (result)
+            {
+                applied_updates[participant_id].blocked = update.blocked;
+            }
         }
         results.emplace_back(participant_id, std::move(result));
     }
@@ -1520,21 +1766,31 @@ fire_and_forget MainWindow::applyParticipantUpdatesAsync()
     }
     for (const auto& [participant_id, result] : results)
     {
+        const auto update = applied_updates.find(participant_id);
+        if (update != applied_updates.end())
+        {
+            if (update->second.volume.has_value())
+            {
+                static_cast<void>(
+                    model_.setParticipantVolume(participant_id, *update->second.volume));
+            }
+            if (update->second.muted.has_value())
+            {
+                static_cast<void>(
+                    model_.setParticipantMuted(participant_id, *update->second.muted));
+            }
+            if (update->second.blocked.has_value())
+            {
+                static_cast<void>(
+                    model_.setParticipantBlocked(participant_id, *update->second.blocked));
+            }
+        }
         if (!result)
         {
             showOperationFailure(result);
-            continue;
-        }
-        const auto update = updates.find(participant_id);
-        if (update->second.volume.has_value())
-        {
-            static_cast<void>(model_.setParticipantVolume(participant_id, *update->second.volume));
-        }
-        if (update->second.muted.has_value())
-        {
-            static_cast<void>(model_.setParticipantMuted(participant_id, *update->second.muted));
         }
     }
+    rebuildParticipants();
     if (!pending_participant_updates_.empty())
     {
         startParticipantUpdateTimer();

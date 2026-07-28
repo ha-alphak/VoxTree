@@ -1,7 +1,8 @@
 FROM debian:13-slim AS build
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y build-essential cmake libsqlite3-dev ninja-build \
+    && apt-get install --no-install-recommends -y \
+      build-essential cmake libsqlite3-dev libudev-dev ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src

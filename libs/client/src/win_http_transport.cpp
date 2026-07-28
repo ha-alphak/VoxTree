@@ -311,11 +311,16 @@ class WinHttpTransport::Impl final
         }
 
         std::map<std::string, std::string, std::less<>> headers;
-        auto api_version = queryHeader(http_request.get(), L"X-HVC-API-Version");
-        if (!api_version.empty())
-        {
-            headers.emplace("x-hvc-api-version", std::move(api_version));
-        }
+        const auto capture_header = [&](const wchar_t* wire_name, const char* normalized_name) {
+            auto value = queryHeader(http_request.get(), wire_name);
+            if (!value.empty())
+            {
+                headers.emplace(normalized_name, std::move(value));
+            }
+        };
+        capture_header(L"X-HVC-API-Version", "x-hvc-api-version");
+        capture_header(L"ETag", "etag");
+        capture_header(L"Retry-After", "retry-after");
         return {static_cast<int>(status), std::move(headers), std::move(response_body), {}};
     }
 

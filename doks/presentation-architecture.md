@@ -1,7 +1,7 @@
 # Präsentations- und Fensterarchitektur
 
-**Stand:** 27. Juli 2026<br>
-**Arbeitspakete:** UX-01, DIR-02
+**Stand:** 28. Juli 2026<br>
+**Arbeitspakete:** UX-01, DIR-02, UX-02
 
 ## Grenze
 
@@ -27,8 +27,9 @@ Fensterschale bildet sie auf deutsche oder englische Ressourcen ab.
 | Bereich | Modell |
 |---|---|
 | Verbindung | `signed_out`, `connecting`, `ready`, `reconnecting`, `disconnecting` |
-| Kanalwahl | serverdefinierter Scope und stabile Node-ID |
-| Teilnehmer | Anzeigename, Primär-Team und Rollen getrennt von Presence, Audioverfügbarkeit und Sprechen |
+| Directory | `unavailable`, `loading`, `ready`, `stale`, `unauthorized` |
+| Kanalwahl | serverdefinierter Scope, stabile Node-ID, Elternknoten, Tiefe, Sortierung, Teilnehmerzahl und Markierung des eigenen Zweigs |
+| Teilnehmer | gefilterte IDs des gewählten Knotens; Anzeigename, Primär-Team und Rollen getrennt von Presence, Audioverfügbarkeit und Sprechen |
 | Senden | ausschließlich der bestätigte aktive Sendescope |
 | Einstellungen | Audio-Policy, Geräte, PTT-Bindings, Eingabegeräte und Barrierefreiheit |
 | Administration | getrennte Sichtbarkeit für Moderation und Administration |
@@ -55,9 +56,18 @@ Audioverfügbarkeit und tatsächliches Sprechen bleiben getrennte Facetten:
 - eine neue Transportgeneration löscht alle lokalen Remote-Zustände, bevor
   Ereignisse dieser Generation angenommen werden.
 
-Die heutige Hauptansicht rendert weiterhin nur aktive Sprecher. Das vollständige
-Directory mit nicht sprechenden Teilnehmern und Kanalbaum wird erst in UX-02
-sichtbar; die benötigten Zustände und Ereignisse sind mit DIR-02 vorhanden.
+Aus dem Directory baut das Modell einen deterministischen Präorder-Baum. Kinder
+werden nach serverseitigem Sortierwert, Name und stabiler ID geordnet. Eine
+Teamwahl zeigt genau dessen Teilnehmer; Specialization und Group leiten ihre
+Teilnehmermengen aus allen untergeordneten Teams ab. Die Auswahl akzeptiert nur
+bekannte Knoten mit exakt passendem Scope-Typ. Anzeigenamen bestimmen die
+stabile Reihenfolge der Teilnehmerzeilen, nicht das Eintreffen von Presence-
+oder Voice-Ereignissen.
+
+Ein transient fehlgeschlagener Refresh behält die letzte autorisierte Ansicht
+als `stale`. `forbidden` oder ein nicht mehr verfügbares Directory löschen
+Kanal- und Teilnehmerdaten einschließlich Auswahl, statt veraltete Daten nach
+einem Rechteverlust weiter anzuzeigen.
 
 Membership-Updates werden nur mit strikt höherer Version angewendet. Beim
 Reconnect wird ein bestätigter Sendescope sofort gelöscht und nie automatisch
@@ -72,6 +82,7 @@ Kanalwahl, Fensteröffnung, Einstellungen und lokale Teilnehmerregeln.
 
 - Befehle außerhalb eines gültigen Verbindungszustands;
 - leere Kanal- oder Teilnehmer-IDs;
+- unbekannte Kanal-IDs und nicht zum Knoten passende Scope-Typen;
 - unbekannte Teilnehmer;
 - Lautstärken außerhalb `0,0` bis `1,0`;
 - nicht positive Streamlimits und Ducking-Werte außerhalb `0,0` bis `1,0`;
@@ -160,10 +171,15 @@ Clientbuild bei einer Abweichung ab.
 
 - Verbindungs- und Membership-Lebenszyklus einschließlich veralteter Versionen;
 - Directory-Snapshots, Presence-Snapshot/-Delta und veraltete Versionen;
+- deterministische Group-/Specialization-/Team-Reihenfolge, abgeleitete
+  Teilnehmermengen und strikte Kanalauswahl;
+- Lade-, Stale-, Unauthorized- und Leerzustände einschließlich
+  datensparsamem Löschen nach Rechteverlust;
 - Mehrfachanwesenheit eines Spielers in allen drei Scopes;
 - getrennte Teilnehmer-, Audio- und Sprechzustände sowie verspätete
   Transportereignisse;
 - Reconnect-Generationen und das deterministische Löschen lokaler Zustände;
 - Rollen- und Verwaltungsanzeige ohne Teilstring-Freigaben;
 - Befehls-, Geräte-, Audio- und Barrierefreiheitsvalidierung;
+- lokale Lautstärke-, Mute- und Blockzustände über Directory-Refreshes;
 - sitzungsgebundene Diagnosezustände.

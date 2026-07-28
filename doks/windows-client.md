@@ -1,6 +1,6 @@
 # Windows-Client
 
-**Stand:** 27. Juli 2026
+**Stand:** 28. Juli 2026
 
 ## Anwendungsschale
 
@@ -63,9 +63,10 @@ Die verbundene Ansicht verwendet eine moderne, Voice-zentrierte Fensterschale:
 
 - eine kompakte Titelleiste zeigt Produkt und Verbindungszustand;
 - die linke Seitenleiste zeigt den eigenen Spieler, öffentliche Rollen sowie
-  Group, Specialization und Team als auswählbare Bereiche;
-- die Hauptfläche zeigt den ausgewählten Scope, den eigenen Teilnehmer und
-  aktive Remote-Sprecher dieses Scopes;
+  den vollständigen serverdefinierten Baum aus Group, Specialization und Team
+  als auswählbare Bereiche;
+- die Hauptfläche zeigt alle sichtbaren Teilnehmer des ausgewählten Knotens,
+  auch wenn sie gerade nicht sprechen;
 - die dauerhaft sichtbare Voice-Leiste zeigt Team-, Specialization- und
   Group-PTT samt aktueller Belegung sowie den bestätigten Sendescope;
 - Einstellungen und Diagnose bleiben unabhängige, nicht-modale Fenster.
@@ -85,42 +86,53 @@ Funktionstasten können in der Eingabeansicht unabhängig neu belegt werden. Der
 aktuell tatsächlich sendende Scope wird zusätzlich als Text angezeigt und ist
 damit nicht ausschließlich über Farbe erkennbar.
 
-## Aktuelle Sprecheransicht
+## Kanal- und Teilnehmeransicht
 
-Die Sprecheransicht wird durch strukturierte `ClientSession`-Ereignisse
-aktualisiert und zeigt für jede aktive Remote-Spur:
+Die Seitenleiste rendert den vollständigen serverdefinierten Baum in
+deterministischer Reihenfolge. Ein Knoten zeigt Typ, Teilnehmerzahl und, falls
+zutreffend, die eigene Position. Die Hauptfläche nennt Auswahl und
+Breadcrumb-Pfad. Team zeigt seine unmittelbaren Teilnehmer; Specialization und
+Group zeigen die aus ihren untergeordneten Teams abgeleitete Menge.
 
-- Scope als eindeutiges Textlabel;
-- öffentliche Transport-/Spieleridentität als Name;
-- ein Rollenfeld. Der aktuelle LiveKit-Ereignisvertrag liefert für entfernte
-  Teilnehmer noch keine Rollenmetadaten, daher zeigt es derzeit einen
-  lokalisierten Hinweis;
-- den bestätigten Sprechzustand.
+Jede Teilnehmerzeile trennt:
 
-Pro Sprecher stehen lokale Lautstärke und lokales Mute bereit. Beide Änderungen
-wirken unmittelbar über die vorhandene `VoiceClient`-Audiopolicy, verändern
-aber keine serverseitige Berechtigung. Eine optional verstärkte
-Sprecherhervorhebung vergrößert und betont den Textindikator.
+- den öffentlichen Anzeigenamen und die vom Server freigegebenen Rollen;
+- Presence (`online`/`offline`);
+- Audioverfügbarkeit;
+- den bestätigten Sprechzustand und dessen Scope;
+- lokale Lautstärke, Mute und Block.
 
-Die eigene Membership blendet den Moderationsbereich ausschließlich bei einer
-Rollen-ID `moderator`, `administrator` oder `admin` ein. Scope und Identität
-aktiver Sprecher bleiben oberhalb als Entscheidungsgrundlage sichtbar.
-Serverseitige Moderationsbefugnisse werden weiterhin ausschließlich von der
-Control Plane geprüft.
+Lautstärke-, Mute- und Blockänderungen wirken ausschließlich lokal über
+`VoiceClient`; sie verändern keine serverseitigen Rechte. Häufige
+Lautstärkeänderungen werden weiterhin zusammengefasst. Die lokale Einstellung
+bleibt bei einem Directory-Refresh erhalten, solange der Teilnehmer sichtbar
+bleibt. Neben dem Slider stehen für die Lautstärke zugängliche Minus- und
+Plus-Buttons bereit. Alle lokalen Aktionen besitzen lokalisierte Namen,
+Tooltips und stabile Automation-IDs.
 
-Nicht sprechende entfernte Teilnehmer sind derzeit noch nicht sichtbar. Die
-Hauptfläche kennzeichnet diese Grenze ausdrücklich. `ClientSession` lädt beim
-Verbindungsaufbau das gruppenbegrenzte Directory und einen Presence-Snapshot,
-pollt anschließend Directory bedingt per ETag sowie Presence anhand der
-Version und beachtet `Retry-After`. Nach einer Directory-Änderung oder
-`presence_snapshot_required` wird deterministisch eine neue Snapshot-Basis
-geladen.
+Die eigene Zeile zeigt Anzeigename, Team, Empfangsrecht, serverseitiges
+Transmit-Mute und den bestätigten PTT-Scope getrennt. Eine Rollenbezeichnung
+allein wird nie als wirksames Sende- oder Moderationsrecht ausgegeben. Der
+Moderationsbereich bleibt nur bei einer exakt bekannten Rolle sichtbar; die
+Control Plane autorisiert jede Operation weiterhin selbst.
+
+`ClientSession` lädt beim Verbindungsaufbau Directory und Presence, pollt
+Directory bedingt per ETag sowie Presence anhand der Version und beachtet
+`Retry-After`. Die Ansicht unterscheidet explizit Laden, leer, getrennt,
+veraltet und nicht autorisiert. Bei transienten Refreshfehlern bleibt der letzte
+autorisierte Stand als veraltet sichtbar; nach einem Rechteverlust werden
+Directory, Auswahl und Teilnehmerdaten sofort gelöscht.
 
 Participant-, Audio- und Sprecherereignisse aller drei Voice-Scopes erreichen
-den UI-Dispatcher als strukturierte Ereignisse. `MainWindow` führt sie mit
-Directory und Presence im gemeinsamen `DesktopModel` zusammen. Die geplante
-UX-02-Kanal- und Teilnehmeransicht rendert diese bereits vorhandenen Zustände
-vollständig.
+den UI-Dispatcher strukturiert. `MainWindow` führt sie mit Directory und
+Presence im gemeinsamen `DesktopModel` zusammen, sodass auch nicht sprechende
+Teilnehmer sichtbar bleiben und Voice-Ereignisse nur ihre jeweiligen Facetten
+ändern.
+
+Der Windows-HTTP-Adapter übernimmt dafür neben der Protokollversion auch
+`ETag` und `Retry-After` aus WinHTTP-Antworten. Ein echter Loopback-Test prüft
+diese Plattformgrenze; reine Mockantworten reichen für diesen Vertrag nicht
+aus.
 
 ## Eigenständiges Einstellungsfenster
 
@@ -186,15 +198,11 @@ Der Entwicklungsbuild ist eine selbstenthaltende, nicht paketierte
 Windows-App-SDK-Anwendung. Das signierte MSIX-Paket bleibt Bestandteil der
 Auslieferungsphase.
 
-## Geplanter Neuaufbau
+## Offene Folgearbeiten
 
 Der verbindliche offene Umfang steht im
 [Umsetzungsplan vor der Auslieferungsreife](implementation-plan.md):
 
-- Erweiterung der vorhandenen navigierbaren Hauptansicht um den vollständigen
-  serverdefinierten Kanalbaum und alle sichtbaren Teilnehmer;
-- Rendering der bereits getrennten Zustände für Presence,
-  Audioverfügbarkeit und Sprechen;
 - persistente, nicht geheime Benutzerkonfiguration;
 - direkte Lernansicht für Tastatur, Maus und HID-/HOTAS-Buttons;
 - Account-, Membership-, Rollen- und Moderationsoberflächen;

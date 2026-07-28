@@ -204,7 +204,7 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
                                                  : std::optional{known_directory_version});
                 if (!directory_update)
                 {
-                    report(SessionEvent{SessionEventKind::error,
+                    report(SessionEvent{SessionEventKind::directory_error,
                                         client::VoiceTransportState::connected,
                                         std::nullopt,
                                         {},
@@ -236,7 +236,7 @@ auto ClientSession::connect(const std::string& server_url, const std::string& cr
                 }
                 if (!presence_update)
                 {
-                    report(SessionEvent{SessionEventKind::error,
+                    report(SessionEvent{SessionEventKind::presence_error,
                                         client::VoiceTransportState::connected,
                                         std::nullopt,
                                         {},
@@ -382,6 +382,14 @@ auto ClientSession::setParticipantMuted(const std::string& participant_id, bool 
     const std::scoped_lock services_lock{services_mutex_};
     return voice_client_ == nullptr ? disconnectedResult()
                                     : voice_client_->setParticipantMuted(participant_id, muted);
+}
+
+auto ClientSession::setParticipantBlocked(const std::string& participant_id, bool blocked)
+    -> client::VoiceTransportResult
+{
+    const std::scoped_lock services_lock{services_mutex_};
+    return voice_client_ == nullptr ? disconnectedResult()
+                                    : voice_client_->setParticipantBlocked(participant_id, blocked);
 }
 
 auto ClientSession::nextCorrelationId() -> domain::CorrelationId

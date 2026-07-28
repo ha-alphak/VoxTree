@@ -1,7 +1,7 @@
 # Umsetzungsplan vor der Auslieferungsreife
 
 **Projekt:** Hierarchical Voice Communication<br>
-**Stand:** 27. Juli 2026<br>
+**Stand:** 28. Juli 2026<br>
 **Geltungsbereich:** Offene Arbeiten nach dem bestandenen Abschnitt 10.2<br>
 **Ziel:** Produktreife Windows- und Debian/KDE-Client-, Verwaltungs- und
 Diagnosepfade als Voraussetzung für Abschnitt 10.3
@@ -26,6 +26,9 @@ nachgewiesen.
 Die abgeschlossenen Clientpfade für Directory, Presence und strukturierte
 Voice-Ereignisse aus DIR-02 sind unter
 [archive/dir-02-client-presence-2026-07-27.md](archive/dir-02-client-presence-2026-07-27.md)
+abgenommen.
+Die abgeschlossene Windows-Kanal- und Teilnehmeransicht aus UX-02 ist unter
+[archive/ux-02-channel-and-participant-view-2026-07-28.md](archive/ux-02-channel-and-participant-view-2026-07-28.md)
 abgenommen.
 
 ## Arbeitsregeln
@@ -69,19 +72,6 @@ Beitreten zu einem LiveKit-Raum anbieten und keine clientseitige
 Empfängerauswahl erzeugen.
 
 ## Phase 1: Verzeichnis, Presence und neue Hauptansichten
-
-### UX-02 – Kanal- und Teilnehmeransicht
-
-1. Navigierbaren Baum Group → Specialization → Team darstellen.
-2. Auswahl eines Knotens zeigt die daraus serverseitig abgeleiteten
-   Teilnehmer; ein Teilnehmer wird im Strukturbaum primär unter seinem Team
-   geführt.
-3. Eigene Position, Sende-/Empfangsrecht und aktueller PTT-Scope klar anzeigen.
-4. Teilnehmerzeilen zeigen Anzeigename, Onlinezustand, Sprechzustand, Scope und
-   freigegebene Rolle.
-5. Lokale Lautstärke, Mute und Block pro Teilnehmer bereitstellen.
-6. Leere, ladende, getrennte, veraltete und nicht autorisierte Zustände
-   explizit gestalten.
 
 ### KDE-01 – Qt-6-/KDE-Clientschale
 

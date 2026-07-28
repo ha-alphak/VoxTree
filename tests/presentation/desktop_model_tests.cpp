@@ -38,6 +38,23 @@ using namespace hvc::presentation;
              {"speaker-1", "Remote Player", "team-1", {"leader"}}}};
 }
 
+[[nodiscard]] auto multiTeamDirectory() -> client::DirectoryView
+{
+    return {
+        9,
+        "group-1",
+        {{"team-3", client::DirectoryNodeKind::team, "specialization-2", "Zulu Team", 20},
+         {"specialization-2", client::DirectoryNodeKind::specialization, "group-1", "Bravo", 20},
+         {"group-1", client::DirectoryNodeKind::group, std::nullopt, "Group", 0},
+         {"team-1", client::DirectoryNodeKind::team, "specialization-1", "Local Team", 10},
+         {"specialization-1", client::DirectoryNodeKind::specialization, "group-1", "Alpha", 10},
+         {"team-2", client::DirectoryNodeKind::team, "specialization-2", "Alpha Team", 10}},
+        {{"leader", "Team leader"}, {"medic", "Medic"}},
+        {{"player-1", "Local Player", "team-1", {}},
+         {"player-3", "Zulu", "team-3", {"medic"}},
+         {"player-2", "Alpha", "team-2", {"leader"}}}};
+}
+
 auto testConnectionAndMembershipLifecycle() -> bool
 {
     DesktopModel model;
@@ -104,7 +121,8 @@ auto testSeparatedParticipantState() -> bool
         return false;
     }
     if (!model.setParticipantVolume("speaker-1", 0.4F) ||
-        !model.setParticipantMuted("speaker-1", true))
+        !model.setParticipantMuted("speaker-1", true) ||
+        !model.setParticipantBlocked("speaker-1", true))
     {
         return false;
     }
@@ -112,7 +130,60 @@ auto testSeparatedParticipantState() -> bool
                                  domain::VoiceScope::specialization, "speaker-1", 1, 3});
     const auto& stopped = model.state().participants.at("speaker-1");
     return !stopped.speaking && !stopped.speaking_scope.has_value() && stopped.muted &&
-           std::abs(stopped.volume - 0.4F) < 0.001F;
+           stopped.blocked && std::abs(stopped.volume - 0.4F) < 0.001F;
+}
+
+auto testHierarchyDerivationAndSelection() -> bool
+{
+    DesktopModel model;
+    if (!model.beginConnect() || !model.connectionSucceeded(membership(1)) ||
+        !model.applyDirectory(multiTeamDirectory()))
+    {
+        return false;
+    }
+    const auto& loading = model.state();
+    if (loading.directory_phase != DirectoryPhase::loading || loading.channel_nodes.size() != 6 ||
+        loading.channel_nodes[0].channel.node_id != "group-1" ||
+        loading.channel_nodes[1].channel.node_id != "specialization-1" ||
+        loading.channel_nodes[2].channel.node_id != "team-1" ||
+        loading.channel_nodes[3].channel.node_id != "specialization-2" ||
+        loading.channel_nodes[4].channel.node_id != "team-2" ||
+        loading.channel_nodes[5].channel.node_id != "team-3" ||
+        loading.channel_nodes[0].participant_count != 3 ||
+        loading.channel_nodes[3].participant_count != 2 ||
+        !loading.channel_nodes[2].contains_local_player)
+    {
+        return false;
+    }
+
+    if (!model.selectChannel({domain::VoiceScope::specialization, "specialization-2"}) ||
+        model.state().selected_participant_ids != std::vector<std::string>{"player-2", "player-3"})
+    {
+        return false;
+    }
+    if (model.selectChannel({domain::VoiceScope::team, "specialization-2"}).error !=
+            ErrorCode::not_found ||
+        model.selectChannel({domain::VoiceScope::team, "unknown"}).error != ErrorCode::not_found)
+    {
+        return false;
+    }
+
+    const auto observed = std::chrono::system_clock::time_point{std::chrono::seconds{100}};
+    if (!model.applyPresence(
+            {1, client::DirectoryPresenceMode::snapshot, observed, {}, std::chrono::seconds{1}}) ||
+        model.state().directory_phase != DirectoryPhase::ready)
+    {
+        return false;
+    }
+    model.directoryRefreshFailed("transport_error");
+    if (model.state().directory_phase != DirectoryPhase::stale)
+    {
+        return false;
+    }
+    model.directoryRefreshFailed("forbidden");
+    return model.state().directory_phase == DirectoryPhase::unauthorized &&
+           !model.state().directory.has_value() && model.state().channel_nodes.empty() &&
+           model.state().participants.empty();
 }
 
 auto testDirectoryPresenceAndTransportAggregation() -> bool
@@ -271,7 +342,8 @@ auto main() noexcept -> int
     {
         const auto passed =
             testCommandKindConstructorDefaultsPayload() && testConnectionAndMembershipLifecycle() &&
-            testSeparatedParticipantState() && testDirectoryPresenceAndTransportAggregation() &&
+            testSeparatedParticipantState() && testHierarchyDerivationAndSelection() &&
+            testDirectoryPresenceAndTransportAggregation() &&
             testCommandValidationAndAdministration() && testSettingsValidation() &&
             testDiagnosticsAreSessionBounded();
         if (!passed)

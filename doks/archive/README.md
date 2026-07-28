@@ -15,6 +15,7 @@ historische Nachweise erhalten.
 | [api-01-directory-identity-administration-contract-2026-07-27.md](api-01-directory-identity-administration-contract-2026-07-27.md) | Abschluss und Abnahmebelege für die v1-Verträge zu Directory, Presence, Identity und Verwaltung |
 | [dir-01-server-directory-2026-07-27.md](dir-01-server-directory-2026-07-27.md) | Abschluss und Abnahmebelege für gruppenbegrenztes Serververzeichnis und Presence |
 | [dir-02-client-presence-2026-07-27.md](dir-02-client-presence-2026-07-27.md) | Abschluss und Abnahmebelege für Directory-/Presence-Verarbeitung und strukturierte Voice-Ereignisse im Client |
+| [ux-02-channel-and-participant-view-2026-07-28.md](ux-02-channel-and-participant-view-2026-07-28.md) | Abschluss und Abnahmebelege für den vollständigen Windows-Kanalbaum und die Teilnehmeransicht |
 
 Für laufende Arbeiten gelten ausschließlich
 [../status.md](../status.md) und

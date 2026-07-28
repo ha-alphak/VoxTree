@@ -50,6 +50,7 @@ class MainWindow final : public std::enable_shared_from_this<MainWindow>
     {
         std::optional<float> volume;
         std::optional<bool> muted;
+        std::optional<bool> blocked;
     };
 
     void buildLoginView();
@@ -58,7 +59,7 @@ class MainWindow final : public std::enable_shared_from_this<MainWindow>
     void buildSidebar();
     void buildChannelView();
     void buildVoiceDock();
-    void selectScope(domain::VoiceScope scope);
+    void selectChannel(presentation::ChannelSelection selection);
     [[nodiscard]] auto windowHandle() const -> HWND;
     void requestConnect();
     winrt::fire_and_forget connectAsync(std::string server_url, std::string credential);
@@ -70,14 +71,16 @@ class MainWindow final : public std::enable_shared_from_this<MainWindow>
     void settingsChanged(const presentation::SettingsState& settings);
     void render();
     void renderHierarchy();
+    void rebuildHierarchyTree();
     void renderStatus();
     void rebuildBindingSummary();
-    void rebuildSpeakers();
+    void rebuildParticipants();
     void updateScopeButtonStyles();
     void updatePttCardStyles();
     void applyTextScale();
     void queueParticipantVolume(const std::string& participant_id, float volume);
     void queueParticipantMuted(const std::string& participant_id, bool muted);
+    void queueParticipantBlocked(const std::string& participant_id, bool blocked);
     void startParticipantUpdateTimer();
     winrt::fire_and_forget applyParticipantUpdatesAsync();
     void showOperationFailure(const client::VoiceTransportResult& result);
@@ -100,17 +103,17 @@ class MainWindow final : public std::enable_shared_from_this<MainWindow>
     winrt::Microsoft::UI::Xaml::Controls::TextBlock identity_name_text_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::TextBlock identity_detail_text_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::StackPanel hierarchy_panel_{nullptr};
-    winrt::Microsoft::UI::Xaml::Controls::Button group_button_{nullptr};
-    winrt::Microsoft::UI::Xaml::Controls::Button specialization_button_{nullptr};
-    winrt::Microsoft::UI::Xaml::Controls::Button team_button_{nullptr};
-    winrt::Microsoft::UI::Xaml::Controls::TextBlock group_id_text_{nullptr};
-    winrt::Microsoft::UI::Xaml::Controls::TextBlock specialization_id_text_{nullptr};
-    winrt::Microsoft::UI::Xaml::Controls::TextBlock team_id_text_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::TextBlock hierarchy_status_text_{nullptr};
+    std::map<std::string, winrt::Microsoft::UI::Xaml::Controls::Button, std::less<>>
+        channel_buttons_;
     winrt::Microsoft::UI::Xaml::Controls::SymbolIcon channel_icon_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::TextBlock channel_breadcrumb_text_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::TextBlock channel_title_text_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::TextBlock channel_description_text_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::TextBlock channel_access_text_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::TextBlock participant_count_text_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border directory_status_banner_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::TextBlock directory_status_text_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::Border error_banner_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::TextBlock connection_text_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::TextBlock send_text_{nullptr};
@@ -132,6 +135,9 @@ class MainWindow final : public std::enable_shared_from_this<MainWindow>
     presentation::DesktopModel model_;
     std::map<std::string, PendingParticipantUpdate, std::less<>> pending_participant_updates_;
     std::string server_url_{"http://127.0.0.1:8080"};
+    std::optional<std::uint64_t> rendered_directory_version_;
+    presentation::DirectoryPhase rendered_directory_phase_{
+        presentation::DirectoryPhase::unavailable};
     std::uint64_t session_generation_{0};
     bool participant_updates_running_{false};
     bool closing_{false};

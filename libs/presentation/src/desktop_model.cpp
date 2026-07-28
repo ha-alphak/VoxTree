@@ -35,6 +35,20 @@ namespace
         return role == expected_role;
     });
 }
+
+[[nodiscard]] auto scopeFor(client::DirectoryNodeKind kind) noexcept -> domain::VoiceScope
+{
+    switch (kind)
+    {
+    case client::DirectoryNodeKind::group:
+        return domain::VoiceScope::group;
+    case client::DirectoryNodeKind::specialization:
+        return domain::VoiceScope::specialization;
+    case client::DirectoryNodeKind::team:
+        return domain::VoiceScope::team;
+    }
+    return domain::VoiceScope::team;
+}
 } // namespace
 
 ValidationResult::operator bool() const noexcept
@@ -68,7 +82,8 @@ auto DesktopModel::validate(const Command& command) const -> ValidationResult
         {
             return failure(ErrorCode::invalid_argument, "channel");
         }
-        return success();
+        return isKnownChannel(*command.channel) ? success()
+                                                : failure(ErrorCode::not_found, "channel");
     case CommandKind::open_settings:
     case CommandKind::open_diagnostics:
         return isSessionAvailable(state_.connection)
@@ -123,6 +138,7 @@ auto DesktopModel::beginConnect() -> ValidationResult
     {
         clearAuthenticatedState();
         state_.connection = ConnectionPhase::connecting;
+        state_.directory_phase = DirectoryPhase::loading;
         state_.diagnostics.voice_state = client::VoiceTransportState::connecting;
     }
     return result;
@@ -198,6 +214,10 @@ void DesktopModel::updateVoiceState(const client::VoiceConnectionEvent& event) n
         {
             state_.connection = ConnectionPhase::reconnecting;
         }
+        if (state_.directory.has_value())
+        {
+            state_.directory_phase = DirectoryPhase::stale;
+        }
         state_.active_transmission_scope.reset();
         break;
     case client::VoiceTransportState::connecting:
@@ -216,6 +236,10 @@ void DesktopModel::updateVoiceState(const client::VoiceConnectionEvent& event) n
         if (state_.connection != ConnectionPhase::signed_out)
         {
             state_.connection = ConnectionPhase::reconnecting;
+        }
+        if (state_.directory.has_value())
+        {
+            state_.directory_phase = DirectoryPhase::stale;
         }
         state_.active_transmission_scope.reset();
         break;
@@ -244,6 +268,7 @@ auto DesktopModel::selectChannel(ChannelSelection selection) -> ValidationResult
     if (result)
     {
         state_.selected_channel = std::move(selection);
+        refreshSelectedParticipants();
     }
     return result;
 }
@@ -282,14 +307,22 @@ auto DesktopModel::applyDirectory(client::DirectoryView directory) -> Validation
     }
     state_.participants = std::move(participants);
     state_.directory = std::move(directory);
+    state_.directory_phase = DirectoryPhase::loading;
     state_.presence_version.reset();
     state_.presence_observed_at.reset();
     server_presence_.clear();
+    rebuildChannelState();
+    if (!state_.selected_channel.has_value() || !isKnownChannel(*state_.selected_channel))
+    {
+        state_.selected_channel = ChannelSelection{domain::VoiceScope::team,
+                                                   std::string{state_.membership->team_id.value()}};
+    }
     for (auto& [participant_id, participant] : state_.participants)
     {
         static_cast<void>(participant_id);
         refreshParticipantDerivedState(participant);
     }
+    refreshSelectedParticipants();
     return success();
 }
 
@@ -322,12 +355,51 @@ auto DesktopModel::applyPresence(client::DirectoryPresenceView presence) -> Vali
     }
     state_.presence_version = presence.version;
     state_.presence_observed_at = presence.observed_at;
+    state_.directory_phase = DirectoryPhase::ready;
     for (auto& [participant_id, participant] : state_.participants)
     {
         static_cast<void>(participant_id);
         refreshParticipantDerivedState(participant);
     }
     return success();
+}
+
+void DesktopModel::directoryRefreshFailed(std::string_view error_code) noexcept
+{
+    if (error_code == "forbidden" || error_code == "directory_forbidden")
+    {
+        state_.directory.reset();
+        state_.channel_nodes.clear();
+        state_.selected_channel.reset();
+        state_.participants.clear();
+        state_.selected_participant_ids.clear();
+        state_.presence_version.reset();
+        state_.presence_observed_at.reset();
+        server_presence_.clear();
+        participant_voice_sequences_.clear();
+        state_.directory_phase = DirectoryPhase::unauthorized;
+        return;
+    }
+    if (error_code == "directory_unavailable")
+    {
+        state_.directory.reset();
+        state_.channel_nodes.clear();
+        state_.selected_channel.reset();
+        state_.participants.clear();
+        state_.selected_participant_ids.clear();
+        state_.presence_version.reset();
+        state_.presence_observed_at.reset();
+        server_presence_.clear();
+        participant_voice_sequences_.clear();
+        state_.directory_phase = DirectoryPhase::unavailable;
+        return;
+    }
+    if (!state_.directory.has_value())
+    {
+        state_.directory_phase = DirectoryPhase::unavailable;
+        return;
+    }
+    state_.directory_phase = DirectoryPhase::stale;
 }
 
 void DesktopModel::applyVoiceRemoteEvent(const client::VoiceRemoteEvent& event)
@@ -506,6 +578,20 @@ auto DesktopModel::setParticipantMuted(std::string_view participant_id, bool mut
     return result;
 }
 
+auto DesktopModel::setParticipantBlocked(std::string_view participant_id, bool blocked)
+    -> ValidationResult
+{
+    Command command{CommandKind::set_participant_blocked};
+    command.participant_id = participant_id;
+    command.enabled = blocked;
+    const auto result = validate(command);
+    if (result)
+    {
+        state_.participants.at(command.participant_id).blocked = blocked;
+    }
+    return result;
+}
+
 void DesktopModel::recordError(std::string error_code, std::string diagnostic)
 {
     state_.diagnostics.last_error_code = std::move(error_code);
@@ -557,6 +643,55 @@ auto DesktopModel::administrationFor(const client::MembershipView& membership)
     return {administrator || hasRole(membership, "moderator"), administrator, OperationPhase::idle};
 }
 
+auto DesktopModel::isKnownChannel(const ChannelSelection& selection) const noexcept -> bool
+{
+    if (state_.directory.has_value())
+    {
+        return std::ranges::any_of(state_.channel_nodes, [&selection](const auto& node) {
+            return node.channel == selection;
+        });
+    }
+    if (!state_.membership.has_value())
+    {
+        return false;
+    }
+    switch (selection.scope)
+    {
+    case domain::VoiceScope::group:
+        return selection.node_id == state_.membership->group_id.value();
+    case domain::VoiceScope::specialization:
+        return selection.node_id == state_.membership->specialization_id.value();
+    case domain::VoiceScope::team:
+        return selection.node_id == state_.membership->team_id.value();
+    }
+    return false;
+}
+
+auto DesktopModel::participantBelongsToChannel(const ParticipantState& participant,
+                                               const ChannelSelection& selection) const noexcept
+    -> bool
+{
+    if (!state_.directory.has_value())
+    {
+        return false;
+    }
+    if (selection.scope == domain::VoiceScope::group)
+    {
+        return selection.node_id == state_.directory->group_id;
+    }
+    if (selection.scope == domain::VoiceScope::team)
+    {
+        return participant.primary_team_id == selection.node_id;
+    }
+    const auto team =
+        std::ranges::find_if(state_.directory->nodes, [&participant](const auto& node) {
+            return node.kind == client::DirectoryNodeKind::team &&
+                   node.node_id == participant.primary_team_id;
+        });
+    return team != state_.directory->nodes.end() && team->parent_node_id.has_value() &&
+           *team->parent_node_id == selection.node_id;
+}
+
 void DesktopModel::applyMembership(client::MembershipView membership)
 {
     const auto group_changed = state_.membership.has_value() &&
@@ -564,9 +699,11 @@ void DesktopModel::applyMembership(client::MembershipView membership)
     if (group_changed)
     {
         state_.directory.reset();
+        state_.channel_nodes.clear();
         state_.presence_version.reset();
         state_.presence_observed_at.reset();
         state_.participants.clear();
+        state_.selected_participant_ids.clear();
         server_presence_.clear();
         participant_voice_sequences_.clear();
         clearRemoteTransportState();
@@ -575,6 +712,127 @@ void DesktopModel::applyMembership(client::MembershipView membership)
     state_.selected_channel =
         ChannelSelection{domain::VoiceScope::team, std::string{membership.team_id.value()}};
     state_.membership = std::move(membership);
+    if (state_.directory.has_value())
+    {
+        state_.directory_phase = DirectoryPhase::stale;
+        rebuildChannelState();
+        refreshSelectedParticipants();
+    }
+    else
+    {
+        state_.directory_phase = DirectoryPhase::loading;
+    }
+}
+
+void DesktopModel::rebuildChannelState()
+{
+    state_.channel_nodes.clear();
+    if (!state_.directory.has_value())
+    {
+        return;
+    }
+
+    const auto sorted_nodes = [this](client::DirectoryNodeKind kind,
+                                     const std::optional<std::string_view>& parent) {
+        std::vector<const client::DirectoryNodeView*> nodes;
+        for (const auto& node : state_.directory->nodes)
+        {
+            const auto parent_matches = !parent.has_value() ? !node.parent_node_id.has_value()
+                                                            : node.parent_node_id.has_value() &&
+                                                                  *node.parent_node_id == *parent;
+            if (node.kind == kind && parent_matches)
+            {
+                nodes.push_back(&node);
+            }
+        }
+        std::ranges::sort(nodes, [](const auto* left, const auto* right) {
+            if (left->sort_index != right->sort_index)
+            {
+                return left->sort_index < right->sort_index;
+            }
+            if (left->display_name != right->display_name)
+            {
+                return left->display_name < right->display_name;
+            }
+            return left->node_id < right->node_id;
+        });
+        return nodes;
+    };
+    const auto append_node = [this](const client::DirectoryNodeView& node, std::uint8_t depth) {
+        ChannelNodeState state;
+        state.channel = {scopeFor(node.kind), node.node_id};
+        state.parent_node_id = node.parent_node_id;
+        state.display_name = node.display_name;
+        state.depth = depth;
+        state.sort_index = node.sort_index;
+        if (state_.membership.has_value())
+        {
+            switch (state.channel.scope)
+            {
+            case domain::VoiceScope::group:
+                state.contains_local_player =
+                    state.channel.node_id == state_.membership->group_id.value();
+                break;
+            case domain::VoiceScope::specialization:
+                state.contains_local_player =
+                    state.channel.node_id == state_.membership->specialization_id.value();
+                break;
+            case domain::VoiceScope::team:
+                state.contains_local_player =
+                    state.channel.node_id == state_.membership->team_id.value();
+                break;
+            }
+        }
+        state.participant_count = static_cast<std::size_t>(
+            std::ranges::count_if(state_.participants, [this, &state](const auto& entry) {
+                return participantBelongsToChannel(entry.second, state.channel);
+            }));
+        state_.channel_nodes.push_back(std::move(state));
+    };
+
+    const auto groups = sorted_nodes(client::DirectoryNodeKind::group, std::nullopt);
+    for (const auto* group : groups)
+    {
+        append_node(*group, 0);
+        const auto specializations = sorted_nodes(client::DirectoryNodeKind::specialization,
+                                                  std::string_view{group->node_id});
+        for (const auto* specialization : specializations)
+        {
+            append_node(*specialization, 1);
+            const auto teams = sorted_nodes(client::DirectoryNodeKind::team,
+                                            std::string_view{specialization->node_id});
+            for (const auto* team : teams)
+            {
+                append_node(*team, 2);
+            }
+        }
+    }
+}
+
+void DesktopModel::refreshSelectedParticipants()
+{
+    state_.selected_participant_ids.clear();
+    if (!state_.selected_channel.has_value() || !state_.directory.has_value())
+    {
+        return;
+    }
+    for (const auto& [participant_id, participant] : state_.participants)
+    {
+        if (participantBelongsToChannel(participant, *state_.selected_channel))
+        {
+            state_.selected_participant_ids.push_back(participant_id);
+        }
+    }
+    std::ranges::sort(state_.selected_participant_ids,
+                      [this](const auto& left_id, const auto& right_id) {
+                          const auto& left = state_.participants.at(left_id);
+                          const auto& right = state_.participants.at(right_id);
+                          if (left.display_name != right.display_name)
+                          {
+                              return left.display_name < right.display_name;
+                          }
+                          return left_id < right_id;
+                      });
 }
 
 void DesktopModel::clearRemoteTransportState() noexcept
@@ -613,10 +871,13 @@ void DesktopModel::clearAuthenticatedState() noexcept
 {
     state_.membership.reset();
     state_.selected_channel.reset();
+    state_.directory_phase = DirectoryPhase::unavailable;
     state_.directory.reset();
+    state_.channel_nodes.clear();
     state_.presence_version.reset();
     state_.presence_observed_at.reset();
     state_.participants.clear();
+    state_.selected_participant_ids.clear();
     state_.active_transmission_scope.reset();
     state_.administration = {};
     state_.diagnostics = {};

@@ -155,6 +155,29 @@ if(WIN32)
   set_target_properties(hvc_client_win_raw_input_tests PROPERTIES CXX_EXTENSIONS OFF)
 
   add_test(NAME client.win_raw_input COMMAND hvc_client_win_raw_input_tests)
+
+  add_executable(
+    hvc_client_win_http_transport_tests
+    client/win_http_transport_tests.cpp
+  )
+
+  target_link_libraries(
+    hvc_client_win_http_transport_tests
+    PRIVATE
+      hvc::client_winhttp
+      hvc::project_options
+      ws2_32
+  )
+
+  set_target_properties(
+    hvc_client_win_http_transport_tests
+    PROPERTIES CXX_EXTENSIONS OFF
+  )
+
+  add_test(
+    NAME client.win_http_transport
+    COMMAND hvc_client_win_http_transport_tests
+  )
 endif()
 
 add_executable(hvc_application_tests application/control_plane_tests.cpp)
